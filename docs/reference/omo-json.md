@@ -197,6 +197,10 @@ default** because it rearranges the whole screen.
 Rows are clickable because the fullscreen renderer already captures the mouse and activates OSC 8
 hyperlinks; the panel paints its rows as links to a private scheme and claims the renderer's URL
 callback while it is mounted, handing every other URL straight back. Clicking a file opens its diff;
+A child the engine is holding rather than running - a host session whose daemon went away, or one
+caught by a draining host - is counted and drawn as `parked` rather than as running or done, and
+its card names the reason, because a dead daemon and a draining host ask different things of you.
+
 clicking a subagent opens its card followed by everything that child recorded, rendered by the task
 engine itself - the same text `task_output` would give you. `/side-panel-diff` reaches the file
 viewer by name.

@@ -1,0 +1,50 @@
+SESSION  $0.09 · 6
+Optimized system prompt applied: claude-opus-5                                                                                                      model   claude-opus-5
+                                                                                                                                                    elapsed 49s
+ Tip: The packages setting loads skills, extensions, prompts, and themes from an npm or git package.                                                tokens  in 2 · out 4
+ ↳ Want the full story on any tip? Ask about it — the give-me-tips skill has the tour.                                                              cache   43% hit
+
+[Skills]                                                                                                                                            CONTEXT  24.8K/1M
+  ast-grep, cli-anything-obsidian, cli-hub-meta-skill, coding-agent-sessions, computer-use, dag-library, data-scientist, debugging, frontend,       used    █░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 2%
+git-master, give-me-tips, hyperplan, init-deep, lsp-setup, mass-ulw, memory-discipline, onboarding, orca-cli, orca-emulator-android,
+orca-per-workspace-env, orchestration, programming, refactor, remove-ai-slops, review-work, ultimate-browsing, ultrawork, ulw-execute, ulw-loop,    USAGE  1m36 ago
+ulw-plan, ulw-research, vault-curator, visual-qa                                                                                                    claude
+                                                                                                                                                    5h      ███████┊████░░░░░░░░░░░░░░░░  43%  3h44
+[Extensions]                                                                                                                                        7d      █████████░░░░░░░░░░░┊░░░░░░░  32%  Wed 08:00
+  omo.js                                                                                                                                            Fable   ░░░░░░░░░░░░░░░░░░░░┊░░░░░░░   0%  Wed 08:00
+                                                                                                                                                    account work
+[Themes]                                                                                                                                            codex
+  catppuccin-mocha, dracula, github-dark, night-owl, one-dark-pro, tokyo-night                                                                      5h      ░░░░░░┊░░░░░░░░░░░░░░░░░░░░░   0%  3h49
+                                                                                                                                                    7d      ┊░░░░░░░░░░░░░░░░░░░░░░░░░░░   0%  Mon 08:24
+
+ Skill conflicts                                                                                                                                    AGENTS  1 running · 1 parked · 0 done
+ Conflicting or invalid loaded resources were found.                                                                                                ● read the extraction spec  27s
+   auto (user) ~/.agents/skills/orchestration/SKILL.md                                                                                              ‖ collect the batch results  27s
+     description exceeds 1024 characters (1038)
+                                                                                                                                                    FILES  3 changed
+                                                                                                                                                    A  README.md  +1/-0
+                                                                                                                                                    A  omo.json  +17/-0
+ Settings: settings.json (JSON)                                                                                                                     ?? .omo/
+
+ Warning: tmux is not fully configured. Add to ~/.tmux.conf and restart tmux:                                                                       /tmp/panel-goal-qa · main
+
+   set -g extended-keys on            # modified Enter keys (Shift+Enter, ...)
+   set -g extended-keys-format csi-u  # Pi works best with csi-u
+
+
+ reply with the single word ok
+
+
+ ok
+
+ TPS 155.2 tok/s. Cache hit 42.9%, 0.0s
+
+
+
+
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+/tmp/panel-goal-qa • main • CH42.9% • $0.094 • 25K/1M (2.5%) (auto)                                      (claude-sdk-oauth@work) claude-opus-5:xhigh
+(😺 OmO Native) mem:panel-goal-qa-27d61777 8m ago (+1)

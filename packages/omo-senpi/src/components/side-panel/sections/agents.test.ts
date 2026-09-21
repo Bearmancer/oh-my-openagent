@@ -141,3 +141,44 @@ describe("agent clicks and card", () => {
     expect(texts.some((text) => text.startsWith("turns"))).toBe(false)
   })
 })
+
+describe("suspended children in the heading", () => {
+  test("#given a parked child #when built #then the heading counts it apart from running and done", () => {
+    // given a parked child is neither working nor over, and counting it as either is a lie
+    const children = [
+      child({ id: "a" }),
+      child({ id: "b", status: "suspended" }),
+      child({ id: "c", status: "finished", finishedAt: 500 }),
+    ]
+
+    // when
+    const rows = buildAgentRows(children, 1_000, 60)
+
+    // then
+    expect(rows[0]?.text).toContain("1 running")
+    expect(rows[0]?.text).toContain("1 parked")
+    expect(rows[0]?.text).toContain("1 done")
+  })
+
+  test("#given a parked child #when its row is drawn #then it reads as something to notice", () => {
+    // given
+    const rows = buildAgentRows([child({ id: "b", status: "suspended" })], 1_000, 60)
+
+    // then
+    expect(rows[1]?.color).toBe("warning")
+  })
+})
+
+describe("why a child is parked", () => {
+  test("#given a parked child #when its card is opened #then the card says what is holding it", () => {
+    // given "suspended" on its own leaves the obvious question unanswered, and the engine already
+    // knows the answer: a dead daemon and a draining host need different things from the user
+    const parked = child({ status: "suspended", parkedReason: "daemon_unavailable" })
+
+    // when
+    const rows = buildAgentCardRows(parked, 1_000)
+
+    // then
+    expect(texts(rows).join("\n")).toContain("daemon_unavailable")
+  })
+})

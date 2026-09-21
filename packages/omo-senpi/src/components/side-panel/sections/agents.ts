@@ -8,6 +8,7 @@ import { field, heading } from "./layout"
 const GLYPH: Record<PanelChildStatus, string> = {
   queued: "◦",
   running: "●",
+  suspended: "‖",
   finished: "✓",
   failed: "✗",
   cancelled: "—",
@@ -16,6 +17,7 @@ const GLYPH: Record<PanelChildStatus, string> = {
 const COLOR: Record<PanelChildStatus, PanelRow["color"]> = {
   queued: "dim",
   running: "text",
+  suspended: "warning",
   finished: "muted",
   failed: "error",
   cancelled: "dim",
@@ -28,8 +30,13 @@ const COLOR: Record<PanelChildStatus, PanelRow["color"]> = {
 export function buildAgentRows(children: readonly PanelChild[], now: number, width: number): readonly PanelRow[] {
   if (width <= 0 || children.length === 0) return []
   const running = children.filter((child) => child.status === "running" || child.status === "queued").length
-  const done = children.length - running
-  const summary = running > 0 ? `${running} running · ${done} done` : `${done} done`
+  // Parked children are counted on their own: folding them into either side would say the engine is
+  // working on something it is holding, or that it finished something it did not.
+  const parked = children.filter((child) => child.status === "suspended").length
+  const done = children.length - running - parked
+  const summary = [running > 0 ? `${running} running` : undefined, parked > 0 ? `${parked} parked` : undefined, `${done} done`]
+    .filter((part): part is string => part !== undefined)
+    .join(" · ")
   const rows: PanelRow[] = [heading("AGENTS", summary)]
   for (const child of children) {
     const elapsed = duration((child.finishedAt ?? now) - child.startedAt)
@@ -54,6 +61,7 @@ export function buildAgentCardRows(child: PanelChild, now: number): readonly Pan
     field("status", `${GLYPH[child.status]} ${child.status}`, COLOR[child.status]),
     field("elapsed", duration((child.finishedAt ?? now) - child.startedAt)),
   ]
+  if (child.parkedReason !== undefined) rows.push(field("parked", child.parkedReason, "warning"))
   if (child.category !== undefined) rows.push(field("category", child.category))
   if (child.activity !== undefined) rows.push(field("doing", child.activity, "muted"))
   if (child.turns !== undefined) rows.push(field("turns", String(child.turns), "muted"))

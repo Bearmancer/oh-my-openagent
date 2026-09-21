@@ -6,6 +6,8 @@ export interface PanelChild {
   readonly name: string
   readonly category?: string
   readonly status: PanelChildStatus
+  /** Why the engine is holding this child, when it is holding one. */
+  readonly parkedReason?: string
   readonly startedAt: number
   readonly finishedAt?: number
   /** Last thing the child was seen doing; the row shows it while the child runs. */
@@ -15,7 +17,7 @@ export interface PanelChild {
   readonly cost?: number
 }
 
-export type PanelChildStatus = "queued" | "running" | "finished" | "failed" | "cancelled"
+export type PanelChildStatus = "queued" | "running" | "suspended" | "finished" | "failed" | "cancelled"
 
 /** A child update carries only what the source knows; absent fields keep their previous value. */
 export interface PanelChildUpdate {
@@ -23,6 +25,7 @@ export interface PanelChildUpdate {
   readonly name?: string
   readonly category?: string
   readonly status?: PanelChildStatus
+  readonly parkedReason?: string
   readonly startedAt?: number
   readonly finishedAt?: number
   readonly activity?: string
@@ -88,6 +91,7 @@ export function createPanelStore(now: () => number = Date.now): PanelStore {
         name: update.name ?? previous?.name ?? update.id,
         category: update.category ?? previous?.category,
         status: update.status ?? previous?.status ?? "queued",
+        ...(update.parkedReason === undefined ? {} : { parkedReason: update.parkedReason }),
         startedAt: update.startedAt ?? previous?.startedAt ?? now(),
         finishedAt: update.finishedAt ?? previous?.finishedAt,
         activity: update.activity ?? previous?.activity,

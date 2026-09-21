@@ -80,8 +80,9 @@ a path the host never published, the `mtime`/`size` gate that keeps an unchanged
 
 ## WHAT WAS OMITTED
 
-- `paused` was not driven live. It shares every line with `budgetLimited` except one entry in each
-  of the colour and label maps, and both are unit-tested.
+- `paused` was driven live afterwards, on the build that carries this branch merged onto current
+  dev: `capture-goal-paused-after-dev-merge-200x50.txt` shows `GOAL  paused · 1h00` with the loop
+  counters, which also re-proves the whole block against 716 commits of upstream drift.
 - No goal was created through the real `create_goal` tool: the tool writes the same file this seam
   reads, and driving it costs a model turn per state. The store is the seam under test.
 - The scratch session's agent took one exploratory turn of its own while the stand was open (it read

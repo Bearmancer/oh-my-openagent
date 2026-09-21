@@ -138,3 +138,31 @@ describe("panelChildrenFromRecords", () => {
     expect(children).toEqual([])
   })
 })
+
+describe("suspended children", () => {
+  // The engine parks a host-session child instead of killing it when its daemon goes away or the
+  // host drains (`senpi-task/src/lifecycle/host-session-record.ts`): the record keeps its status
+  // and gains a reason. Reading only the status paints a parked child as a running one, and the
+  // column's whole job for that row is to say what the child is doing.
+  test("#given a running record the engine parked #when mapped #then the panel calls it suspended", () => {
+    // given
+    const parked = record({ status: "running", suspension_reason: "daemon_unavailable" })
+
+    // when
+    const child = panelChildFromRecord(parked)
+
+    // then
+    expect(child.status).toBe("suspended")
+  })
+
+  test("#given a finished record that still carries a reason #when mapped #then it stays finished", () => {
+    // given a terminal record is not revivable, so a stale reason on it says nothing about now
+    const done = record({ status: "completed", suspension_reason: "host_draining" })
+
+    // when
+    const child = panelChildFromRecord(done)
+
+    // then
+    expect(child.status).toBe("finished")
+  })
+})

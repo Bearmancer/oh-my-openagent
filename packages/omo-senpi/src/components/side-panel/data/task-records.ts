@@ -18,6 +18,8 @@ export interface PanelTaskRecord {
   readonly name?: string
   readonly category?: string
   readonly agent_type?: string
+  /** Set while the engine is holding a child rather than running it; absent means it is not parked. */
+  readonly suspension_reason?: string
   readonly run_stats?: PanelTaskRunStats
 }
 
@@ -37,6 +39,16 @@ const STATUS: Record<string, PanelChildStatus> = {
   interrupted: "cancelled",
 }
 
+/**
+ * A parked child keeps the status it had, so reading `status` alone paints it as still working.
+ * Only a live child can be parked: a reason left on a terminal record describes a past life.
+ */
+function childStatus(record: PanelTaskRecord): PanelChildStatus {
+  const mapped = STATUS[record.status] ?? "queued"
+  if (record.suspension_reason === undefined) return mapped
+  return mapped === "running" || mapped === "queued" ? "suspended" : mapped
+}
+
 /** Map one persisted record onto a panel row update. */
 export function panelChildFromRecord(record: PanelTaskRecord): PanelChildUpdate {
   const stats = record.run_stats
@@ -44,7 +56,10 @@ export function panelChildFromRecord(record: PanelTaskRecord): PanelChildUpdate 
     id: record.task_id,
     name: label(record),
     ...(record.category === undefined ? {} : { category: record.category }),
-    status: STATUS[record.status] ?? "queued",
+    status: childStatus(record),
+    ...(childStatus(record) === "suspended" && record.suspension_reason !== undefined
+      ? { parkedReason: record.suspension_reason }
+      : {}),
     startedAt: timestamp(record.started_at) ?? timestamp(record.created_at) ?? 0,
     ...(timestamp(record.terminal_at) === undefined ? {} : { finishedAt: timestamp(record.terminal_at) }),
     ...(stats?.turns === undefined ? {} : { turns: stats.turns }),
