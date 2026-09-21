@@ -193,3 +193,25 @@ describe("why a child is parked", () => {
     expect(texts(rows).join("\n")).toContain("daemon_unavailable")
   })
 })
+
+describe("where a child runs", () => {
+  test("#given a daemon-hosted child #when the card is built #then it names the lane", () => {
+    // given a child in the shared daemon survives this process and fails in its own ways; the
+    // card is where that belongs, because the narrow row has no space for it
+    const texts = buildAgentCardRows(
+      { id: "st_9", name: "deep", status: "running", startedAt: 0, host: "daemon session" },
+      60_000,
+    ).map((row) => row.text)
+
+    // then
+    expect(texts.some((text) => text.startsWith("runs") && text.includes("daemon session"))).toBe(true)
+  })
+
+  test("#given a child whose lane was never recorded #when the card is built #then no lane row appears", () => {
+    // given records written before runner_kind shipped carry none
+    const texts = buildAgentCardRows({ id: "st_10", name: "x", status: "running", startedAt: 0 }, 60_000).map((r) => r.text)
+
+    // then
+    expect(texts.some((text) => text.startsWith("runs"))).toBe(false)
+  })
+})

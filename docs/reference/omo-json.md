@@ -197,9 +197,14 @@ default** because it rearranges the whole screen.
 Rows are clickable because the fullscreen renderer already captures the mouse and activates OSC 8
 hyperlinks; the panel paints its rows as links to a private scheme and claims the renderer's URL
 callback while it is mounted, handing every other URL straight back. Clicking a file opens its diff;
-A child the engine is holding rather than running - a host session whose daemon went away, or one
-caught by a draining host - is counted and drawn as `parked` rather than as running or done, and
-its card names the reason, because a dead daemon and a draining host ask different things of you.
+A child the engine is holding rather than running - a host session whose daemon went away, one
+caught by a draining host, or simply one the engine detached when its session ended - is counted
+and drawn as `parked` rather than as running or done, and its card names the reason, because a
+dead daemon and a draining host ask different things of you. The ordinary detach names no reason
+at all and shows up only as a residency that is no longer resident, so the column reads both: a
+child whose record still says `running` while nothing holds it would otherwise sit there with its
+timer climbing. The card also names the lane a child runs in - a session of the shared daemon, a
+child process, or the parent's own process - because those three fail in different ways.
 
 clicking a subagent opens its card followed by everything that child recorded, rendered by the task
 engine itself - the same text `task_output` would give you. `/side-panel-diff` reaches the file

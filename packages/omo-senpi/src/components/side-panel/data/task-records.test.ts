@@ -166,3 +166,80 @@ describe("suspended children", () => {
     expect(child.status).toBe("finished")
   })
 })
+
+describe("a child the engine is no longer holding in this process", () => {
+  // senpi-task persists `residency_state` next to `status`: "resident" is the only value that
+  // means the child is live here. rpc_detached / evicted / disposed / persisted_only all leave
+  // `status: "running"` untouched, so reading status alone paints a detached child as working -
+  // with an elapsed timer still climbing.
+  const running = {
+    task_id: "st_d1",
+    status: "running",
+    created_at: "2026-09-21T10:00:00.000Z",
+    started_at: "2026-09-21T10:00:05.000Z",
+    parent_session_id: "session-1",
+    name: "explore",
+  }
+
+  test("#given a running child detached from its daemon #when mapped #then it is parked, not running", () => {
+    // given the ordinary daemon suspension sets no suspension_reason at all
+    const update = panelChildFromRecord({ ...running, residency_state: "rpc_detached" })
+
+    // then
+    expect(update.status).toBe("suspended")
+    expect(update.parkedReason).toBe("rpc_detached")
+  })
+
+  test("#given a resident running child #when mapped #then nothing changes", () => {
+    // given the common case must not regress into a parked row
+    const update = panelChildFromRecord({ ...running, residency_state: "resident" })
+
+    // then
+    expect(update.status).toBe("running")
+    expect(update.parkedReason).toBeUndefined()
+  })
+
+  test("#given both a suspension reason and a non-resident residency #when mapped #then the reason wins", () => {
+    // given the reason is the specific fact; the residency state is only how it shows up
+    const update = panelChildFromRecord({
+      ...running,
+      residency_state: "rpc_detached",
+      suspension_reason: "daemon_unavailable",
+    })
+
+    // then
+    expect(update.parkedReason).toBe("daemon_unavailable")
+  })
+
+  test("#given a finished record whose residency was disposed #when mapped #then it stays finished", () => {
+    // given residency on a terminal record describes storage, not a life to worry about
+    const update = panelChildFromRecord({
+      ...running,
+      status: "completed",
+      terminal_at: "2026-09-21T10:30:00.000Z",
+      residency_state: "disposed",
+    })
+
+    // then
+    expect(update.status).toBe("finished")
+  })
+
+  test("#given a child the shared daemon runs #when mapped #then the update says where it runs", () => {
+    // given runner_kind is persisted precisely because the two lanes fail differently
+    expect(panelChildFromRecord({ ...running, runner_kind: "host-session" }).host).toBe("daemon session")
+  })
+
+  test("#given a child in the parent's own process #when mapped #then the update says so", () => {
+    // given
+    expect(panelChildFromRecord({ ...running, execution_mode: "in-process" }).host).toBe("in-process")
+  })
+
+  test("#given a record from before these fields shipped #when mapped #then nothing is invented", () => {
+    // given every one of them is optional on the durable record
+    const update = panelChildFromRecord(running)
+
+    // then
+    expect(update.status).toBe("running")
+    expect(update.host).toBeUndefined()
+  })
+})

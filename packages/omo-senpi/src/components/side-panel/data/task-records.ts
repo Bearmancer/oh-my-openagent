@@ -20,6 +20,11 @@ export interface PanelTaskRecord {
   readonly agent_type?: string
   /** Set while the engine is holding a child rather than running it; absent means it is not parked. */
   readonly suspension_reason?: string
+  /** "resident" is the only value that means the child is live in this process. */
+  readonly residency_state?: string
+  /** "host-session" is a session of the shared daemon; "child-process" is the rpc-process runner. */
+  readonly runner_kind?: string
+  readonly execution_mode?: string
   readonly run_stats?: PanelTaskRunStats
 }
 
@@ -42,11 +47,39 @@ const STATUS: Record<string, PanelChildStatus> = {
 /**
  * A parked child keeps the status it had, so reading `status` alone paints it as still working.
  * Only a live child can be parked: a reason left on a terminal record describes a past life.
+ *
+ * Two independent facts say "not running here". `suspension_reason` is set only when the daemon
+ * path gave up on a reachable host, while the ORDINARY suspension - the one that resumes with the
+ * session - sets no reason at all and shows up solely as a residency that is no longer
+ * `resident`. Reading the reason alone therefore still leaves a detached child painted as
+ * working, with its elapsed timer climbing, which is the thing this column exists to prevent.
  */
 function childStatus(record: PanelTaskRecord): PanelChildStatus {
   const mapped = STATUS[record.status] ?? "queued"
-  if (record.suspension_reason === undefined) return mapped
-  return mapped === "running" || mapped === "queued" ? "suspended" : mapped
+  if (mapped !== "running" && mapped !== "queued") return mapped
+  return record.suspension_reason !== undefined || isDetached(record) ? "suspended" : mapped
+}
+
+/** Every residency except `resident` means the child is not live in this process. */
+function isDetached(record: PanelTaskRecord): boolean {
+  return record.residency_state !== undefined && record.residency_state !== "resident"
+}
+
+/** The specific fact first; the residency state is only how an unexplained park shows up. */
+function parkedReason(record: PanelTaskRecord): string | undefined {
+  return record.suspension_reason ?? record.residency_state
+}
+
+/**
+ * Which lane runs the child. The two runner kinds fail in different ways - a daemon session
+ * outlives this process and can lose its daemon, a child process dies with its pipe - so the card
+ * names the lane rather than leaving both looking alike. The host's own words, mapped only where
+ * its internal spelling would read as jargon in a card.
+ */
+function childHost(record: PanelTaskRecord): string | undefined {
+  if (record.runner_kind === "host-session") return "daemon session"
+  if (record.runner_kind === "child-process") return "child process"
+  return record.execution_mode
 }
 
 /** Map one persisted record onto a panel row update. */
@@ -57,9 +90,10 @@ export function panelChildFromRecord(record: PanelTaskRecord): PanelChildUpdate 
     name: label(record),
     ...(record.category === undefined ? {} : { category: record.category }),
     status: childStatus(record),
-    ...(childStatus(record) === "suspended" && record.suspension_reason !== undefined
-      ? { parkedReason: record.suspension_reason }
+    ...(childStatus(record) === "suspended" && parkedReason(record) !== undefined
+      ? { parkedReason: parkedReason(record) }
       : {}),
+    ...(childHost(record) === undefined ? {} : { host: childHost(record) }),
     startedAt: timestamp(record.started_at) ?? timestamp(record.created_at) ?? 0,
     ...(timestamp(record.terminal_at) === undefined ? {} : { finishedAt: timestamp(record.terminal_at) }),
     ...(stats?.turns === undefined ? {} : { turns: stats.turns }),

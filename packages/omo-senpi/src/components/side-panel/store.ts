@@ -8,6 +8,8 @@ export interface PanelChild {
   readonly status: PanelChildStatus
   /** Why the engine is holding this child, when it is holding one. */
   readonly parkedReason?: string
+  /** Which lane runs this child: the shared daemon, a child process, or the parent's own process. */
+  readonly host?: string
   readonly startedAt: number
   readonly finishedAt?: number
   /** Last thing the child was seen doing; the row shows it while the child runs. */
@@ -26,6 +28,7 @@ export interface PanelChildUpdate {
   readonly category?: string
   readonly status?: PanelChildStatus
   readonly parkedReason?: string
+  readonly host?: string
   readonly startedAt?: number
   readonly finishedAt?: number
   readonly activity?: string
@@ -92,6 +95,7 @@ export function createPanelStore(now: () => number = Date.now): PanelStore {
         category: update.category ?? previous?.category,
         status: update.status ?? previous?.status ?? "queued",
         ...(update.parkedReason === undefined ? {} : { parkedReason: update.parkedReason }),
+        ...(update.host === undefined ? {} : { host: update.host }),
         startedAt: update.startedAt ?? previous?.startedAt ?? now(),
         finishedAt: update.finishedAt ?? previous?.finishedAt,
         activity: update.activity ?? previous?.activity,

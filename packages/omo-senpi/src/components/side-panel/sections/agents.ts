@@ -63,6 +63,7 @@ export function buildAgentCardRows(child: PanelChild, now: number): readonly Pan
   ]
   if (child.parkedReason !== undefined) rows.push(field("parked", child.parkedReason, "warning"))
   if (child.category !== undefined) rows.push(field("category", child.category))
+  if (child.host !== undefined) rows.push(field("runs", child.host, "muted"))
   if (child.activity !== undefined) rows.push(field("doing", child.activity, "muted"))
   if (child.turns !== undefined) rows.push(field("turns", String(child.turns), "muted"))
   if (child.tokens !== undefined) rows.push(field("tokens", compactTokens(child.tokens), "muted"))
