@@ -10,8 +10,10 @@ import {
   type SessionExitCause,
   type SessionExitClassification,
 } from "./exit-mapping"
-import type { HostSessionChildHandle, HostSessionHandleOptions } from "./handle-port"
-import type { HostSessionParked } from "./session-client"
+import type { HostSessionChildHandle, HostSessionHandleOptions, HostSessionIdentity, HostSessionPort } from "./handle-port"
+import { recoverLostTransport } from "./handle-reattach"
+import { isTransportLossError } from "./reattach"
+import type { HostSessionCommand, HostSessionParked } from "./session-client"
 
 /** How long `terminate()` waits for the host to acknowledge the abort before closing anyway. */
 const ABORT_GRACE_MS = 2_000
@@ -24,7 +26,11 @@ const ABORT_GRACE_MS = 2_000
  * `terminate()` is `abort` then `close_session`, both bounded.
  */
 export function createHostSessionHandle(options: HostSessionHandleOptions): HostSessionChildHandle {
-  const { client, session, taskId, heartbeatIntervalMs, now, closeGraceMs } = options
+  const { taskId, heartbeatIntervalMs, now, closeGraceMs, reattach } = options
+  // Both move on a reattach: a recovered transport is a new port, and a reopened session a new
+  // routing handle on a possibly new host generation. The session PATH is the child's identity.
+  let client: HostSessionPort = options.client
+  let session: HostSessionIdentity = options.session
   const idleWaiters: Array<() => void> = []
   const outcomeWaiters: Array<(settled: RunnerOutcome) => void> = []
   const exitWaiters: Array<(outcome: ChildExitOutcome) => void> = []
@@ -50,7 +56,7 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     for (const waiter of outcomeWaiters.splice(0)) waiter(settled)
   }
 
-  client.onEvent((event) => {
+  const onSessionEvent = (event: Parameters<ChildEventListener>[0]): void => {
     if (event.type === "message_end") {
       const terminal = extractTerminalAssistantMessage(event.message)
       if (terminal !== undefined) {
@@ -61,7 +67,7 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     if (event.type === "agent_end" && event.willRetry === false) {
       settleTurn(abortedByUser ? { status: "cancelled" } : agentEndOutcome(event, turnBaseline, finalText))
     }
-  })
+  }
 
   const heartbeat = setInterval(() => {
     if (outcome !== undefined || parked || detached) return
@@ -119,12 +125,73 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     settleClassified(classifySessionExit({ cause, intent }))
   }
 
-  client.onParked((event) => {
-    if (parked || detached || outcome !== undefined) return
-    park(event)
-  })
-  client.onClosed((event) => endSession({ kind: "session_closed", reason: event.reason }))
-  void client.transportGone.then(() => endSession({ kind: "transport_gone" }))
+  const alive = (): boolean => intent === "running" && !parked && !detached && outcome === undefined
+
+  // A command never fails on a transport the child can recover from: while a reattach is in
+  // flight it waits for the new port, and one that met the loss first lets recovery start and is
+  // retried once on the port recovery produced. A command still being delivered when the loss
+  // hits is NOT a turn the host lost - its retry is the delivery - so recovery's in-flight
+  // verdict ignores turns while a delivery is pending, whichever reaction runs first.
+  let reattaching: Promise<void> | undefined
+  let deliveries = 0
+  const issue = async (command: HostSessionCommand): Promise<void> => {
+    await reattaching
+    const live = client
+    deliveries += 1
+    try {
+      await live.send(command)
+    } catch (error) {
+      if (!isTransportLossError(error) || reattach === undefined || !alive()) throw error
+      await live.transportGone
+      await reattaching
+      if (!alive()) throw error
+      await client.send(command)
+    } finally {
+      deliveries -= 1
+    }
+  }
+
+  // A lost transport is recoverable while this child still owns a running session and the runner
+  // gave it a way back (omo#8563); anything a stale port reports afterwards is ignored.
+  const onTransportGone = (lost: HostSessionPort): void => {
+    if (client !== lost) return
+    if (reattach === undefined || !alive()) return endSession({ kind: "transport_gone" })
+    reattaching = recoverLostTransport(
+      {
+        taskId,
+        session: () => session,
+        alive,
+        turnInFlight: () => turnOutcome === undefined && !reachedIdle && deliveries === 0,
+        adopt: (next) => {
+          client = next.client
+          session = next.session
+          bindClient(client)
+        },
+        continueTurn: (prompt) => client.send({ type: "prompt", message: prompt, streamingBehavior: "steer" }),
+        // The adopted port is bound before this runs; a second loss during it is the next recovery.
+        giveUp: () => endSession({ kind: "transport_gone" }),
+      },
+      reattach,
+    ).finally(() => {
+      reattaching = undefined
+    })
+  }
+
+  const bindClient = (port: HostSessionPort): void => {
+    port.onEvent((event) => {
+      if (client === port) onSessionEvent(event)
+    })
+    port.onParked((event) => {
+      if (client !== port || parked || detached || outcome !== undefined) return
+      park(event)
+    })
+    port.onClosed((event) => {
+      if (client === port) endSession({ kind: "session_closed", reason: event.reason })
+    })
+    void port.transportGone.then(() => onTransportGone(port))
+  }
+
+  bindClient(client)
 
   const beginTurn = (): void => {
     if (outcome !== undefined) return
@@ -141,10 +208,10 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
   // as followUp instead of failing the child (`rpc/delivery-semantics.ts`).
   const deliverPrompt = async (text: string, streamingBehavior: RpcStreamingBehavior): Promise<void> => {
     try {
-      await client.send({ type: "prompt", message: text, streamingBehavior })
+      await issue({ type: "prompt", message: text, streamingBehavior })
     } catch (error) {
       if (streamingBehavior === "followUp" || !isBusyChildRejection(error)) throw error
-      await client.send({ type: "prompt", message: text, streamingBehavior: "followUp" })
+      await issue({ type: "prompt", message: text, streamingBehavior: "followUp" })
     }
   }
 
@@ -190,7 +257,9 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
   return {
     task_id: taskId,
     kind: "host-session",
-    hostSession: { socket: client.socketPath, ...session },
+    get hostSession() {
+      return { socket: client.socketPath, ...session }
+    },
     get sessionId() {
       return sessionId
     },
@@ -201,7 +270,7 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     steer: async (text) => {
       beginTurn()
       try {
-        await client.send({ type: "steer", message: text })
+        await issue({ type: "steer", message: text })
       } catch (error) {
         if (!isBusyChildRejection(error)) throw error
         await deliverPrompt(text, "followUp")
@@ -210,7 +279,7 @@ export function createHostSessionHandle(options: HostSessionHandleOptions): Host
     followUp: (text) => runPrompt(text, "followUp"),
     abort: () => {
       abortedByUser = true
-      return client.send({ type: "abort" })
+      return issue({ type: "abort" })
     },
     subscribe: (listener: ChildEventListener) => client.onEvent(listener),
     onParked: (listener) => {

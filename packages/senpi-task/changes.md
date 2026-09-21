@@ -1,3 +1,21 @@
+## Host-session children reattach after a lost transport and wait out host memory pressure
+
+`runners/rpc-host/handle.ts` takes an optional `reattach` port (`runners/rpc-host/reattach.ts`). A
+`transportGone` under a live child (intent running, not parked/detached/exited) no longer ends it:
+`runners/rpc-host/handle-reattach.ts` `recoverLostTransport` calls the port, adopts the new
+`HostSessionPort` + identity it returns, and re-prompts a continuation only when a turn was in
+flight AND the reopened session is not streaming (`get_state.isStreaming`) - a cut connection to a
+host that kept the session needs no prompt; a host that reopened the session from JSONL does.
+Commands issued during recovery wait on the reattach promise and retry once on the new port;
+`HostSessionLiveness` carries `isStreaming`; `hostSession` is a getter over the live identity.
+`runners/rpc-host.ts` supplies the port: `reattachDelaysMs` backoff (500 ms .. 8 s) over
+`ensureDaemon` -> `openAdmitted(sameSessionPath)`. `openAdmitted` waits out senpi#1905's
+`host_memory_pressure` refusal (`HostSessionOpenError.retryAfterMs`, bounded by `admissionWaitMs`,
+warned once) and never reaches the fallback runner. `session-wire.ts` `HostSessionOpenError`
+carries `retryAfterMs`. Fixture: `fake-host` gained `cutConnections()` and per-session
+`streaming` state. Pinned by `runners/rpc-host/handle-reattach.test.ts` and
+`runners/rpc-host-recovery.test.ts`. omo#8563.
+
 ## Detached host sessions cannot crash heartbeat or teardown
 
 The host-session heartbeat catches an in-place `HostSessionDetachedError` as well as a rejected

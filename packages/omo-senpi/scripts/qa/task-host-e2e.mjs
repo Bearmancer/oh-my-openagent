@@ -25,6 +25,8 @@ import { scenarioA, scenarioA1, scenarioB, scenarioI } from "./task-host-e2e-sce
 import { scenarioC, scenarioC2 } from "./task-host-e2e-team.mjs"
 import { scenarioF, scenarioG, scenarioH } from "./task-host-e2e-ops.mjs"
 import { scenarioD, scenarioE4, scenarioH2, scenarioHandoffSuite } from "./task-host-e2e-gated.mjs"
+import { scenarioJ } from "./task-host-e2e-reattach.mjs"
+import { scenarioK } from "./task-host-e2e-threads.mjs"
 import { baselineScenarios } from "./task-host-e2e-baseline.mjs"
 import { runSelfTest } from "./task-host-e2e-selftest.mjs"
 
@@ -45,6 +47,8 @@ const SCENARIOS = [
   ["H", scenarioH],
   ["H2", scenarioH2],
   ["I", scenarioI],
+  ["J", scenarioJ],
+  ["K", scenarioK],
 ]
 
 function parseArgs(argv) {

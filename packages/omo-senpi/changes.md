@@ -1,3 +1,12 @@
+## The default component logger writes every level to stderr
+
+`extension/compose.ts` `defaultLogger.info` used `console.info` (stdout). A child process's stdout
+is its deliverable - the reflection worker's report is read back from `child-stdout.log` and its
+first three non-empty lines become the "Memory updated" preview - so component info lines
+(`ulw-execute-continuation skipped`, `ulw-loop continuation skipped`) were shown as the report.
+`info` now writes through `console.error` like `warn` and `error`; the argument shape is unchanged
+(no trailing `undefined`). Pinned by `extension/compose.test.ts`. omo#8564.
+
 ## Memory identity comes from the session's workspace, and a reattach rebinds instead of failing closed
 
 `createMemoryComponent` resolved every session's identity from `process.cwd()`, read once at registration and reused for every bind. One shared host serves sessions from many workspaces, so a generation ensured by a process sitting in some other directory handed that directory's identity to every session it picked up: seven sessions reported `memory identity conflict: session is bound to <workspace>-<hash>, but config resolved server-<hash>` inside one second and lost their memory tools, with no workspace change behind it (#8556).

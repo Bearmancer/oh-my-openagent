@@ -1,3 +1,28 @@
+## 2026-09-21 - POSIX launchers replace themselves with the engine (#8560)
+
+### What changed
+
+The Node-to-Bun handoff, engine launch and provisioned executable handoff use
+`execve` on POSIX, with argv[0] included and the existing environment preserved.
+Windows, unavailable execve and thrown execve keep the async child fallback.
+Daemon attach remains spawn-based. The PTY probe now checks the launcher PID
+itself for engine identity before looking at descendants.
+
+### Why
+
+The previous spawn-and-wait paths kept redundant runtime processes alive for
+the whole session. Replacing the process preserves its PID and stdio without
+retaining that wrapper.
+
+### Why an extension could not handle it
+
+These handoffs run before the engine loads extensions.
+
+### Expected merge conflict zones
+
+`bin/lib/launcher.js`, `bin/lib/bun-runtime.js`, `compile-entry.ts`, their focused
+tests, the PTY QA script and the runtime-policy paragraph in `AGENTS.md`.
+
 ## omo daemon reaches the launcher, the compiled entry and doctor
 
 `omo daemon attach <launch args>` continues as a normal launch whose environment points the engine at

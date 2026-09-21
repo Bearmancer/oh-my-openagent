@@ -111,7 +111,16 @@ async function spawnSenpi(args, withExtension) {
   const finalArgs = withExtension
     ? ["--extension", join(packageRoot, "plugin"), ...args]
     : args
-  await spawnNode(senpi.cliPath, finalArgs, { env: senpiEnvironment(senpi.packageRoot) })
+  const env = senpiEnvironment(senpi.packageRoot)
+  if (process.platform !== "win32" && typeof process.execve === "function") {
+    try {
+      process.execve(process.execPath, [process.execPath, senpi.cliPath, ...finalArgs], env)
+      return
+    } catch {
+      // A failed replacement still uses the signal-aware child path below.
+    }
+  }
+  await spawnNode(senpi.cliPath, finalArgs, { env })
 }
 
 function isInteractiveDefault(args) {

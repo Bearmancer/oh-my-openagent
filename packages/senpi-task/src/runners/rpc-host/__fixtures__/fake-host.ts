@@ -55,6 +55,8 @@ export interface FakeHost {
   releasePath(sessionPath: string): void
   /** A newer generation takes the socket: sessions park, their paths drain, the instance rotates. */
   handoff(nextInstanceId?: string): void
+  /** Destroy every client connection while every session stays open on the host (a stall cut). */
+  cutConnections(): void
   crash(): void
   restart(): Promise<void>
   waitForCommand(type: string): Promise<FakeHostCommand>
@@ -180,6 +182,7 @@ export async function startFakeHost(options: FakeHostOptions = {}): Promise<Fake
     completeTurn: (routingId, text) => {
       const message = { role: "assistant", content: [{ type: "text", text }], stopReason: "stop" }
       table.appendTranscript(routingId, message)
+      table.setStreaming(routingId, false)
       sendTo(routingId, { type: "message_end", message })
       sendTo(routingId, { type: "agent_end", willRetry: false, messages: [message] })
     },
@@ -206,6 +209,7 @@ export async function startFakeHost(options: FakeHostOptions = {}): Promise<Fake
       }
       endConnections()
     },
+    cutConnections: () => dropConnections(),
     crash: () => {
       table.clear()
       dropConnections()
