@@ -268,3 +268,29 @@ is the actionable part of a parked reflection and cannot fit in a 40-column row.
 
 Memory off, identity unresolvable, or every path absent -> the reader answers `undefined` and the
 block is silent. No throw reaches a frame.
+
+## Delivered
+
+| # | Increment | Commit | Evidence |
+| --- | --- | --- | --- |
+| 1 | GOAL section | `a288ee779` + `c578ddcf3` | `20260921-side-panel-goal/` |
+| 5a | Parked children (suspension reason) | `a86fe49c8` + `1e75153ef` | `20260921-side-panel-parked-children/` |
+| 3+4+6 | MEMORY section (park, facts, recall) | `4560b9aeb` + `fa59824a8` | `20260921-side-panel-memory/` |
+| 2 | Kibitzer wake log | `63d47a0cc` | `20260921-side-panel-kibitzer-children/` |
+| 5b | Children the engine is not holding + runner lane | `4021aa970` | same |
+
+Two corrections the work forced on this plan, both from reading the host rather than trusting the
+recon:
+
+- **The kibitzer IS observable.** The first pass concluded "nothing persists it" from
+  `KibitzerSidecarState`. That is true of its liveness only: `kibitzer/observe.ts` writes
+  `recall/sidecars/<encoded-session>/wakes.ndjson`, one closed record per settled wake, carrying
+  the wake count, what it nudged, provider usage, and whether it ended as a diagnostic failure.
+  The section reads that tail instead of claiming awake/idle.
+- **`suspension_reason` was only half of "parked".** The ordinary daemon suspension writes no
+  reason and shows up solely as `residency_state` leaving `resident`, so increment 5's
+  reason-only check still painted a detached child as running.
+
+Not built, with the reason: **admission waiting**. Residency admission happens at start; before it
+a record is `pending`, which the column already draws as queued. Nothing persists "waiting for a
+slot", and deriving one from `pending` + `persisted_only` would be invention.
