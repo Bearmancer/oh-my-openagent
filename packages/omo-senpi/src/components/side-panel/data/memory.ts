@@ -1,4 +1,4 @@
-import { readdir, readFile } from "node:fs/promises"
+import { open, readdir, readFile } from "node:fs/promises"
 import { join } from "node:path"
 
 import {
@@ -8,8 +8,16 @@ import {
   type ReflectionParkState,
 } from "@oh-my-opencode/memory-core"
 
-import { asRecord, optional } from "../guards"
-import type { PanelMemory, PanelMemoryIdentity, PanelMemoryReflection, PanelMemorySource } from "../types"
+import { kibitzerWakesFile } from "../../memory/kibitzer/observe-paths"
+import { KIBITZER_WAKES_TAIL_BYTES } from "../constants"
+import { asArray, asRecord, finiteNumber, nonEmptyString, optional } from "../guards"
+import type {
+  PanelMemory,
+  PanelMemoryIdentity,
+  PanelMemoryKibitzer,
+  PanelMemoryReflection,
+  PanelMemorySource,
+} from "../types"
 
 /**
  * What the memory subsystem is holding for this session, as the column needs to draw it.
@@ -30,16 +38,18 @@ export function createPanelMemoryReader(
     // Memory can be switched off, and the identity can fail to resolve. Both mean a silent block
     // rather than an empty heading - and neither should cost a filesystem call.
     if (identity === undefined) return undefined
-    const [park, queued, recall] = await Promise.all([
+    const [park, queued, recall, kibitzer] = await Promise.all([
       source.park(identity.reflectionDir),
       source.list(identity.factsQueueDir),
       readRecall(source, identity, sessionId),
+      readKibitzer(source, identity, sessionId),
     ])
     return {
       identity: identity.id,
       factsQueued: queued.filter(isQueuedBatch).length,
       ...recall,
       ...optional("reflection", reflectionFrom(park)),
+      ...optional("kibitzer", kibitzer),
     }
   }
 }
@@ -108,6 +118,61 @@ function countPending(value: unknown, sessionId: string): number {
   return Array.isArray(nudges) ? nudges.length : 0
 }
 
+/**
+ * The kibitzer's sidecar log: `recall/sidecars/<encoded-session>/wakes.ndjson`, one closed record
+ * per settled wake. This is the only durable trace the sidecar leaves - its own state machine
+ * lives in its process - so the column reports what it did, never whether it is awake right now.
+ *
+ * Lines are parsed fail-closed one by one, the way the host parses its own nudge file: the writer
+ * appends while this reads, so meeting a half-written last line is ordinary, not a corruption.
+ */
+async function readKibitzer(
+  source: PanelMemorySource,
+  identity: PanelMemoryIdentity,
+  sessionId: string | undefined,
+): Promise<PanelMemoryKibitzer | undefined> {
+  if (sessionId === undefined) return undefined
+  const tail = await source.readTail(kibitzerWakesFile(identity.recallDir, sessionId), KIBITZER_WAKES_TAIL_BYTES)
+  if (tail === undefined) return undefined
+  let wakes = 0
+  let nudged = 0
+  let tokens = 0
+  let last: Record<PropertyKey, unknown> | undefined
+  for (const line of tail.text.split("\n")) {
+    if (line.trim() === "") continue
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(line)
+    } catch {
+      continue
+    }
+    const record = asRecord(parsed)
+    if (record === undefined) continue
+    wakes += 1
+    nudged += asArray(record["nudged"]).length
+    tokens += usageTokens(record["usage"])
+    last = record
+  }
+  if (wakes === 0) return undefined
+  return {
+    wakes,
+    nudged,
+    tokens,
+    partial: tail.truncated,
+    lastFailed: last?.["diagnostic"] === true,
+    ...optional("lastWakeAt", nonEmptyString(last?.["at"])),
+    ...optional("lastStatus", nonEmptyString(last?.["status"])),
+  }
+}
+
+function usageTokens(value: unknown): number {
+  const usage = asRecord(value)
+  if (usage === undefined) return 0
+  let total = 0
+  for (const key of ["input", "output", "cacheRead", "cacheWrite"]) total += finiteNumber(usage[key]) ?? 0
+  return total
+}
+
 const nodeMemorySource: PanelMemorySource = {
   async park(reflectionDir) {
     try {
@@ -130,6 +195,24 @@ const nodeMemorySource: PanelMemorySource = {
       return JSON.parse(await readFile(path, "utf8"))
     } catch {
       return undefined
+    }
+  },
+  async readTail(path, maxBytes) {
+    let handle: Awaited<ReturnType<typeof open>> | undefined
+    try {
+      handle = await open(path, "r")
+      const info = await handle.stat()
+      const truncated = info.size > maxBytes
+      const length = truncated ? maxBytes : info.size
+      const buffer = Buffer.alloc(length)
+      await handle.read(buffer, 0, length, info.size - length)
+      const text = buffer.toString("utf8")
+      // A tail begins mid-record; the partial head is dropped here so no parser ever meets it.
+      return { text: truncated ? text.slice(text.indexOf("\n") + 1) : text, truncated }
+    } catch {
+      return undefined
+    } finally {
+      await handle?.close()
     }
   },
 }

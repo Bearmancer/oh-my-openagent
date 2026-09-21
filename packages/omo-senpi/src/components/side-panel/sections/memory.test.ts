@@ -150,6 +150,7 @@ describe("buildMemoryDetailRows", () => {
         factsQueued: 3,
         recallSurfaced: 12,
       }),
+      NOW,
     )
     const joined = texts(rows).join("\n")
 
@@ -166,6 +167,7 @@ describe("buildMemoryDetailRows", () => {
     const detail = "a".repeat(400)
     const rows = buildMemoryDetailRows(
       memory({ reflection: { streak: 3, parkedAt: "2026-09-21T09:00:00.000Z", detail } }),
+      NOW,
     )
 
     // then
@@ -175,6 +177,68 @@ describe("buildMemoryDetailRows", () => {
 
   test("#given healthy memory #when the frame is opened #then it still names the identity", () => {
     // given the frame is reachable while nothing is wrong
-    expect(texts(buildMemoryDetailRows(memory())).join("\n")).toContain("notwork-09334074")
+    expect(texts(buildMemoryDetailRows(memory(), NOW)).join("\n")).toContain("notwork-09334074")
+  })
+})
+
+describe("the kibitzer row", () => {
+  test("#given settled wakes #when built #then the column says how many and how long ago", () => {
+    // given the sidecar is invisible otherwise: it runs in another process on its own schedule
+    const rows = buildMemoryRows(
+      memory({ kibitzer: { wakes: 4, lastWakeAt: "2026-09-21T11:48:00.000Z", lastFailed: false, nudged: 3, tokens: 20_400, partial: false } }),
+      NOW,
+      44,
+    )
+    const kibitz = row(rows, "kibitz")
+
+    // then
+    expect(kibitz?.text).toContain("4 wakes")
+    expect(kibitz?.text).toContain("12m")
+    expect(kibitz?.color).toBe("muted")
+  })
+
+  test("#given the last wake failed #when built #then the row warns and stays clickable", () => {
+    // given a kibitzer failing every wake is a memory that quietly stopped being updated
+    const rows = buildMemoryRows(
+      memory({ kibitzer: { wakes: 3, lastWakeAt: "2026-09-21T11:48:00.000Z", lastFailed: true, lastStatus: "failed", nudged: 0, tokens: 900, partial: false } }),
+      NOW,
+      44,
+    )
+
+    // then
+    expect(row(rows, "kibitz")?.color).toBe("warning")
+    expect(row(rows, "kibitz")?.action).toEqual({ kind: "memory" })
+  })
+
+  test("#given only the tail of the log was read #when built #then the count is marked as a floor", () => {
+    // given claiming an exact total from a truncated read would be a lie
+    const rows = buildMemoryRows(
+      memory({ kibitzer: { wakes: 40, lastWakeAt: "2026-09-21T11:48:00.000Z", lastFailed: false, nudged: 0, tokens: 0, partial: true } }),
+      NOW,
+      44,
+    )
+
+    // then
+    expect(row(rows, "kibitz")?.text).toContain("40+ wakes")
+  })
+
+  test("#given a kibitzer that never woke #when built #then no row is invented", () => {
+    // given
+    expect(row(buildMemoryRows(memory(), NOW, 44), "kibitz")).toBeUndefined()
+  })
+
+  test("#given wakes #when the frame is opened #then it carries what the row had no room for", () => {
+    // given nudged paths and token spend are the numbers worth reading slowly
+    const text = buildMemoryDetailRows(
+      memory({ kibitzer: { wakes: 4, lastWakeAt: "2026-09-21T11:48:00.000Z", lastFailed: false, nudged: 3, tokens: 20_400, partial: false } }),
+      NOW,
+    )
+      .map((entry) => entry.text)
+      .join("\n")
+
+    // then
+    expect(text).toContain("4")
+    expect(text).toContain("3 nudged")
+    expect(text).toContain("20.4K")
   })
 })

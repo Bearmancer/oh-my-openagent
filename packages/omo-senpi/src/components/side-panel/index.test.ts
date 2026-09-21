@@ -714,6 +714,7 @@ describe("side panel memory wiring", () => {
   const identity: PanelMemoryIdentity = {
     id: "notwork-09334074",
     reflectionDir: "/mem/runtime/reflection",
+    recallDir: "/mem/runtime/recall",
     factsQueueDir: "/mem/runtime/facts-queue",
     recallLedgerDir: "/mem/runtime/recall/ledger",
     recallPendingDir: "/mem/runtime/recall/pending",

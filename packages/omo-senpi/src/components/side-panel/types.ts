@@ -155,6 +155,8 @@ export interface PanelGoalSource {
 export interface PanelMemoryIdentity {
   readonly id: string
   readonly reflectionDir: string
+  /** Parent of the recall tree; the kibitzer's per-session sidecar directory hangs off it. */
+  readonly recallDir: string
   readonly factsQueueDir: string
   readonly recallLedgerDir: string
   readonly recallPendingDir: string
@@ -171,6 +173,24 @@ export interface PanelMemoryReflection {
   readonly detail?: string
 }
 
+/**
+ * The resident kibitzer, as its own durable trace describes it. Liveness is not here: the sidecar
+ * keeps its state in its process, so the only honest facts are the settled wakes it has written.
+ */
+export interface PanelMemoryKibitzer {
+  readonly wakes: number
+  readonly lastWakeAt?: string
+  readonly lastStatus?: string
+  /** The last settled wake counted toward the host's diagnostic-failure streak. */
+  readonly lastFailed: boolean
+  /** Nudge paths the parent re-validated and handed to delivery, summed over the log read. */
+  readonly nudged: number
+  /** Provider tokens the wakes reported, input + output + both cache sides. */
+  readonly tokens: number
+  /** The log was longer than the panel reads, so every count above is a floor. */
+  readonly partial: boolean
+}
+
 /** What the memory subsystem is holding for this session. */
 export interface PanelMemory {
   readonly identity: string
@@ -181,6 +201,8 @@ export interface PanelMemory {
   readonly recallSurfaced: number
   /** Nudges the kibitzer left for the next prompt of this session. */
   readonly recallPending: number
+  /** Absent until the kibitzer has settled at least one wake for this session. */
+  readonly kibitzer?: PanelMemoryKibitzer
 }
 
 /**
@@ -192,6 +214,8 @@ export interface PanelMemorySource {
   park(reflectionDir: string): Promise<ReflectionParkState | undefined>
   list(dir: string): Promise<readonly string[]>
   readJson(path: string): Promise<unknown>
+  /** The last `maxBytes` of a file, with the partial first line already dropped when it was cut. */
+  readTail(path: string, maxBytes: number): Promise<{ readonly text: string; readonly truncated: boolean } | undefined>
 }
 
 /** Semantic colour names; the body resolves them against the host theme. */

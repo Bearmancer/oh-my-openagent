@@ -74,6 +74,13 @@ export const MEMORY_REFRESH_FLOOR_MS = 5_000
 export const MEMORY_DETAIL_COLUMNS = 48
 
 /**
+ * How much of a sidecar's `wakes.ndjson` the panel reads. One settled wake line is bounded at
+ * 4 KB, so this always covers dozens of wakes and in practice many more; a longer log is read from
+ * its end, and the counts drawn from it are then reported as a floor rather than a total.
+ */
+export const KIBITZER_WAKES_TAIL_BYTES = 256 * 1024
+
+/**
  * Subscription usage. Both vendors expose it as a plain HTTP endpoint and neither pushes
  * updates, so it is polled - and because the quota belongs to an account rather than to a
  * session, every session polling on its own would multiply requests against that same quota.

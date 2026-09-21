@@ -241,7 +241,7 @@ export function createSidePanelComponent(options: SidePanelComponentOptions = {}
         }
         if (action.kind === "memory") {
           if (memory === undefined) return
-          await openPanelViewer(ui, "memory", buildMemoryDetailRows(memory))
+          await openPanelViewer(ui, "memory", buildMemoryDetailRows(memory, now()))
           return
         }
         if (action.kind === "goal") {
@@ -444,6 +444,7 @@ function defaultResolveMemory(cwd: string): PanelMemoryIdentity | undefined {
     return {
       id: identity.id,
       reflectionDir: identity.paths.reflection,
+      recallDir: identity.paths.recall,
       factsQueueDir: identity.paths.factsQueue,
       recallLedgerDir: identity.paths.recallLedger,
       recallPendingDir: identity.paths.recallPending,

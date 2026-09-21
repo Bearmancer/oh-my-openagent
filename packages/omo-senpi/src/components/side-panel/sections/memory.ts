@@ -1,7 +1,7 @@
 import { MEMORY_DETAIL_COLUMNS } from "../constants"
 import { truncateVisible, wrapVisible } from "../format/truncate"
-import { duration } from "../format/units"
-import type { PanelMemory, PanelMemoryReflection, PanelRow } from "../types"
+import { compactTokens, duration } from "../format/units"
+import type { PanelMemory, PanelMemoryKibitzer, PanelMemoryReflection, PanelRow } from "../types"
 import { field, heading, LABEL_WIDTH } from "./layout"
 
 /** Length of the heading prefix `MEMORY` plus its two-space gutter. */
@@ -19,6 +19,8 @@ export function buildMemoryRows(memory: PanelMemory | undefined, now: number, wi
   const rows: PanelRow[] = [heading("MEMORY", truncateVisible(memory.identity, Math.max(0, width - HEADING_PREFIX)))]
   const reflection = reflectionRow(memory.reflection, now)
   if (reflection !== undefined) rows.push(reflection)
+  const kibitzer = kibitzerRow(memory.kibitzer, now)
+  if (kibitzer !== undefined) rows.push(kibitzer)
   if (memory.factsQueued > 0) rows.push(field("facts", `${memory.factsQueued} queued`, "muted"))
   const recall = recallValue(memory)
   if (recall !== undefined) rows.push(field("recall", recall, "muted"))
@@ -38,6 +40,27 @@ function reflectionRow(reflection: PanelMemoryReflection | undefined, now: numbe
     return { ...field("reflect", `${reflection.streak} failed`, "muted"), action }
   }
   return { ...field("reflect", `parked · ${probe(reflection.nextProbeAt, now)}`, "warning"), action }
+}
+
+/**
+ * The kibitzer runs in another process on its own schedule, so without this row its work is
+ * invisible: memory quietly updates, or quietly stops. A wake that ended as a diagnostic failure
+ * is the tell - three of them in a row are what raise the host's own gate notice.
+ */
+function kibitzerRow(kibitzer: PanelMemoryKibitzer | undefined, now: number): PanelRow | undefined {
+  if (kibitzer === undefined) return undefined
+  // A truncated read cannot claim a total, so the count is drawn as the floor it is.
+  const count = `${kibitzer.wakes}${kibitzer.partial ? "+" : ""} wakes`
+  const when = age(kibitzer.lastWakeAt, now)
+  const value = kibitzer.lastFailed ? `${count} · failed ${when}` : `${count} · ${when}`
+  return { ...field("kibitz", value, kibitzer.lastFailed ? "warning" : "muted"), action: { kind: "memory" } }
+}
+
+function age(at: string | undefined, now: number): string {
+  if (at === undefined) return "never"
+  const elapsed = now - Date.parse(at)
+  if (!Number.isFinite(elapsed) || elapsed < 0) return "just now"
+  return `${duration(elapsed)} ago`
 }
 
 /** A window that has already passed reads as due; a countdown into the negative reads as working. */
@@ -61,13 +84,23 @@ function recallValue(memory: PanelMemory): string | undefined {
  * can only hint at. Timestamps stay in the host's own ISO form here - this is the view somebody
  * reads while deciding whether to run `/reflect`, not a glance.
  */
-export function buildMemoryDetailRows(memory: PanelMemory): readonly PanelRow[] {
+export function buildMemoryDetailRows(memory: PanelMemory, now: number): readonly PanelRow[] {
   const rows: PanelRow[] = [detail("id", memory.identity)]
   const reflection = memory.reflection
   if (reflection !== undefined) {
     rows.push(detail("streak", `${reflection.streak} failed`))
     if (reflection.parkedAt !== undefined) rows.push(detail("parked", reflection.parkedAt))
     if (reflection.nextProbeAt !== undefined) rows.push(detail("probe", reflection.nextProbeAt))
+  }
+  const kibitzer = memory.kibitzer
+  if (kibitzer !== undefined) {
+    const parts = [
+      `${kibitzer.wakes}${kibitzer.partial ? "+" : ""} wakes`,
+      `${kibitzer.nudged} nudged`,
+      compactTokens(kibitzer.tokens),
+    ]
+    rows.push(detail("kibitz", parts.join(" · ")))
+    if (kibitzer.lastStatus !== undefined) rows.push(detail("last", `${kibitzer.lastStatus} ${age(kibitzer.lastWakeAt, now)}`))
   }
   rows.push(detail("facts", `${memory.factsQueued} queued`))
   rows.push(detail("recall", recallValue(memory) ?? "nothing held"))

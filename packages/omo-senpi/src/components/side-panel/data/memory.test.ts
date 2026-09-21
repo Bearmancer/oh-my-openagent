@@ -6,6 +6,7 @@ import { createPanelMemoryReader } from "./memory"
 const identity: PanelMemoryIdentity = {
   id: "notwork-09334074",
   reflectionDir: "/mem/agents/notwork-09334074/runtime/reflection",
+  recallDir: "/mem/agents/notwork-09334074/runtime/recall",
   factsQueueDir: "/mem/agents/notwork-09334074/runtime/facts-queue",
   recallLedgerDir: "/mem/agents/notwork-09334074/runtime/recall/ledger",
   recallPendingDir: "/mem/agents/notwork-09334074/runtime/recall/pending",
@@ -20,6 +21,7 @@ interface FakeOptions {
   readonly park?: Awaited<ReturnType<PanelMemorySource["park"]>>
   readonly dirs?: Readonly<Record<string, readonly string[]>>
   readonly files?: Readonly<Record<string, unknown>>
+  readonly tails?: Readonly<Record<string, { readonly text: string; readonly truncated: boolean }>>
 }
 
 /** Counts every path touched, so "this read never happens" can be proven rather than assumed. */
@@ -38,10 +40,15 @@ function fakeSource(options: FakeOptions = {}) {
       touched.push(path)
       return options.files?.[path]
     },
+    async readTail(path) {
+      touched.push(path)
+      return options.tails?.[path]
+    },
   }
   return { port, touched }
 }
 
+const wakesFile = `${identity.recallDir}/sidecars/${Buffer.from(SESSION, "utf8").toString("base64url")}/wakes.ndjson`
 const ledgerFile = `${identity.recallLedgerDir}/${SESSION}.json`
 const pendingFile = `${identity.recallPendingDir}/${SESSION}.json`
 
@@ -226,5 +233,101 @@ describe("createPanelMemoryReader", () => {
     // then
     expect(memory).toBeUndefined()
     expect(source.touched).toEqual([])
+  })
+})
+
+describe("the kibitzer's own wake log", () => {
+  const wake = (overrides: Record<string, unknown> = {}): string =>
+    JSON.stringify({
+      version: 1,
+      at: "2026-09-21T11:00:00.000Z",
+      sessionId: SESSION,
+      wake: 1,
+      generation: 1,
+      status: "completed",
+      candidateCount: 4,
+      nudged: ["notes/open-threads.md"],
+      steered: 0,
+      toolCalls: 3,
+      durationMs: 4_200,
+      slotWaitMs: 12,
+      usage: { input: 8_000, output: 400, cacheRead: 1_200, cacheWrite: 600 },
+      diagnostic: false,
+      ...overrides,
+    })
+
+  test("#given settled wakes #when read #then the count, the last wake and what it spent come through", async () => {
+    // given wakes.ndjson is the kibitzer's only durable trace: one closed record per settled wake
+    const source = fakeSource({
+      tails: {
+        [wakesFile]: {
+          text: [wake(), wake({ wake: 2, at: "2026-09-21T11:40:00.000Z", nudged: ["a.md", "b.md"] })].join("\n") + "\n",
+          truncated: false,
+        },
+      },
+    })
+
+    // when
+    const kibitzer = (await createPanelMemoryReader(source.port)(identity, SESSION))?.kibitzer
+
+    // then
+    expect(kibitzer?.wakes).toBe(2)
+    expect(kibitzer?.lastWakeAt).toBe("2026-09-21T11:40:00.000Z")
+    expect(kibitzer?.nudged).toBe(3)
+    expect(kibitzer?.tokens).toBe(20_400)
+    expect(kibitzer?.lastFailed).toBe(false)
+    expect(kibitzer?.partial).toBe(false)
+  })
+
+  test("#given the last wake was a diagnostic failure #when read #then it is flagged", async () => {
+    // given three consecutive diagnostic failures are what raise the host's own gate notice
+    const source = fakeSource({
+      tails: { [wakesFile]: { text: wake({ status: "failed", diagnostic: true, reason: "model refused" }) + "\n", truncated: false } },
+    })
+
+    // when
+    const kibitzer = (await createPanelMemoryReader(source.port)(identity, SESSION))?.kibitzer
+
+    // then
+    expect(kibitzer?.lastFailed).toBe(true)
+    expect(kibitzer?.lastStatus).toBe("failed")
+  })
+
+  test("#given a torn line in the middle #when read #then the whole lines still count", async () => {
+    // given the writer appends; a reader can always catch a half-written last line, and the host's
+    // own nudge reader is fail-closed per line for exactly this reason
+    const source = fakeSource({
+      tails: { [wakesFile]: { text: [wake(), '{"version":1,"at":"2026', wake({ wake: 3 })].join("\n"), truncated: false } },
+    })
+
+    // when / then
+    expect((await createPanelMemoryReader(source.port)(identity, SESSION))?.kibitzer?.wakes).toBe(2)
+  })
+
+  test("#given a log too large to read whole #when read #then the counts say so instead of lying", async () => {
+    // given only the tail is read, so the numbers are a floor, not a total
+    const source = fakeSource({ tails: { [wakesFile]: { text: wake() + "\n", truncated: true } } })
+
+    // when / then
+    expect((await createPanelMemoryReader(source.port)(identity, SESSION))?.kibitzer?.partial).toBe(true)
+  })
+
+  test("#given no sidecar log #when read #then no kibitzer block is reported", async () => {
+    // given a session the kibitzer never woke for is the ordinary case
+    const source = fakeSource()
+
+    // when / then
+    expect((await createPanelMemoryReader(source.port)(identity, SESSION))?.kibitzer).toBeUndefined()
+  })
+
+  test("#given no session id #when read #then the sidecar log is not even looked for", async () => {
+    // given the sidecar directory is named after the parent session
+    const source = fakeSource()
+
+    // when
+    await createPanelMemoryReader(source.port)(identity, undefined)
+
+    // then
+    expect(source.touched.some((path) => path.includes("sidecars"))).toBe(false)
   })
 })

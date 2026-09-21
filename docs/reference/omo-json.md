@@ -225,7 +225,12 @@ and the wrong one is invisible otherwise - and then reports only what is wrong o
 when automatic reflection is **parked**: repeated failures trip a circuit breaker that stops
 reflection until a half-open probe, so the row says when that probe is due, and clicking it opens
 the whole failure - reason, fingerprint and the host's own detail - which is what tells you whether
-to run `/reflect` or fix a sandbox. Below that it counts the facts batches queued but not yet
+to run `/reflect` or fix a sandbox. It also carries the resident kibitzer, the sidecar that decides what memory to surface: how many
+wakes it has settled for this session, how long ago the last one was, and a warning when that last
+wake failed - a kibitzer failing every wake is memory that quietly stopped being updated. Whether
+it is awake *right now* is deliberately not shown: that state lives in the sidecar process and is
+never written down, so the column reports what it did rather than guessing at what it is doing.
+Below that it counts the facts batches queued but not yet
 applied, and what recall is holding for this session: nudges waiting for the next prompt, and
 memory paths already surfaced in it. Healthy memory with an empty backlog is a single line. The
 block is read on a five-second floor rather than a watcher, because a park takes three failed
