@@ -220,6 +220,18 @@ for one cut line of it. The block follows the panel's ordinary refresh instead o
 because a goal publishes no event an extension can listen for; an unchanged store costs one `stat`
 and no parse at all.
 
+The `memory` section names the memory identity this session writes to - one machine carries many,
+and the wrong one is invisible otherwise - and then reports only what is wrong or waiting. It warns
+when automatic reflection is **parked**: repeated failures trip a circuit breaker that stops
+reflection until a half-open probe, so the row says when that probe is due, and clicking it opens
+the whole failure - reason, fingerprint and the host's own detail - which is what tells you whether
+to run `/reflect` or fix a sandbox. Below that it counts the facts batches queued but not yet
+applied, and what recall is holding for this session: nudges waiting for the next prompt, and
+memory paths already surfaced in it. Healthy memory with an empty backlog is a single line. The
+block is read on a five-second floor rather than a watcher, because a park takes three failed
+reflection runs and the queue drains per reflection - nothing here can change between two tool
+calls of one turn.
+
 The `usage` section is the only part of omo that reaches the network on its own: it reads the
 subscription windows your plan publishes (`api.anthropic.com/api/oauth/usage` for a Claude
 subscription, `chatgpt.com/backend-api/wham/usage` for Codex) with the same account the session

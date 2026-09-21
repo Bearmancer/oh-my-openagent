@@ -206,3 +206,65 @@ empty promise - keeps one switch, one heading, and one refresh.
 not know; the record now carries `runner_kind` (`child-process` | `host-session`),
 `suspension_reason` (`daemon_unavailable` | `host_draining`) and an optional `workpool`
 block, and the category vocabulary gained `deep-low` / `deep-high`.
+
+## Increment 3+4+6 - one MEMORY section (decision-complete)
+
+Three planned increments collapse into one because the recon said so:
+
+- **Kibitzer (3) has no durable status.** `KibitzerSidecarState` (`idle | turn_running | reseeding |
+  backoff | disposed`) lives inside the sidecar process, and `/memory doctor` - the existing status
+  surface - does not check the kibitzer at all. What IS on disk is the recall pair: the per-session
+  ledger of paths already surfaced (`runtime/recall/ledger/<session>.json`) and the pending nudge
+  handoff (`runtime/recall/pending/<session>.json`). So the honest row is "what recall is holding
+  for this session", not "awake/idle, cost, last wake".
+- **Parked reflection (4) and `sections.memory` (6) are the same block.** The switch has been in the
+  schema since the first PR ("Memory identity and reflection backlog") and never drew a row.
+  `readReflectionParkFile` is documented as a "lock-free read for status surfaces" - this is that
+  surface.
+
+### What the block draws
+
+```
+MEMORY  notwork-09334074
+reflect parked · probe in 3h00      <- warning, clickable
+facts   3 queued
+recall  12 surfaced
+```
+
+Heading always (the identity binding is the one fact worth stating); every other row appears only
+when it has something to say. Healthy memory is one line.
+
+### Sources, and why each is read this way
+
+| Row | Source | Read |
+| --- | --- | --- |
+| identity | `resolveMemoryIdentity(memory.agent, cwd, env)` | once on mount; pure + two `exists` probes |
+| reflect | `readReflectionParkFile(paths.reflection)` | upstream's own lock-free reader, on refresh behind a floor |
+| facts | entries in `paths.factsQueue` | `readdir`, minus `consumed.json` / `failures.json` / `cursor/` |
+| recall | `paths.recallLedger/<session>.json`, `paths.recallPending/<session>.json` | plain JSON read; NEVER `take()`, which deletes |
+
+The park reader is async, so the block is refreshed from the async `refresh` path the way children
+and git already are, and cached in a variable the pure row builder reads. A floor
+(`MEMORY_REFRESH_FLOOR_MS`) keeps a burst of tool calls from turning into a `readdir` per call:
+the facts backlog and a park transition move on the order of minutes, not keystrokes.
+
+`reflectionParkNextProbeAt` is NOT imported: it lives in `components/memory/worker/park-alert.ts`,
+which pulls senpi's entry-renderer graph and the reflection completion runtime into whatever
+imports it. The panel recomputes the same one-liner from memory-core's exported
+`REFLECTION_PARK_PROBE_INTERVAL_MS`, with a comment naming the host function it mirrors.
+
+The pending file is read, never consumed: `PendingNudges.take()` deletes the file, and a status
+column that eats the session's nudges would be a bug that looks like a rendering choice. The
+embedded `sessionId` is still verified, exactly as `take()` verifies it, because
+`sanitizeSessionFilename` maps distinct session ids onto one filename.
+
+### Click
+
+`{ kind: "memory" }` opens the frame: identity id, park detail (since / streak / reason /
+fingerprint / the 512-char detail the row cannot hold), facts backlog, recall counts. That detail
+is the actionable part of a parked reflection and cannot fit in a 40-column row.
+
+### Feature detection
+
+Memory off, identity unresolvable, or every path absent -> the reader answers `undefined` and the
+block is silent. No throw reaches a frame.

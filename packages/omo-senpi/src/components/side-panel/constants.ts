@@ -60,6 +60,20 @@ export const FILE_VISIBLE_ROWS = 8
 export const GIT_REFRESH_FLOOR_MS = 2_000
 
 /**
+ * Floor between memory reads. The block costs a park read plus one `readdir` of the facts queue,
+ * and both move on the order of minutes - a park transition needs three failed reflection runs,
+ * and the queue drains per reflection - so a burst of tool calls must not turn into a directory
+ * listing per call.
+ */
+export const MEMORY_REFRESH_FLOOR_MS = 5_000
+
+/**
+ * Columns the memory failure detail is wrapped to for its viewer, for the same reason the goal
+ * objective has one: the framed viewer is never narrower than 52 columns.
+ */
+export const MEMORY_DETAIL_COLUMNS = 48
+
+/**
  * Subscription usage. Both vendors expose it as a plain HTTP endpoint and neither pushes
  * updates, so it is polled - and because the quota belongs to an account rather than to a
  * session, every session polling on its own would multiply requests against that same quota.

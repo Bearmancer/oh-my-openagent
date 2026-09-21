@@ -1,0 +1,50 @@
+SESSION
+Optimized system prompt applied: claude-opus-5                                                                                                      model   claude-opus-5
+                                                                                                                                                    elapsed 49s
+ Tip: Use /reload to re-read keybindings, extensions, skills, prompts, themes, and context files without restarting.
+ ↳ Want the full story on any tip? Ask about it — the give-me-tips skill has the tour.                                                              CONTEXT  0/1M
+                                                                                                                                                    used    ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░ 0%
+[Skills]
+  ast-grep, cli-anything-obsidian, cli-hub-meta-skill, coding-agent-sessions, computer-use, dag-library, data-scientist, debugging, frontend,       USAGE  1m17 ago
+git-master, give-me-tips, hyperplan, init-deep, lsp-setup, mass-ulw, onboarding, orca-cli, orca-emulator-android, orca-per-workspace-env,           claude
+orchestration, programming, refactor, remove-ai-slops, review-work, ultimate-browsing, ultrawork, ulw-execute, ulw-loop, ulw-plan, ulw-research,    5h      ████████████┊███▌░░░░░░░░░░░  59%  2h49
+vault-curator, visual-qa                                                                                                                            7d      █████████▌░░░░░░░░░░┊░░░░░░░  34%  Wed 08:00
+                                                                                                                                                    Fable   ░░░░░░░░░░░░░░░░░░░░┊░░░░░░░   0%  Wed 08:00
+[Extensions]                                                                                                                                        account work
+  omo.js                                                                                                                                            codex
+                                                                                                                                                    5h      ▎░░░░░░░░░░┊░░░░░░░░░░░░░░░░   1%  2h54
+[Themes]                                                                                                                                            7d      ┊░░░░░░░░░░░░░░░░░░░░░░░░░░░   0%  Mon 08:24
+  catppuccin-mocha, dracula, g┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+                              │ memory                                                                                                                                   │a-9669387b
+                              │ id      panel-memory-qa-9669387b                                                                                                         │ in 3h58
+ Skill conflicts              │ streak  3 failed                                                                                                                         │
+ Conflicting or invalid loaded│ parked  2026-09-21T05:29:05.604Z                                                                                                         │
+   auto (user) ~/.agents/skill│ probe   2026-09-21T11:29:05.604Z                                                                                                         │
+     description exceeds 1024 │ facts   3 queued                                                                                                                         │
+                              │ recall  nothing held                                                                                                                     │
+                              │                                                                                                                                          │
+                              │ reflection sandbox refused to start                                                                                                      │
+                              │                                                                                                                                          │
+ ⏸ Automatic memory reflection│ bwrap: Creating new namespace failed: Operation                                                                                          │
+ The sandbox helper (bwrap) ca│ not permitted. The kernel denies unprivileged                                                                                            │
+ unprivileged user namespaces │ user namespaces on this host, so every automatic                                                                                         │
+                              │ reflection run dies before the model is reached.                                                                                         │
+                              │                                                                                                                                esc close │
+ Reloaded keybindings, extensi└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+
+
+ ⏸ Automatic memory reflection paused · 3 failures in a row
+ The sandbox helper (bwrap) cannot create a user namespace on this host; set memory.reflection.sandbox to "off" in your omo config, or allow
+ unprivileged user namespaces on the host. Run /reflect to retry now; the next automatic probe is at 2026-09-21T11:29:05.604Z.
+
+
+ Warning: Automatic memory reflection paused after 3 failures · bwrap: Creating new namespace failed: Operation not permitted. The kernel denies
+ unprivileged user namespaces on this host, so every automatic reflection run dies before the model is reached. · the sandbox helper (bwrap) cannot
+ create a user namespace on this host; set memory.reflection.sandbox to "off" in your omo config, or allow unprivileged user namespaces on the host
+ · next automatic probe 2026-09-21T11:29:05.604Z; run /reflect to retry now
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+❯
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+/tmp/panel-memory-qa • 0/1M (0.0%) (auto)                                                                (claude-sdk-oauth@work) claude-opus-5:xhigh
+(😺 OmO Native)

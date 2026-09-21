@@ -11,13 +11,14 @@ import { homedir } from "node:os"
 
 import {
   GIT_REFRESH_FLOOR_MS,
+  MEMORY_REFRESH_FLOOR_MS,
   PI_TUI_LAYOUT_NODE,
   PI_TUI_VIEWPORT,
   SIDE_PANEL_ANCHOR_WIDGET_KEY,
   SIDE_PANEL_FLAG,
 } from "./constants"
 import { createSidePanelComponent } from "./index"
-import type { PanelTimers } from "./types"
+import type { PanelMemory, PanelMemoryIdentity, PanelTimers } from "./types"
 
 interface WidgetCall {
   readonly key: string
@@ -706,5 +707,139 @@ describe("side panel goal wiring", () => {
     expect(foreign).toEqual([])
     const delivered = harness.notices.join("\n").replace(/\n/g, " ")
     expect(delivered).toContain(OBJECTIVE)
+  })
+})
+
+describe("side panel memory wiring", () => {
+  const identity: PanelMemoryIdentity = {
+    id: "notwork-09334074",
+    reflectionDir: "/mem/runtime/reflection",
+    factsQueueDir: "/mem/runtime/facts-queue",
+    recallLedgerDir: "/mem/runtime/recall/ledger",
+    recallPendingDir: "/mem/runtime/recall/pending",
+  }
+  const DETAIL = "bwrap: Creating new namespace failed: Operation not permitted"
+  const parked: PanelMemory = {
+    identity: identity.id,
+    reflection: {
+      streak: 3,
+      parkedAt: "2026-09-21T09:00:00.000Z",
+      nextProbeAt: "2026-09-21T15:00:00.000Z",
+      reason: "reflection sandbox refused to start",
+      detail: DETAIL,
+    },
+    factsQueued: 3,
+    recallSurfaced: 12,
+    recallPending: 0,
+  }
+
+  test("#given the memory section is off #when mounted #then the identity is never resolved", async () => {
+    // given resolving an identity probes the filesystem; a section nobody asked for must not
+    const resolved: string[] = []
+    const harness = mounted({
+      loadSettings: () => settings({ enabled: true, sections: { ...allSections(), usage: false, memory: false } }),
+      resolveMemory: (cwd) => {
+        resolved.push(cwd)
+        return identity
+      },
+      readMemory: () => Promise.resolve(parked),
+    })
+
+    // when
+    await harness.pi.dispatch("session_start", {}, harness.host)
+    harness.attach()
+
+    // then
+    expect(resolved).toEqual([])
+    expect(columnRows(harness.tui).some((row) => row.startsWith("MEMORY"))).toBe(false)
+  })
+
+  test("#given a resolved identity #when mounted #then the memory block is on screen", async () => {
+    // given
+    const harness = mounted({ resolveMemory: () => identity, readMemory: () => Promise.resolve(parked) })
+
+    // when
+    await harness.pi.dispatch("session_start", {}, harness.host)
+    harness.attach()
+
+    // then
+    const rows = columnRows(harness.tui)
+    expect(rows.some((row) => row.startsWith("MEMORY  notwork-09334074"))).toBe(true)
+    expect(rows.some((row) => row.startsWith("reflect") && row.includes("parked"))).toBe(true)
+    expect(rows.some((row) => row.startsWith("facts") && row.includes("3 queued"))).toBe(true)
+  })
+
+  test("#given an identity that will not resolve #when mounted #then nothing is read and nothing is drawn", async () => {
+    // given memory can be switched off in omo.json, and the resolver can simply fail
+    let reads = 0
+    const harness = mounted({
+      resolveMemory: () => undefined,
+      readMemory: () => {
+        reads += 1
+        return Promise.resolve(parked)
+      },
+    })
+
+    // when
+    await harness.pi.dispatch("session_start", {}, harness.host)
+    harness.attach()
+
+    // then
+    expect(reads).toBe(0)
+    expect(columnRows(harness.tui).some((row) => row.startsWith("MEMORY"))).toBe(false)
+  })
+
+  test("#given a burst of turns #when they land inside the floor #then memory is read once", async () => {
+    // given the block costs a park read plus a readdir, and a turn boundary is not a park transition
+    let reads = 0
+    const harness = mounted({
+      resolveMemory: () => identity,
+      readMemory: () => {
+        reads += 1
+        return Promise.resolve(parked)
+      },
+    })
+    await harness.pi.dispatch("session_start", {}, harness.host)
+    harness.attach()
+    const afterMount = reads
+
+    // when
+    await harness.pi.dispatch("turn_end", {}, harness.host)
+    await harness.pi.dispatch("turn_end", {}, harness.host)
+
+    // then
+    expect(afterMount).toBe(1)
+    expect(reads).toBe(afterMount)
+
+    // and when the floor has passed
+    harness.advance(MEMORY_REFRESH_FLOOR_MS + 1)
+    await harness.pi.dispatch("turn_end", {}, harness.host)
+
+    // then
+    expect(reads).toBe(afterMount + 1)
+  })
+
+  test("#given the memory row is clicked #when the host activates it #then the park detail opens", async () => {
+    // given the row can only say "parked"; the failure that parked it is what the click is for
+    const harness = mounted({
+      resolveMemory: () => identity,
+      readMemory: () => Promise.resolve(parked),
+      loadSettings: () => settings({ enabled: true, clickable: true }),
+    })
+    const foreign: string[] = []
+    harness.tui.openUrl = (url) => foreign.push(url)
+    await harness.pi.dispatch("session_start", {}, harness.host)
+    harness.attach()
+
+    // when
+    harness.tui.openUrl?.("omo-panel:memory/current")
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // then
+    expect(foreign).toEqual([])
+    const delivered = harness.notices.join("\n").replace(/\n/g, " ")
+    expect(delivered).toContain(DETAIL)
+    expect(delivered).toContain("notwork-09334074")
   })
 })

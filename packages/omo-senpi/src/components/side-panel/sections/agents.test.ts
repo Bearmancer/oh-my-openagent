@@ -132,6 +132,17 @@ describe("agent clicks and card", () => {
     expect(texts.some((text) => text.includes("st_1"))).toBe(true)
   })
 
+  test("#given a category this panel never heard of #when the card is built #then it passes through verbatim", () => {
+    // given omo split `deep` into `deep-low` / `deep-high` after this panel shipped. The column
+    // keeps `category` as an opaque string exactly so a vocabulary change upstream is not a code
+    // change here; this pins that, because the tempting "fix" is a lookup table that would have to
+    // be edited for every new category and would blank the row for the ones it missed.
+    const texts = buildAgentCardRows({ ...child, category: "deep-high" }, 60_000).map((row) => row.text)
+
+    // then
+    expect(texts.some((text) => text.startsWith("category") && text.includes("deep-high"))).toBe(true)
+  })
+
   test("#given a child that knows little #when the card is built #then absent fields are omitted", () => {
     // when
     const texts = buildAgentCardRows({ id: "st_2", name: "x", status: "queued", startedAt: 0 }, 1_000).map((r) => r.text)

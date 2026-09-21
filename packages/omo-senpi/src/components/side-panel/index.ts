@@ -1,5 +1,6 @@
 import { homedir } from "node:os"
 
+import { resolveMemoryIdentity } from "@oh-my-opencode/memory-core"
 import { resolveOmoSidePanelSettings, type OmoSidePanelSettings } from "@oh-my-opencode/omo-config-core"
 
 import type { ComponentContext, OmoSenpiComponent, SenpiExtensionAPI } from "../../extension/types"
@@ -9,6 +10,7 @@ import {
   GIT_REFRESH_FLOOR_MS,
   GOAL_OBJECTIVE_COLUMNS,
   LIVE_REFRESH_MS,
+  MEMORY_REFRESH_FLOOR_MS,
   SIDE_PANEL_FLAG,
   TOOL_VISIBLE_ROWS,
 } from "./constants"
@@ -18,6 +20,7 @@ import { asRecord } from "./guards"
 import { panelFactsFrom, type PanelHostFacts } from "./data/facts"
 import { childOutputRows } from "./data/child-output"
 import { createPanelGoalReader } from "./data/goal"
+import { createPanelMemoryReader } from "./data/memory"
 import { panelChildrenFromRecords, type PanelTaskRecord } from "./data/task-records"
 import { readGitStatus, type PanelExec } from "./git/read"
 import { wrapVisible } from "./format/truncate"
@@ -26,10 +29,20 @@ import { createPanelHostSurface } from "./host-surface"
 import type { PanelAction } from "./links"
 import { openPanelViewer } from "./popups/open"
 import { buildAgentCardRows } from "./sections/agents"
+import { buildMemoryDetailRows } from "./sections/memory"
 import type { PanelGitStatus } from "./sections/files"
 import { buildPanelRows } from "./rows"
 import { createPanelStore } from "./store"
-import type { PanelGoal, PanelHostSurface, PanelRow, PanelTimerHandle, PanelTimers, PanelUi } from "./types"
+import type {
+  PanelGoal,
+  PanelHostSurface,
+  PanelMemory,
+  PanelMemoryIdentity,
+  PanelRow,
+  PanelTimerHandle,
+  PanelTimers,
+  PanelUi,
+} from "./types"
 import { createCredentialReader } from "./usage/credentials"
 import { createUsageFetch, type UsageFetch } from "./usage/http"
 import { createUsagePoller, type UsageCredentialSource, type UsagePoller } from "./usage/poller"
@@ -48,6 +61,13 @@ export interface SidePanelComponentOptions {
   readonly readTaskRecords?: (cwd: string) => readonly PanelTaskRecord[] | Promise<readonly PanelTaskRecord[]>
   /** The session's goal, read from the host's store path; injected so tests never read a disk. */
   readonly readGoal?: (path: string | undefined) => PanelGoal | undefined
+  /** Which memory identity this session writes to; injected so tests never probe a memory root. */
+  readonly resolveMemory?: (cwd: string) => PanelMemoryIdentity | undefined
+  /** What memory is holding for this session; injected so tests never read a disk. */
+  readonly readMemory?: (
+    identity: PanelMemoryIdentity | undefined,
+    sessionId: string | undefined,
+  ) => Promise<PanelMemory | undefined>
   /** A clicked child shows its own work; injected so tests never read a state dir. */
   readonly readChildOutput?: (cwd: string, taskId: string) => Promise<readonly PanelRow[]>
   /** Injectable so the git reads are exercised without spawning anything. */
@@ -95,6 +115,8 @@ export function createSidePanelComponent(options: SidePanelComponentOptions = {}
       const readTaskRecords = options.readTaskRecords ?? createRecordReader()
       const readChildOutput = options.readChildOutput ?? createChildOutputReader()
       const readGoal = options.readGoal ?? createPanelGoalReader()
+      const resolveMemory = options.resolveMemory ?? defaultResolveMemory
+      const readMemory = options.readMemory ?? createPanelMemoryReader()
       const locateGit = options.findGitRoot ?? findGitRoot
       const branchOf = options.readGitBranch ?? readGitBranch
       // Bound to the host so the method keeps its own receiver, the way the memory palace
@@ -117,6 +139,9 @@ export function createSidePanelComponent(options: SidePanelComponentOptions = {}
       let usage: UsagePoller | undefined
       let hostUi: PanelUi | undefined
       let goal: PanelGoal | undefined
+      let memory: PanelMemory | undefined
+      let memoryIdentity: PanelMemoryIdentity | undefined
+      let memoryReadAt = 0
       let facts: PanelHostFacts = {}
       let startedAt: number | undefined
       let liveTimer: PanelTimerHandle | undefined
@@ -159,6 +184,22 @@ export function createSidePanelComponent(options: SidePanelComponentOptions = {}
         surface?.requestRender()
       }
 
+      /**
+       * Memory sits on a floor for the same reason git does: the block costs the park read plus a
+       * directory listing of the facts queue, and neither a park transition (three failed
+       * reflection runs) nor the backlog can move between two tool calls of one turn.
+       */
+      const refreshMemory = async (force: boolean): Promise<void> => {
+        if (memoryIdentity === undefined) return
+        const at = now()
+        if (!force && at - memoryReadAt < MEMORY_REFRESH_FLOOR_MS) return
+        memoryReadAt = at
+        const next = await readMemory(memoryIdentity, facts.sessionId)
+        if (next === undefined) return
+        memory = next
+        surface?.requestRender()
+      }
+
       const refreshChildren = async (): Promise<void> => {
         const sessionId = facts.sessionId
         if (sessionId === undefined) return
@@ -198,6 +239,11 @@ export function createSidePanelComponent(options: SidePanelComponentOptions = {}
           await openFileDiff(ui, exec, status, file)
           return
         }
+        if (action.kind === "memory") {
+          if (memory === undefined) return
+          await openPanelViewer(ui, "memory", buildMemoryDetailRows(memory))
+          return
+        }
         if (action.kind === "goal") {
           if (goal === undefined) return
           await openPanelViewer(
@@ -227,7 +273,7 @@ export function createSidePanelComponent(options: SidePanelComponentOptions = {}
         // reaches the network only when the entry is stale or the serving account changed - so it
         // costs two small file reads on an ordinary turn.
         void usage?.pollOnce()
-        await Promise.all([refreshChildren(), refreshGit(false)])
+        await Promise.all([refreshChildren(), refreshGit(false), refreshMemory(false)])
         scheduleLiveRefresh()
         return undefined
       }
@@ -240,6 +286,9 @@ export function createSidePanelComponent(options: SidePanelComponentOptions = {}
         surface = undefined
         hostUi = undefined
         goal = undefined
+        memory = undefined
+        memoryIdentity = undefined
+        memoryReadAt = 0
         return undefined
       }
 
@@ -272,6 +321,7 @@ export function createSidePanelComponent(options: SidePanelComponentOptions = {}
                   fileRows: FILE_VISIBLE_ROWS,
                   ...(git === undefined ? {} : { git }),
                   ...(goal === undefined ? {} : { goal }),
+                  ...(memory === undefined ? {} : { memory }),
                   ...(usage === undefined ? {} : { usage: usage.snapshot() }),
                   home: homedir(),
                 },
@@ -307,8 +357,10 @@ export function createSidePanelComponent(options: SidePanelComponentOptions = {}
           })
           usage.start()
         }
+        // Resolving an identity probes the memory root, so it happens only for a section that is on.
+        if (settings.sections.memory) memoryIdentity = resolveMemory(cwd)
         const kind = surface.mount()
-        await Promise.all([refreshChildren(), refreshGit(true)])
+        await Promise.all([refreshChildren(), refreshGit(true), refreshMemory(true)])
         scheduleLiveRefresh()
         ctx.logger.debug?.("omo-senpi side panel mounted", { kind, width: settings.width })
         return undefined
@@ -375,6 +427,32 @@ function toolDetail(args: unknown): string | undefined {
 
 function defaultLoadSettings(cwd: string): OmoSidePanelSettings {
   return resolveOmoSidePanelSettings(loadSenpiOmoConfig({ cwd }).config)
+}
+
+/**
+ * The memory identity this session writes to, resolved exactly the way the memory component
+ * resolves it (`resolveMemoryIdentity(memory.agent, cwd, env)`): a column naming a different
+ * identity than the one being written to would be worse than no column at all. The resolver is
+ * pure apart from two `exists` probes that keep a legacy directory attached, so it runs once on
+ * mount rather than on the refresh path.
+ */
+function defaultResolveMemory(cwd: string): PanelMemoryIdentity | undefined {
+  try {
+    const settings = loadSenpiOmoConfig({ cwd }).config.memory
+    if (settings?.enabled === false) return undefined
+    const identity = resolveMemoryIdentity(settings?.agent, cwd, process.env)
+    return {
+      id: identity.id,
+      reflectionDir: identity.paths.reflection,
+      factsQueueDir: identity.paths.factsQueue,
+      recallLedgerDir: identity.paths.recallLedger,
+      recallPendingDir: identity.paths.recallPending,
+    }
+  } catch {
+    // An unreadable config or an identity that will not resolve means a silent block, never a
+    // dead frame - the same contract every other data seam in this component keeps.
+    return undefined
+  }
 }
 
 /**

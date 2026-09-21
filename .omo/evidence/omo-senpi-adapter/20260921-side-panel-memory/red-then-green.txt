@@ -1,0 +1,33 @@
+RED (before any implementation existed):
+bun test v1.4.2 (744846f84)
+
+packages/omo-senpi/src/components/side-panel/sections/memory.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module './memory' from '/home/kirill.ohapkin/_code/omo-side-panel/packages/omo-senpi/src/components/side-panel/sections/memory.test.ts'
+-------------------------------
+
+
+packages/omo-senpi/src/components/side-panel/data/memory.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module './memory' from '/home/kirill.ohapkin/_code/omo-side-panel/packages/omo-senpi/src/components/side-panel/data/memory.test.ts'
+-------------------------------
+
+
+ 0 pass
+ 2 fail
+ 2 errors
+Ran 2 tests across 2 files. [719.00ms]
+EXIT=1
+
+GREEN (same two files, after data/memory.ts and sections/memory.ts):
+(pass) createPanelMemoryReader > #given no identity #when read #then nothing is read at all [0.08ms]
+
+ 27 pass
+ 0 fail
+ 45 expect() calls
+Ran 27 tests across 2 files. [699.00ms]
+EXIT=0

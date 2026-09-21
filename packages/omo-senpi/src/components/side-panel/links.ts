@@ -24,6 +24,8 @@ export type PanelAction =
   // A session carries at most one goal, so this action needs no identity of its own; the literal
   // only keeps the scheme's kind/value shape.
   | { readonly kind: "goal" }
+  // Likewise: one session is bound to exactly one memory identity.
+  | { readonly kind: "memory" }
 
 /**
  * Percent-encoding is not cosmetic here: a value carrying BEL or ESC would terminate the
@@ -54,6 +56,7 @@ export function parsePanelActionUrl(url: string): PanelAction | undefined {
   if (kind === "file") return { kind, path: value }
   if (kind === "agent") return { kind, id: value }
   if (kind === "goal" && value === "current") return { kind }
+  if (kind === "memory" && value === "current") return { kind }
   return undefined
 }
 

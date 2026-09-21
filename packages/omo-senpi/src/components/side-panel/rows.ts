@@ -6,11 +6,12 @@ import { buildContextRows } from "./sections/context"
 import { buildFileRows, type PanelGitStatus } from "./sections/files"
 import { buildGoalRows } from "./sections/goal"
 import { buildLocationRows, type PanelLocation } from "./sections/location"
+import { buildMemoryRows } from "./sections/memory"
 import { buildSessionRows } from "./sections/session"
 import { buildToolRows } from "./sections/tools"
 import { buildUsageRows } from "./sections/usage"
 import type { PanelState } from "./store"
-import type { PanelGoal, PanelRow } from "./types"
+import type { PanelGoal, PanelMemory, PanelRow } from "./types"
 import type { PanelUsageSnapshot } from "./usage/types"
 
 export interface PanelRowsInput {
@@ -30,6 +31,8 @@ export interface PanelRowsInput {
   readonly home?: string
   /** Subscription usage, absent until the poller has something - or when the section is off. */
   readonly usage?: PanelUsageSnapshot
+  /** Memory identity and backlog; absent when memory is off or the identity would not resolve. */
+  readonly memory?: PanelMemory
 }
 
 /**
@@ -60,6 +63,7 @@ export function buildPanelRows(input: PanelRowsInput, width: number): readonly P
     input.sections.agents ? [...buildAgentRows(input.state.children, input.now, width)] : [],
     input.sections.tools ? [...buildToolRows(input.state.tools, width, input.toolRows)] : [],
     input.sections.files ? [...buildFileRows(input.git, width, input.fileRows)] : [],
+    input.sections.memory && input.memory !== undefined ? [...buildMemoryRows(input.memory, input.now, width)] : [],
     // The location line closes the column: it answers "where am I" last, next to the editor.
     [...buildLocationRows(input.location, width, input.home)],
   ]

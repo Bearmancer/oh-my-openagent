@@ -1,3 +1,5 @@
+import type { ReflectionParkState } from "@oh-my-opencode/memory-core"
+
 import type { PanelAction } from "./links"
 
 /**
@@ -144,6 +146,52 @@ export interface PanelGoal {
 export interface PanelGoalSource {
   stat(path: string): { readonly mtimeMs: number; readonly size: number } | undefined
   read(path: string): string | undefined
+}
+
+/**
+ * The memory identity this session is bound to, reduced to the four directories the column reads.
+ * Structural on purpose: the row builders and their tests never import memory-core.
+ */
+export interface PanelMemoryIdentity {
+  readonly id: string
+  readonly reflectionDir: string
+  readonly factsQueueDir: string
+  readonly recallLedgerDir: string
+  readonly recallPendingDir: string
+}
+
+/** Why automatic reflection is not running, when it is not. */
+export interface PanelMemoryReflection {
+  /** Consecutive failed runs. Three deterministic failures park the identity, six transient ones. */
+  readonly streak: number
+  /** Present only while parked; the host keeps one half-open probe per interval. */
+  readonly parkedAt?: string
+  readonly nextProbeAt?: string
+  readonly reason?: string
+  readonly detail?: string
+}
+
+/** What the memory subsystem is holding for this session. */
+export interface PanelMemory {
+  readonly identity: string
+  readonly reflection?: PanelMemoryReflection
+  /** Fact batches queued but not yet applied to the memory repository. */
+  readonly factsQueued: number
+  /** Memory paths recall has already surfaced in this session. */
+  readonly recallSurfaced: number
+  /** Nudges the kibitzer left for the next prompt of this session. */
+  readonly recallPending: number
+}
+
+/**
+ * The three filesystem reads the memory block needs, injected so the unit tests never touch a
+ * disk. All three are total: an absent or unreadable source answers empty, never throws.
+ */
+export interface PanelMemorySource {
+  /** Upstream's lock-free park reader; undefined when the file cannot be read or parsed. */
+  park(reflectionDir: string): Promise<ReflectionParkState | undefined>
+  list(dir: string): Promise<readonly string[]>
+  readJson(path: string): Promise<unknown>
 }
 
 /** Semantic colour names; the body resolves them against the host theme. */
