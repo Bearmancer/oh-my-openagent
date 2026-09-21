@@ -231,8 +231,8 @@ describe("OmO Native product identity", () => {
       "token_status", "tool_calls", "total_tokens", "turns",
     ].sort())
     expect(Object.keys(categoryConfig).sort()).toEqual([
-      "$session_id", "builtin_overridden_count", "cat_architect", "cat_artistry", "cat_deep",
-      "cat_quick", "cat_ultrabrain", "cat_unspecified_high", "cat_unspecified_low",
+      "$session_id", "builtin_overridden_count", "cat_architect", "cat_artistry", "cat_deep_high",
+      "cat_deep_low", "cat_quick", "cat_ultrabrain", "cat_unspecified_high", "cat_unspecified_low",
       "cat_visual_engineering", "cat_writing", "combo_fingerprint", "config_generation", "source",
       "user_category_count",
     ].sort())

@@ -54,6 +54,8 @@ export const GATE_SECTION_BY_ACCEPTOR: Readonly<
 		manualQa: [REVIEWER_ROLES_BY_SURFACE.lazycodex.manualQa, "main-session"],
 		gateReview: [
 			REVIEWER_ROLES_BY_SURFACE.lazycodex.gateReview,
+			"category:deep-high",
+			"category:deep-low",
 			"category:deep",
 			"category:unspecified-high",
 			"category:unspecified-low",
@@ -62,7 +64,13 @@ export const GATE_SECTION_BY_ACCEPTOR: Readonly<
 	},
 	"omo-senpi": {
 		manualQa: ["main-session"],
-		gateReview: ["category:deep", "category:unspecified-high", "category:unspecified-low"],
+		gateReview: [
+			"category:deep-high",
+			"category:deep-low",
+			"category:deep",
+			"category:unspecified-high",
+			"category:unspecified-low",
+		],
 	},
 };
 

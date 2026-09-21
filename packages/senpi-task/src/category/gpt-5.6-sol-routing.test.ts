@@ -17,7 +17,7 @@ const registry = {
 describe("GPT-5.6 Sol category routing", () => {
   const cases = [
     { category: "ultrabrain", variant: "max" },
-    { category: "deep", variant: "medium" },
+    { category: "deep-low", variant: "medium" },
   ] as const
 
   for (const { category, variant } of cases) {

@@ -6,6 +6,8 @@ import { mergeRecords } from "./record-values"
 import { transformConfigJsoncSources } from "./transform-config-jsonc"
 import { transformOpenCodeSources } from "./transform-opencode"
 import { REASONING_UNIFICATION_MIGRATION_ID, transformReasoningUnification } from "./reasoning-unification"
+import { CATEGORY_DEEP_SPLIT_MIGRATION_ID, transformCategoryDeepSplit } from "./category-deep-split"
+import { hasLegacyCategoryNames } from "@oh-my-opencode/omo-config-core"
 import type { ConfigMigrationDiscoveryOptions, DiscoveredLegacyConfigSource } from "./types"
 import type { ConfigMigrationTransformResult, OpenCodeTransformScope } from "./transform-types"
 
@@ -13,6 +15,7 @@ export type LegacyConfigMigrationPlan = {
   readonly id: string
   readonly inspect: (sources: Parameters<MigrationTransform>[0]) => ConfigMigrationTransformResult
   readonly mode?: "merge" | "replace-target"
+  readonly shouldRun?: (target: Readonly<Record<string, unknown>>) => boolean
   readonly sources: readonly MigrationSourceDescriptor[]
   readonly targetPath: string
   readonly transform: MigrationTransform
@@ -120,6 +123,22 @@ function reasoningPlan(targetPath: string): LegacyConfigMigrationPlan {
   }
 }
 
+// Gated on content, unlike the reasoning plan: a config that never named a retired category is left
+// untouched - no backup, no journal, no `_migrations` marker - instead of being rewritten to itself.
+function categoryDeepSplitPlan(targetPath: string): LegacyConfigMigrationPlan {
+  const inspect = (sources: Parameters<MigrationTransform>[0]): ConfigMigrationTransformResult =>
+    transformCategoryDeepSplit(sources[0]?.value)
+  return {
+    id: CATEGORY_DEEP_SPLIT_MIGRATION_ID,
+    inspect,
+    mode: "replace-target",
+    shouldRun: hasLegacyCategoryNames,
+    sources: [],
+    targetPath,
+    transform: inspect,
+  }
+}
+
 function existingOmoConfigPath(directory: string, options: ConfigMigrationDiscoveryOptions): string | undefined {
   const fileSystem = discoveryFileSystem(options)
   for (const fileName of ["omo.jsonc", "omo.json"] as const) {
@@ -184,5 +203,10 @@ export function createLegacyConfigMigrationPlans(
   }
   for (const plan of legacyPlans) addReasoningTarget(plan.targetPath)
 
-  return [...legacyPlans, ...[...reasoningTargets.values()].map(reasoningPlan)]
+  const inPlaceTargets = [...reasoningTargets.values()]
+  return [
+    ...legacyPlans,
+    ...inPlaceTargets.map(reasoningPlan),
+    ...inPlaceTargets.map(categoryDeepSplitPlan),
+  ]
 }

@@ -13,7 +13,7 @@
     "librarian": { "model": "openai/gpt-5.6-luna-fast", "reasoning": "low" },
 
     // Pre-planning consultant: surfaces ambiguities before /ulw-plan writes the plan
-    "plan-consultant": { "model": "anthropic/claude-sonnet-4-6" },
+    "plan-consultant": { "model": "anthropic/claude-fable-5-1", "reasoning": "max" },
 
     // Plan reviewer: checks the work plan for clarity and completeness
     "plan-reviewer": { "model": "openai/gpt-6-astra", "reasoning": "high" },
@@ -26,7 +26,8 @@
     "writing": { "model": "anthropic/claude-fable-5-1", "reasoning": "medium" },
     "visual-engineering": { "model": "anthropic/claude-fable-5-1", "reasoning": "max" },
     "architect": { "model": "anthropic/claude-fable-5-1", "reasoning": "max" },
-    "deep": { "model": "openai/gpt-6-astra", "reasoning": "high" },
+    "deep-low": { "model": "openai/gpt-5.6-sol", "reasoning": "medium" },
+    "deep-high": { "model": "openai/gpt-6-astra", "reasoning": "high" },
     "ultrabrain": { "model": "openai/gpt-6-astra", "reasoning": "max" },
   },
 }

@@ -30,17 +30,21 @@ export const CATEGORY_MODEL_REQUIREMENTS: Record<string, ModelRequirement> = {
       { providers: ["openai", "openai-codex", "opencode"], model: "gpt-5.6-sol", variant: "max" }
     ],
   },
-  deep: {
+  "deep-low": {
+    fallbackChain: [
+      {
+        providers: ["openai", "openai-codex", "github-copilot", "opencode"],
+        model: "gpt-5.6-sol",
+        variant: "medium",
+      }
+    ],
+  },
+  "deep-high": {
     fallbackChain: [
       {
         providers: ["openai", "openai-codex", "github-copilot", "opencode"],
         model: "gpt-6-astra",
         variant: "high",
-      },
-      {
-        providers: ["openai", "openai-codex", "github-copilot", "opencode"],
-        model: "gpt-5.6-sol",
-        variant: "medium",
       }
     ],
   },
@@ -130,12 +134,17 @@ export const CATEGORY_MODEL_REQUIREMENTS: Record<string, ModelRequirement> = {
       {
         providers: ["anthropic", "anthropic-api", "github-copilot", "opencode"],
         model: "claude-fable-5-1",
-        variant: "medium",
+        variant: "low",
       },
       {
         providers: ["kimi-for-coding", "moonshotai", "opencode-go", "opencode"],
         model: "kimi-k3",
-        variant: "max",
+        variant: "low",
+      },
+      {
+        providers: ["anthropic", "anthropic-api", "github-copilot", "opencode"],
+        model: "claude-opus-4-6",
+        variant: "low",
       }
     ],
   },

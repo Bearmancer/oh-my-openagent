@@ -55,13 +55,36 @@ const builtExtensionPath = join(packageRoot, "plugin", "extensions", "omo.js")
 // it is a devDependency oracle only). bundle-purity stays green and no third-party dependency was
 // inlined. Measured 1,144,862 bytes after minification on top of dev's 1,136,265 (linux/amd64, bun
 // 1.4.2); 1,180,000 keeps ~3% headroom rather than the failing value.
-// Raised 1,180,000 -> 1,220,000 for the opt-in side panel (PR #8092): pure row builders, a git
+// Raised 1,180,000 -> 1,220,000 for the Kibitzer bounds wave (#8335 incremental candidate collection,
+// #8336 sidecar grep budgets, #8337 shutdown and wake caps): the per-entry mention index, the
+// normalized-haystack memo, the stat-gated HEAD and ledger probes, the grep budget/abort/gitignore
+// paths and the drain race plus wake clamps are all first-party code, and the dependency manifests are
+// byte-identical to pre-wave dev (`git diff 879a8b791...HEAD -- package.json bun.lock
+// packages/*/package.json` is empty). The wave grew the minified bundle 1,175,406 -> 1,181,607
+// (linux/amd64, node 24 + bun 1.4.2), and the previous ceiling had only 4,594 bytes of slack left
+// before it. 1,220,000 keeps ~3.2% headroom rather than the failing value.
+// Raised 1,220,000 -> 1,300,000 for the within-minor dependency refresh: this is the first raise caused
+// by third-party growth rather than first-party code, so it is recorded as such. No dependency was ADDED
+// - bundle-purity stays green and the inlined set is unchanged - but the refresh moves versions the
+// extension already inlines, and zod dominates: 4.4.3 -> 4.6.5 alone grows 4,558,122 -> 6,140,311 bytes
+// unpacked, with js-yaml 5.0.0 -> 5.4.2 (+158,792) and posthog-node 5.51.1 -> 5.52.4 (+17,303) behind it.
+// Measured in a node:24-bookworm container on bun 1.4.2 by building the SAME source tree twice, once with
+// dev's manifests and once with this branch's: dev rebuilds byte-identically to the committed 1,202,188
+// and this branch rebuilds to 1,260,200 (+58,012, +4.8%), so the growth is attributable to the versions
+// and not to the build host. 1,300,000 keeps ~3.2% headroom rather than the failing value. Trimming it
+// back needs a lazy-load or split of the inlined validator, which is a refactor and not a version bump.
+// Raised 1_300_000 -> 1_340_000 for the opt-in side panel (PR #8092): pure row builders, a git
 // status/diff reader driven through the host's own exec, the subscription-usage poller with its
-// machine-wide cache, and one framed popup reached by click or command - first-party only,
-// bundle-purity stays green and nothing third-party was inlined. Measured 1,180,100 bytes after
-// minification on top of dev's 1,144,862, so the panel costs 35,238; 1,220,000 keeps ~3.3%
-// headroom rather than the failing value.
-const BUDGET_BYTES = 1_220_000
+// machine-wide cache, the goal-store reader and one framed popup reached by click or command - all
+// first-party, bundle-purity stays green and nothing third-party was inlined. Measured by building
+// THIS tree twice on linux/amd64 with bun 1.4.2, once with the component registered in
+// `component-list.ts` and once without: 1,204,072 -> 1,241,239, so the panel costs 37,167 bytes
+// (+3.1%). The local build alone would fit under the old ceiling, but it is not the only build
+// environment: dev's own committed artifact for the same source is 1,261,091, 19,852 larger than a
+// local build of it, and carrying that spread puts the panel at ~1,298,258 - inside 1,300,000 by
+// 0.13%, which is a ceiling one unrelated commit would break. 1,340,000 keeps ~3.1% headroom over
+// that worst case instead.
+const BUDGET_BYTES = 1_340_000
 
 describe("omo-senpi bundle size budget", () => {
   it("#given the built extension #when its byte size is measured #then it stays within the documented byte budget", () => {

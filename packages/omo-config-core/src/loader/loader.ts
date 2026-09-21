@@ -1,7 +1,14 @@
 import { parse, printParseErrorCode } from "jsonc-parser/lib/esm/main.js"
 import type * as z from "zod"
 
-import { OmoConfigLayerSchema, OmoConfigSchema, resolveOmoTaskSettings, type OmoConfig } from "../schema"
+import {
+  canonicalizeLegacyCategoryNames,
+  OmoConfigLayerSchema,
+  OmoConfigSchema,
+  resolveOmoTaskSettings,
+  type LegacyCategoryRename,
+  type OmoConfig,
+} from "../schema"
 import { isUnsafeObjectKey, mergeOmoConfigRecords } from "./merge"
 import { resolveOmoConfigPaths } from "./paths"
 import { resolveOmoConfigView, resolveOmoProfileName } from "./resolution"
@@ -229,6 +236,20 @@ function readConfigSource(
   }
 }
 
+function legacyCategoryDiagnostic(path: string, renames: readonly LegacyCategoryRename[]): OmoConfigDiagnostic {
+  const detail = renames
+    .map((rename) => rename.dropped
+      ? `${rename.path} ignored because ${rename.canonical} is also configured`
+      : `${rename.path} renamed to ${rename.canonical}`)
+    .join(", ")
+  return {
+    kind: "deprecated-keys",
+    message: `Deprecated category name in ${path}: ${detail}. Rename it; the alias is removed in a future release.`,
+    path,
+    issuePaths: renames.map((rename) => rename.path),
+  }
+}
+
 export function loadOmoConfig(options: LoadOmoConfigOptions = {}): LoadOmoConfigResult {
   const fileSystem = options.fileSystem ?? DEFAULT_READ_FILE_SYSTEM
   const cwd = options.cwd ?? process.cwd()
@@ -247,8 +268,14 @@ export function loadOmoConfig(options: LoadOmoConfigOptions = {}): LoadOmoConfig
     sources.push(loaded.source)
     if (loaded.diagnostic !== undefined) diagnostics.push(loaded.diagnostic)
     if (loaded.value !== undefined) {
-      layers.push({ config: loaded.value, source: loaded.source })
-      merged = mergeOmoConfigRecords(merged, loaded.value)
+      // A retired category key still resolves, so a config the startup migration could not rewrite
+      // (locked run, read-only project file) keeps applying its override instead of being ignored.
+      const canonicalized = canonicalizeLegacyCategoryNames(loaded.value)
+      if (canonicalized.renames.length > 0) {
+        diagnostics.push(legacyCategoryDiagnostic(candidate.path, canonicalized.renames))
+      }
+      layers.push({ config: canonicalized.document, source: loaded.source })
+      merged = mergeOmoConfigRecords(merged, canonicalized.document)
     }
   }
 

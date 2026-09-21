@@ -151,6 +151,7 @@ code; do not invent future components just to fill the section.
 ### Rules
 - Only animate `transform` and `opacity`. Never animate layout properties.
 - Every interactive element has hover + active + focus states.
+- Selected/focused/active state is encoded with ink-alpha washes and a glyph (check) — never a coloured accent border or outline. `focus-visible` rings are the only coloured edge.
 - Scroll-triggered animations use `IntersectionObserver`, not scroll listeners.
 - Reduced motion: respect `prefers-reduced-motion` — disable non-essential animation.
 

@@ -4,14 +4,16 @@ import { describe, expect, it } from "bun:test"
 
 import { resolveCategory } from "./index"
 import {
-  DEEP_CATEGORY_PROMPT_APPEND,
-  DEEP_CATEGORY_PROMPT_APPEND_GPT_5_5,
-  DEEP_CATEGORY_PROMPT_APPEND_GPT_6_ASTRA,
+  DEEP_HIGH_CATEGORY_PROMPT_APPEND,
+  DEEP_HIGH_CATEGORY_PROMPT_APPEND_GPT,
+  DEEP_LOW_CATEGORY_PROMPT_APPEND,
+  DEEP_LOW_CATEGORY_PROMPT_APPEND_GPT,
   OPENAI_CATEGORIES,
   ULTRABRAIN_CATEGORY_PROMPT_APPEND_GPT_6_ASTRA,
   UNSPECIFIED_HIGH_CATEGORY_PROMPT_APPEND_GPT_6_ASTRA,
   isGpt6Model,
-  resolveDeepCategoryPromptAppend,
+  resolveDeepHighCategoryPromptAppend,
+  resolveDeepLowCategoryPromptAppend,
   resolveUltrabrainCategoryPromptAppend,
   resolveUnspecifiedHighCategoryPromptAppend,
 } from "./openai-categories"
@@ -56,19 +58,44 @@ describe("category prompt append resolvers", () => {
     })
   })
 
-  describe("#given deep", () => {
-    it("#when the model is GPT-6 #then the Astra append wins over the GPT-5.5 one", () => {
-      for (const id of ASTRA_IDS) expect(resolveDeepCategoryPromptAppend(id), id).toBe(DEEP_CATEGORY_PROMPT_APPEND_GPT_6_ASTRA)
-    })
-
-    it("#when the model is GPT-5.5 or GPT-5.6 #then the GPT-5.5 append still applies", () => {
-      for (const id of GPT_5_IDS) expect(resolveDeepCategoryPromptAppend(id), id).toBe(DEEP_CATEGORY_PROMPT_APPEND_GPT_5_5)
+  describe("#given the deep lanes", () => {
+    it("#when the model is any GPT deep-lane model #then each lane uses its own GPT append", () => {
+      for (const id of [...ASTRA_IDS, ...GPT_5_IDS]) {
+        expect(resolveDeepLowCategoryPromptAppend(id), id).toBe(DEEP_LOW_CATEGORY_PROMPT_APPEND_GPT)
+        expect(resolveDeepHighCategoryPromptAppend(id), id).toBe(DEEP_HIGH_CATEGORY_PROMPT_APPEND_GPT)
+      }
     })
 
     it("#when the model is another vendor or unknown #then the generic append applies", () => {
-      for (const id of OTHER_IDS) expect(resolveDeepCategoryPromptAppend(id), String(id)).toBe(DEEP_CATEGORY_PROMPT_APPEND)
-      expect(definition("deep").promptAppend).toBe(DEEP_CATEGORY_PROMPT_APPEND)
-      expect(definition("deep").resolvePromptAppend).toBe(resolveDeepCategoryPromptAppend)
+      for (const id of OTHER_IDS) {
+        expect(resolveDeepLowCategoryPromptAppend(id), String(id)).toBe(DEEP_LOW_CATEGORY_PROMPT_APPEND)
+        expect(resolveDeepHighCategoryPromptAppend(id), String(id)).toBe(DEEP_HIGH_CATEGORY_PROMPT_APPEND)
+      }
+      expect(definition("deep-low").promptAppend).toBe(DEEP_LOW_CATEGORY_PROMPT_APPEND)
+      expect(definition("deep-low").resolvePromptAppend).toBe(resolveDeepLowCategoryPromptAppend)
+      expect(definition("deep-high").promptAppend).toBe(DEEP_HIGH_CATEGORY_PROMPT_APPEND)
+      expect(definition("deep-high").resolvePromptAppend).toBe(resolveDeepHighCategoryPromptAppend)
+    })
+
+    it("#given the deep-low appends #then only they carry the ESCALATE contract, naming deep-high", () => {
+      for (const append of [DEEP_LOW_CATEGORY_PROMPT_APPEND, DEEP_LOW_CATEGORY_PROMPT_APPEND_GPT]) {
+        expect(append).toContain("ESCALATE: deep-high")
+      }
+      for (const append of [DEEP_HIGH_CATEGORY_PROMPT_APPEND, DEEP_HIGH_CATEGORY_PROMPT_APPEND_GPT]) {
+        expect(append).not.toContain("ESCALATE")
+      }
+    })
+
+    it("#given every deep append #then none tells the child which category to route to", () => {
+      for (const append of [
+        DEEP_LOW_CATEGORY_PROMPT_APPEND,
+        DEEP_LOW_CATEGORY_PROMPT_APPEND_GPT,
+        DEEP_HIGH_CATEGORY_PROMPT_APPEND,
+        DEEP_HIGH_CATEGORY_PROMPT_APPEND_GPT,
+      ]) {
+        expect(append).not.toContain("MUST USE")
+        expect(append).not.toContain("CAPTCHA")
+      }
     })
   })
 
@@ -81,49 +108,51 @@ describe("category prompt append resolvers", () => {
     })
   })
 
-  it("#given the three Astra appends #then each is a distinct Category_Context block named after its category", () => {
+  it("#given the model-specific appends #then each is a distinct Category_Context block named after its category", () => {
     const appends = {
       ultrabrain: ULTRABRAIN_CATEGORY_PROMPT_APPEND_GPT_6_ASTRA,
-      deep: DEEP_CATEGORY_PROMPT_APPEND_GPT_6_ASTRA,
+      "deep-low": DEEP_LOW_CATEGORY_PROMPT_APPEND_GPT,
+      "deep-high": DEEP_HIGH_CATEGORY_PROMPT_APPEND_GPT,
       "unspecified-high": UNSPECIFIED_HIGH_CATEGORY_PROMPT_APPEND_GPT_6_ASTRA,
     }
     for (const [name, append] of Object.entries(appends)) {
       expect(append.startsWith(`<Category_Context name="${name}">`), name).toBe(true)
       expect(append.endsWith("</Category_Context>"), name).toBe(true)
-      expect(append, name).not.toBe(DEEP_CATEGORY_PROMPT_APPEND_GPT_5_5)
       expect(append, name).not.toBe(definition(name).promptAppend)
     }
-    expect(new Set(Object.values(appends)).size).toBe(3)
+    expect(new Set(Object.values(appends)).size).toBe(4)
   })
 })
 
-describe("GPT-6 Astra builtin defaults and gates", () => {
-  it("#given the builtin definitions #then ultrabrain runs Astra at max, deep and unspecified-high at high", () => {
-    expect(definition("ultrabrain").config).toEqual({ model: "openai/gpt-6-astra", variant: "max" })
-    expect(definition("deep").config).toEqual({ model: "openai/gpt-6-astra", variant: "high" })
-    expect(definition("unspecified-high").config).toEqual({ model: "openai/gpt-6-astra", variant: "high" })
+describe("GPT builtin defaults and gates", () => {
+  it("#given the builtin definitions #then ultrabrain runs Astra max, deep-high Astra high, deep-low Sol medium, all on the openai-codex lane", () => {
+    expect(definition("ultrabrain").config).toEqual({ model: "openai-codex/gpt-6-astra", variant: "max" })
+    expect(definition("deep-high").config).toEqual({ model: "openai-codex/gpt-6-astra", variant: "high" })
+    expect(definition("deep-low").config).toEqual({ model: "openai-codex/gpt-5.6-sol", variant: "medium" })
+    expect(definition("unspecified-high").config).toEqual({ model: "openai-codex/gpt-6-astra", variant: "high" })
   })
 
-  it("#given the GPT flagship gate #then ultrabrain and deep open on either Astra or Sol and unspecified-high is ungated", () => {
+  it("#given the gates #then ultrabrain opens on either flagship, each deep lane only on its own model, unspecified-high is ungated", () => {
     expect(definition("ultrabrain").requiresModel).toEqual(["gpt-6-astra", "gpt-5.6-sol"])
-    expect(definition("deep").requiresModel).toEqual(["gpt-6-astra", "gpt-5.6-sol"])
+    expect(definition("deep-low").requiresModel).toBe("gpt-5.6-sol")
+    expect(definition("deep-high").requiresModel).toBe("gpt-6-astra")
     expect(definition("unspecified-high").requiresModel).toBeUndefined()
   })
 })
 
-describe("resolveCategory on a GPT-6 Astra registry", () => {
+describe("resolveCategory on GPT registries", () => {
   const astraRegistry = registry([{ provider: "openai", id: "gpt-6-astra" }])
   const codexAstraRegistry = registry([{ provider: "openai-codex", id: "gpt-6-astra" }])
   const solRegistry = registry([{ provider: "openai", id: "gpt-5.6-sol" }])
 
-  const cases = [
+  const astraCases = [
     { category: "ultrabrain", variant: "max", append: ULTRABRAIN_CATEGORY_PROMPT_APPEND_GPT_6_ASTRA },
-    { category: "deep", variant: "high", append: DEEP_CATEGORY_PROMPT_APPEND_GPT_6_ASTRA },
+    { category: "deep-high", variant: "high", append: DEEP_HIGH_CATEGORY_PROMPT_APPEND_GPT },
     { category: "unspecified-high", variant: "high", append: UNSPECIFIED_HIGH_CATEGORY_PROMPT_APPEND_GPT_6_ASTRA },
   ] as const
 
-  for (const { category, variant, append } of cases) {
-    it(`#given only openai/gpt-6-astra #when ${category} resolves #then the child gets Astra at ${variant} with the Astra append`, () => {
+  for (const { category, variant, append } of astraCases) {
+    it(`#given only the openai API lane serving gpt-6-astra #when ${category} resolves #then cross-provider fallthrough still gives Astra at ${variant} with its append`, () => {
       const result = resolveCategory(category, {}, astraRegistry)
       expect(result.kind).toBe("resolved")
       if (result.kind !== "resolved") throw new Error("Expected resolved")
@@ -138,17 +167,30 @@ describe("resolveCategory on a GPT-6 Astra registry", () => {
     })
   }
 
-  it("#given only gpt-5.6-sol #when deep resolves #then the GPT-5.5 append rides the sol rung", () => {
+  it("#given only gpt-5.6-sol #when deep-low resolves #then it runs Sol at medium with the deep-low GPT append", () => {
+    const result = resolveCategory("deep-low", {}, solRegistry)
+    expect(result.kind).toBe("resolved")
+    if (result.kind !== "resolved") throw new Error("Expected resolved")
+    expect(result.spec).toMatchObject({ modelId: "gpt-5.6-sol", variant: "medium", prompt_append: DEEP_LOW_CATEGORY_PROMPT_APPEND_GPT })
+  })
+
+  it("#given a registry missing a lane's own model #then that lane never borrows the other lane's model", () => {
+    expect(resolveCategory("deep-high", {}, solRegistry).kind).toBe("model_unavailable")
+    expect(resolveCategory("deep-low", {}, astraRegistry).kind).toBe("model_unavailable")
+  })
+
+  it("#given the retired deep name #when it is spawned #then it resolves as deep-low", () => {
     const result = resolveCategory("deep", {}, solRegistry)
     expect(result.kind).toBe("resolved")
     if (result.kind !== "resolved") throw new Error("Expected resolved")
-    expect(result.spec).toMatchObject({ modelId: "gpt-5.6-sol", variant: "medium", prompt_append: DEEP_CATEGORY_PROMPT_APPEND_GPT_5_5 })
+    expect(result.category).toBe("deep-low")
+    expect(result.spec).toMatchObject({ modelId: "gpt-5.6-sol", variant: "medium" })
   })
 
-  it("#given an omo.json prompt_append for deep #when it resolves on Astra #then the user overlay follows the Astra append", () => {
-    const result = resolveCategory("deep", { categories: { deep: { prompt_append: "team-overlay" } } }, astraRegistry)
+  it("#given an omo.json prompt_append for deep-high #when it resolves on Astra #then the user overlay follows the lane append", () => {
+    const result = resolveCategory("deep-high", { categories: { "deep-high": { prompt_append: "team-overlay" } } }, astraRegistry)
     expect(result.kind).toBe("resolved")
     if (result.kind !== "resolved") throw new Error("Expected resolved")
-    expect(result.spec.prompt_append).toBe(`${DEEP_CATEGORY_PROMPT_APPEND_GPT_6_ASTRA}\n\nteam-overlay`)
+    expect(result.spec.prompt_append).toBe(`${DEEP_HIGH_CATEGORY_PROMPT_APPEND_GPT}\n\nteam-overlay`)
   })
 })

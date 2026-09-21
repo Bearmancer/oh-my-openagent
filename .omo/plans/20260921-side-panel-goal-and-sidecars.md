@@ -170,3 +170,39 @@ settled by reading `packages/pi-goal/src/goal/store.ts` rather than a rendered s
   driven in QA, which is why the evidence records it.
 
 Live evidence: `.omo/evidence/omo-senpi-adapter/20260921-side-panel-goal/`.
+
+## Recon after the dev merge (2026-09-21)
+
+The branch now carries dev at 716 commits ahead of where it forked, so the subsystems the later
+increments read exist in the tree. What reading them settled:
+
+### Increment 3 (kibitzer) is smaller than planned
+
+`KibitzerSidecarState` (`kibitzer/sidecar-contract.ts`) is `idle | turn_running | reseeding |
+backoff | disposed`, but it is process state inside the sidecar, not a file. `/memory doctor` -
+the existing status surface, and the best guide to what a status reader may see - checks reflection
+and repository health and does NOT check kibitzer liveness, which is the tell: there is no durable
+kibitzer status to read. What IS durable is the recall pair under the identity runtime,
+`recall/ledger` and `recall/pending` (`memory-core/src/identity/layout.ts`): what has been
+surfaced to a session, and what is queued for it.
+
+So the honest section is "what the kibitzer has waiting for this session", not "awake/idle, cost and
+last wake". Anything more needs the memory component to publish live state to other components -
+a cross-component contract, not a panel change, and out of scope for this plan.
+
+### Increments 4 and 6 should be one section, not two
+
+`sections.memory` has been declared in the schema and documented since the first panel commit and
+has never drawn a row. The parked-reflection warning planned as its own increment is exactly the
+kind of thing that section exists for, and `readReflectionParkFile` is explicitly written for this:
+"Lock-free read for status surfaces; the scheduler writes the file atomically, so a reader sees one
+whole state" (`memory-core/src/reflection/park-file.ts`). Building one MEMORY section that carries
+the park warning, the facts backlog and the recall queue - rather than a loose warning row plus an
+empty promise - keeps one switch, one heading, and one refresh.
+
+### Increment 5 stays as planned
+
+`data/task-records.ts` maps the engine's records through a `STATUS` table and drops what it does
+not know; the record now carries `runner_kind` (`child-process` | `host-session`),
+`suspension_reason` (`daemon_unavailable` | `host_draining`) and an optional `workpool`
+block, and the category vocabulary gained `deep-low` / `deep-high`.

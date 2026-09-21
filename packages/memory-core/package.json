@@ -13,6 +13,9 @@
     },
     "./personas": {
       "import": "./src/personas/manifest.ts"
+    },
+    "./process-identity": {
+      "import": "./src/locks/process-identity.ts"
     }
   },
   "scripts": {
@@ -20,6 +23,6 @@
     "test": "bun test src/"
   },
   "devDependencies": {
-    "yaml": "2.9.0"
+    "yaml": "2.9.1"
   }
 }

@@ -2,6 +2,7 @@ import type { ModelFallbackInfo } from "../../features/task-toast-manager/types"
 import type { DelegateTaskArgs } from "./types"
 import type { ExecutorContext } from "./executor-types"
 import type { FallbackEntry } from "../../shared/model-requirements"
+import { canonicalCategoryName } from "@oh-my-opencode/omo-config-core"
 import { mergeCategories } from "../../shared/merge-categories"
 import { SISYPHUS_JUNIOR_AGENT } from "./sisyphus-junior-agent"
 import { resolveCategoryConfig } from "./categories"
@@ -70,8 +71,13 @@ export async function resolveCategoryExecution(
 ): Promise<CategoryResolutionResult> {
   const { client, userCategories, sisyphusJuniorModel } = executorCtx
 
-  const categoryName = args.category!
+  // A retired builtin name resolves to its replacement so third-party skills and AGENTS.md text
+  // spawning the old category keep working; a user category of that name still wins over the alias.
   const enabledCategories = mergeCategories(userCategories)
+  const requestedCategoryName = args.category!
+  const categoryName = enabledCategories[requestedCategoryName] !== undefined
+    ? requestedCategoryName
+    : canonicalCategoryName(requestedCategoryName)
   const categoryExists = enabledCategories[categoryName] !== undefined
 
   if (!categoryExists) {

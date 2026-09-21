@@ -80,11 +80,46 @@ async function fixtureAtSystemTokens(tokens: number): Promise<{ repo: CountingRe
   return fixture("A".repeat(tokens * 4 - Buffer.byteLength(header, "utf8") - 1))
 }
 
-function eventContext(sessionId: string, branchLength: number): unknown {
+function messageEntry(id: string): Record<string, unknown> {
+  return { type: "message", id, message: { role: "user", content: [{ type: "text", text: `entry ${id}` }] } }
+}
+
+function customEntry(id: string): Record<string, unknown> {
+  return { type: "custom", id, customType: "omo-test:entry" }
+}
+
+function compactionEntry(id: string, firstKeptEntryId: string): Record<string, unknown> {
+  return {
+    type: "compaction",
+    id,
+    parentId: null,
+    timestamp: "2026-09-16T00:00:00.000Z",
+    summary: "summary",
+    firstKeptEntryId,
+    tokensBefore: 4_000,
+  }
+}
+
+/** A branch that never compacted: every one of its messages is still in the live context. */
+function liveBranch(messageCount: number): readonly unknown[] {
+  return Array.from({ length: messageCount }, (_, index) => messageEntry(`m${index + 1}`))
+}
+
+/** A branch whose latest compaction pushed exactly `compactedCount` messages out of the live context. */
+function compactedBranch(compactedCount: number): readonly unknown[] {
+  return [
+    ...Array.from({ length: compactedCount }, (_, index) => messageEntry(`old-${index + 1}`)),
+    compactionEntry("c1", "kept-1"),
+    messageEntry("kept-1"),
+    messageEntry("kept-2"),
+  ]
+}
+
+function eventContext(sessionId: string, branch: readonly unknown[]): unknown {
   return {
     sessionManager: {
       getSessionId: () => sessionId,
-      getBranch: () => Array.from({ length: branchLength }, (_, index) => ({ index })),
+      getBranch: () => branch,
     },
   }
 }
@@ -120,7 +155,7 @@ describe("createMemoryPromptHandler", () => {
     pi.on("before_agent_start", createMemoryPromptHandler({ resolveContext: () => undefined, createRepo: () => repo }))
 
     // when
-    const result = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", 2))
+    const result = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", liveBranch(2)))
 
     // then
     expect(result).toBeUndefined()
@@ -141,14 +176,14 @@ describe("createMemoryPromptHandler", () => {
     expect(repo.headCalls).toBe(0)
   }, 30_000)
 
-  test("#given a bound identity #when before_agent_start dispatches #then the prompt gains a stable sentinel block and recall metadata arrives late", async () => {
+  test("#given a bound identity whose branch compacted #when before_agent_start dispatches #then the prompt gains a stable sentinel block and the compacted-out count arrives late", async () => {
     // given
     const { repo, context } = await fixture()
     const pi = new FakeExtensionAPI()
     pi.on("before_agent_start", boundHandler(repo, context))
 
     // when
-    const result = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", 3))
+    const result = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", compactedBranch(3)))
 
     // then
     expect(result?.systemPrompt).toContain("BASE PROMPT")
@@ -157,9 +192,78 @@ describe("createMemoryPromptHandler", () => {
     expect(result?.systemPrompt).toContain("first")
     expect(result?.systemPrompt).toContain(`- AGENT_ID: ${IDENTITY}`)
     expect(result?.systemPrompt).not.toContain("CONVERSATION_ID")
-    expect(result?.systemPrompt).not.toContain("previous messages")
+    expect(result?.systemPrompt).not.toContain("earlier messages")
     expect(result?.message).toMatchObject({ customType: "omo-memory:notice", display: false })
-    expect(result?.message?.content).toContain("- 3 previous messages")
+    expect(result?.message?.content).toContain(
+      "- 3 earlier messages were compacted out of the live context; what still matters from them arrives on its own as <recalled-memory> blocks",
+    )
+    // The no-recall-tool fact is standing, not session-volatile: it belongs to the compiled reminder.
+    expect(result?.message?.content).not.toContain("recall tool")
+    expect(result?.systemPrompt).toContain("there is no recall tool to call")
+  }, 30_000)
+
+  test("#given a branch that never compacted and no other notice line #when before_agent_start dispatches #then no compacted-out line and no message at all are injected", async () => {
+    // given
+    const { repo, context } = await fixture()
+    const pi = new FakeExtensionAPI()
+    pi.on("before_agent_start", boundHandler(repo, context))
+
+    // when
+    const result = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", liveBranch(15)))
+
+    // then
+    expect(result?.systemPrompt).toContain(`<!-- senpi-memory:${IDENTITY}:begin -->`)
+    expect(result?.systemPrompt).not.toContain("compacted out")
+    expect(result?.message).toBeUndefined()
+  }, 30_000)
+
+  test("#given a compaction whose firstKeptEntryId is the eighth branch entry with five messages before it #when the notice renders #then it reports five compacted-out messages", async () => {
+    // given
+    const { repo, context } = await fixture()
+    const pi = new FakeExtensionAPI()
+    pi.on("before_agent_start", boundHandler(repo, context))
+    const branch = [
+      messageEntry("m1"),
+      messageEntry("m2"),
+      customEntry("x1"),
+      messageEntry("m3"),
+      messageEntry("m4"),
+      messageEntry("m5"),
+      compactionEntry("c1", "kept-1"),
+      messageEntry("kept-1"),
+      messageEntry("kept-2"),
+    ]
+    expect(branch[7]).toMatchObject({ id: "kept-1" })
+
+    // when
+    const result = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", branch))
+
+    // then
+    expect(result?.message?.content).toContain(
+      "- 5 earlier messages were compacted out of the live context; what still matters from them arrives on its own as <recalled-memory> blocks",
+    )
+  }, 30_000)
+
+  test("#given a compaction whose firstKeptEntryId is no longer on the branch #when the notice renders #then it counts the messages before the compaction entry", async () => {
+    // given
+    const { repo, context } = await fixture()
+    const pi = new FakeExtensionAPI()
+    pi.on("before_agent_start", boundHandler(repo, context))
+    const branch = [
+      messageEntry("m1"),
+      messageEntry("m2"),
+      messageEntry("m3"),
+      compactionEntry("c1", "pruned-entry"),
+      messageEntry("kept-1"),
+    ]
+
+    // when
+    const result = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", branch))
+
+    // then
+    expect(result?.message?.content).toContain(
+      "- 3 earlier messages were compacted out of the live context; what still matters from them arrives on its own as <recalled-memory> blocks",
+    )
   }, 30_000)
 
   test("#given the same identity and HEAD across sessions and turns #when volatile notices change #then the system block stays byte-identical and notices travel as a late message", async () => {
@@ -176,8 +280,8 @@ describe("createMemoryPromptHandler", () => {
     }))
 
     // when
-    const beforeThreshold = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-before-threshold", 2))
-    const afterThreshold = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-after-threshold", 12))
+    const beforeThreshold = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-before-threshold", compactedBranch(2)))
+    const afterThreshold = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-after-threshold", compactedBranch(12)))
 
     // then
     expect(afterThreshold?.systemPrompt).toBe(beforeThreshold?.systemPrompt)
@@ -185,8 +289,8 @@ describe("createMemoryPromptHandler", () => {
       customType: "omo-memory:notice",
       display: false,
     })
-    expect(beforeThreshold?.message?.content).toContain("2 previous messages")
-    expect(afterThreshold?.message?.content).toContain("12 previous messages")
+    expect(beforeThreshold?.message?.content).toContain("2 earlier messages were compacted out of the live context")
+    expect(afterThreshold?.message?.content).toContain("12 earlier messages were compacted out of the live context")
     expect(afterThreshold?.message?.content).toContain(MEMORY_NUDGE_METADATA_TOKEN)
     expect(afterThreshold?.message?.content).toContain(MEMORY_SOUL_METADATA_TOKEN)
   }, 30_000)
@@ -202,14 +306,14 @@ describe("createMemoryPromptHandler", () => {
     }))
 
     // when
-    const result = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", 0))
+    const result = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", liveBranch(0)))
 
     // then
     expect(result?.systemPrompt).toBe([
       "BASE PROMPT",
       "",
       `<!-- senpi-memory:${IDENTITY}:begin -->`,
-      "Reminder: <projection> holds local paths of memory projections. <memory> is your persistent memory across conversations. Consult it BEFORE asking the user anything it may already answer. Save durable facts, preferences, decisions, and corrections with the memory tools THE MOMENT they emerge. Route facts about a person to their record under people/ (the primary human's card is system/human.md).",
+      "Reminder: <projection> holds local paths of memory projections. <memory> is your persistent memory across conversations. Consult it BEFORE asking the user anything it may already answer. Save durable facts, preferences, decisions, and corrections with the memory tools THE MOMENT they emerge. Route facts about a person to their record under people/ (the primary human's card is system/human.md). Relevant stored memory arrives on its own as <recalled-memory> blocks; there is no recall tool to call.",
       "",
       "<self>",
       "<projection>$MEMORY_DIR/system/persona.md</projection>",
@@ -237,7 +341,7 @@ describe("createMemoryPromptHandler", () => {
     }))
 
     // when
-    const result = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", 0))
+    const result = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", liveBranch(0)))
 
     // then
     expect(boundary).toBe(24_000)
@@ -247,6 +351,66 @@ describe("createMemoryPromptHandler", () => {
     expect(pressureLines[0]).toContain("80%")
     expect(pressureLines[0]).toMatch(/trim|demote/)
     expect(result?.systemPrompt).toContain("A".repeat(1_000))
+  }, 30_000)
+
+  test("#given a system file holding invalid UTF-8 #when the pressure line is compiled #then it counts what the model will be shown, not the stored blob size", async () => {
+    // given - the estimate stands in for what the compiled memory block costs the model, and the
+    // model is shown the DECODED text, where every invalid byte becomes one U+FFFD of three bytes.
+    // Counting git's stored blob size instead makes the advisory read low for exactly the files
+    // whose decoded form is largest.
+    const advisory = 30_000
+    const boundary = Math.floor(MEMORY_PRESSURE_SOFT_RATIO * advisory)
+    const { repo, context } = await fixtureAtSystemTokens(boundary)
+    // 3 invalid bytes -> 9 decoded bytes, a 6-byte gap the stored size cannot see.
+    await writeFile(join(repo.dir, "system", "raw.md"), Buffer.from([0xff, 0xfe, 0x80]))
+    await repo.commitWrite(["system/raw.md"], "add raw", { agentId: IDENTITY, authorName: "Prompt Agent" })
+    const pi = new FakeExtensionAPI()
+    pi.on("before_agent_start", createMemoryPromptHandler({
+      resolveContext: () => context,
+      createRepo: () => repo,
+      resolveCompileWarnTokens: () => advisory,
+    }))
+
+    // when
+    const result = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", liveBranch(0)))
+
+    // then - decoded is 9 bytes over the boundary's byte budget, stored is 3, and the estimate
+    // divides by 4: 24002 decoded against 24000 stored.
+    const pressureLines = result?.systemPrompt?.split("\n").filter((line) => line.includes(MEMORY_PRESSURE_METADATA_TOKEN)) ?? []
+    expect(pressureLines).toHaveLength(1)
+    expect(pressureLines[0]).toContain("24002/30000")
+  }, 30_000)
+
+  test("#given the estimate's own read fails #when the pressure line is compiled #then the failure surfaces instead of passing for no pressure", async () => {
+    // given - the block compiles from the first listing; only the estimate's own read fails, so this
+    // isolates the estimator from the compile path. Answering 0 here would report "no pressure" for a
+    // repository whose size is simply unknown, which silences the advisory exactly when it cannot be
+    // trusted, and an error is not the same answer as a genuine zero.
+    const advisory = 30_000
+    const { repo, context } = await fixtureAtSystemTokens(Math.floor(MEMORY_PRESSURE_SOFT_RATIO * advisory))
+    let listings = 0
+    const failingAfterCompile = new Proxy(repo, {
+      get(target, property) {
+        if (property === "lsTree") {
+          return (...args: [string?, string?]) => {
+            listings += 1
+            if (listings > 1) return Promise.reject(new Error("tree unreadable"))
+            return target.lsTree(...args)
+          }
+        }
+        const value = Reflect.get(target, property)
+        return typeof value === "function" ? value.bind(target) : value
+      },
+    }) as typeof repo
+    const pi = new FakeExtensionAPI()
+    pi.on("before_agent_start", createMemoryPromptHandler({
+      resolveContext: () => context,
+      createRepo: () => failingAfterCompile,
+      resolveCompileWarnTokens: () => advisory,
+    }))
+
+    // when / then
+    await expect(dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", liveBranch(0)))).rejects.toThrow("tree unreadable")
   }, 30_000)
 
   test("#given nudge state at the threshold #when before_agent_start compiles #then the late message carries the behavioral nudge token", async () => {
@@ -260,12 +424,13 @@ describe("createMemoryPromptHandler", () => {
     }))
 
     // when
-    const result = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", 2))
+    const result = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", liveBranch(2)))
 
     // then
     expect(result?.systemPrompt).not.toContain(MEMORY_NUDGE_METADATA_TOKEN)
     expect(result?.message?.content).toContain(MEMORY_NUDGE_METADATA_TOKEN)
     expect(result?.message?.content).toMatch(/- 2 user turns since/)
+    expect(result?.message?.content).not.toContain("compacted out")
   }, 30_000)
 
   test("#given a reflection soul notice #when before_agent_start compiles #then the late message carries the soul token and short sha", async () => {
@@ -279,7 +444,7 @@ describe("createMemoryPromptHandler", () => {
     }))
 
     // when
-    const result = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", 2))
+    const result = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", liveBranch(2)))
 
     // then
     expect(result?.systemPrompt).not.toContain(MEMORY_SOUL_METADATA_TOKEN)
@@ -309,14 +474,15 @@ describe("createMemoryPromptHandler", () => {
     }))
 
     // when
-    const first = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", 1))
-    const second = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", 1))
-    const third = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", 1))
+    const first = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", liveBranch(1)))
+    const second = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", liveBranch(1)))
+    const third = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", liveBranch(1)))
 
     // then
     expect(first?.message?.content).toContain(MEMORY_SOUL_METADATA_TOKEN)
-    expect(second?.message?.content).not.toContain(MEMORY_SOUL_METADATA_TOKEN)
-    expect(third?.message?.content).not.toContain(MEMORY_SOUL_METADATA_TOKEN)
+    // Nothing volatile is left to say on an uncompacted branch, so no notice message is injected at all.
+    expect(second?.message).toBeUndefined()
+    expect(third?.message).toBeUndefined()
     expect(second?.systemPrompt).toBe(first?.systemPrompt)
     expect(third?.systemPrompt).toBe(first?.systemPrompt)
   }, 30_000)
@@ -330,9 +496,9 @@ describe("createMemoryPromptHandler", () => {
     memoryPi.on("before_agent_start", boundHandler(repo, context))
 
     // when — mirror the host runner: the next handler receives the previous handler's prompt
-    const [foreign] = await foreignPi.dispatch("before_agent_start", beforeAgentStart("BASE PROMPT"), eventContext("session-1", 0))
+    const [foreign] = await foreignPi.dispatch("before_agent_start", beforeAgentStart("BASE PROMPT"), eventContext("session-1", liveBranch(0)))
     const foreignPrompt = (foreign as BeforeAgentStartEventResult).systemPrompt ?? ""
-    const result = await dispatchEvent(memoryPi, beforeAgentStart(foreignPrompt), eventContext("session-1", 0))
+    const result = await dispatchEvent(memoryPi, beforeAgentStart(foreignPrompt), eventContext("session-1", liveBranch(0)))
 
     // then
     expect(result?.systemPrompt).toContain("FOREIGN EXTENSION TEXT")
@@ -347,8 +513,8 @@ describe("createMemoryPromptHandler", () => {
     pi.on("before_agent_start", boundHandler(repo, context))
 
     // when
-    const first = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", 1))
-    const second = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", 1))
+    const first = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", liveBranch(1)))
+    const second = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", liveBranch(1)))
 
     // then
     expect(second?.systemPrompt).toBe(first?.systemPrompt)
@@ -357,19 +523,42 @@ describe("createMemoryPromptHandler", () => {
     expect(repo.showCalls).toBe(1)
   }, 30_000)
 
+  test("#given pressure advisory enabled and an unchanged HEAD #when the handler runs twice #then the tree is listed and the system blobs are read once, not once per prompt", async () => {
+    // given — the production configuration: resolveCompileWarnTokens is wired (wiring-static.ts:85), so the
+    // pressure estimate runs on every prompt. The compiled block is HEAD-cached; the estimate must be too,
+    // or a 2.7k-commit identity pays lsTree + one show per system file on every Enter (measured: 45 git
+    // spawns between Enter and the provider request).
+    const { repo, context } = await fixture()
+    const pi = new FakeExtensionAPI()
+    pi.on("before_agent_start", createMemoryPromptHandler({
+      resolveContext: () => context,
+      createRepo: () => repo,
+      resolveCompileWarnTokens: () => 30_000,
+    }))
+
+    // when
+    const first = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", liveBranch(1)))
+    const afterFirst = { lsTree: repo.lsTreeCalls, show: repo.showCalls }
+    const second = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", liveBranch(1)))
+
+    // then — same bytes, and the second prompt added no tree listing and no blob reads
+    expect(second?.systemPrompt).toBe(first?.systemPrompt)
+    expect({ lsTree: repo.lsTreeCalls - afterFirst.lsTree, show: repo.showCalls - afterFirst.show }).toEqual({ lsTree: 0, show: 0 })
+  }, 30_000)
+
   test("#given a commit between runs #when the next dispatch happens #then the new content appears while the prior result keeps the old content", async () => {
     // given
     const { repo, context } = await fixture()
     const pi = new FakeExtensionAPI()
     pi.on("before_agent_start", boundHandler(repo, context))
-    const first = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", 1))
+    const first = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", liveBranch(1)))
     expect(repo.headCalls).toBe(1)
 
     // when
     await writeFile(join(repo.dir, "system/persona.md"), "---\ndescription: Persona\n---\nsecond\n")
     await repo.commitWrite(["system/persona.md"], "update persona", { agentId: IDENTITY, authorName: "Prompt Agent" })
     const headCallsAfterCommit = repo.headCalls
-    const second = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", 1))
+    const second = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", liveBranch(1)))
 
     // then
     expect(first?.systemPrompt).toContain("first")
@@ -384,10 +573,10 @@ describe("createMemoryPromptHandler", () => {
     const { repo, context } = await fixture()
     const pi = new FakeExtensionAPI()
     pi.on("before_agent_start", boundHandler(repo, context))
-    const first = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", 1))
+    const first = await dispatchEvent(pi, beforeAgentStart("BASE PROMPT"), eventContext("session-1", liveBranch(1)))
 
     // when — the host carries last turn's prompt forward with our block inside
-    const second = await dispatchEvent(pi, beforeAgentStart(first?.systemPrompt ?? ""), eventContext("session-1", 2))
+    const second = await dispatchEvent(pi, beforeAgentStart(first?.systemPrompt ?? ""), eventContext("session-1", liveBranch(2)))
 
     // then
     expect(second?.systemPrompt?.match(new RegExp(`<!-- senpi-memory:${IDENTITY}:begin -->`, "g"))).toHaveLength(1)

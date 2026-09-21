@@ -1,3 +1,410 @@
+## Memory identity comes from the session's workspace, and a reattach rebinds instead of failing closed
+
+`createMemoryComponent` resolved every session's identity from `process.cwd()`, read once at registration and reused for every bind. One shared host serves sessions from many workspaces, so a generation ensured by a process sitting in some other directory handed that directory's identity to every session it picked up: seven sessions reported `memory identity conflict: session is bound to <workspace>-<hash>, but config resolved server-<hash>` inside one second and lost their memory tools, with no workspace change behind it (#8556).
+
+The bind now resolves the identity from the session's own cwd. senpi builds one `ExtensionRunner` per `AgentSession` and exposes that session's directory as `ExtensionContext.cwd`, so `readSessionSurface` reads it off the event; the extension's load cwd (`pi.cwd`) and then `process.cwd()` remain as fallbacks for a host that reports neither. Registration-time work (the config read, the transient sweep, the wiring's own cwd getter) keeps using the host cwd, which is what it has always meant.
+
+`identity-adoption.ts` decides what a bind does when the session already carries a binding entry. The record wins, because it is the only evidence of what the session was; a divergence goes to the log at `info` and never to the user. Two cases the record cannot answer keep the fail-closed error: an explicitly configured `memory.agent` that names a different identity, and a record whose memory repository cannot be reproduced under the current memory root. The `session_start` path for a user-initiated identity change is therefore unchanged, and so is the repository check on the `before_agent_start` rebind from #8017.
+
+## The `deep` delegation category splits into `deep-low` and `deep-high`
+
+`deep` opened its description with a bold MANDATORY list of domains (3D, computer and browser use,
+CAPTCHA, multimodal, backend, logic, algorithms). The list routes by domain, which almost every
+coding task matches, so the category's head rung `gpt-6-astra` high served nearly all delegated work
+and the `gpt-5.6-sol` medium rung under it was reachable only by provider absence.
+
+The replacement routes by capability on two axes the caller can rate from the brief: how much context
+the child must hold, and how hard its decisions are. Decision difficulty is the gate. `deep-low`
+(`openai-codex/gpt-5.6-sol` medium) is the default lane; `deep-high` (`openai-codex/gpt-6-astra`
+high) takes a goal whose central decision cannot be settled from evidence. `CATEGORY_FALLBACK_CHAINS`
+gives each lane ONE rung and `requiresModel` gates each on its own model id, so the lanes never
+substitute each other and a registry missing one lane drops it from `availableCategories` instead of
+serving the other model under its name. The provider list inside a rung is unchanged, so a single
+provider outage still fails over across `openai-codex` -> `github-copilot` -> `opencode`.
+
+The domain list now lives only on the caller-facing `deep-low` description. The child appends lost it
+(a child never picks its category) and gained the escalation contract: a `deep-low` child returns
+`ESCALATE: deep-high` as the first line, with what it read and the decision it could not settle,
+instead of guessing. `openai-categories.ts` therefore ships four deep appends (GPT and generic per
+lane) resolved by `resolveDeepLowCategoryPromptAppend` / `resolveDeepHighCategoryPromptAppend`; the
+GPT-5.5-specific deep append is gone, since both lanes ship GPT rungs only and the GPT-5.6 doctrine
+(outcome, success criteria, escalation, stop rule) covers Sol and Astra alike.
+
+`omo-senpi-gate-reviewer` routes `["deep-high", "unspecified-high"]`, `omo-senpi-qa-executor`
+`["deep-low", "unspecified-low"]`. The telemetry `category_config` schema swaps `cat_deep` for
+`cat_deep_low` / `cat_deep_high`; `delegation_completed.category` derives from
+`BUILTIN_CATEGORY_DEFAULTS` and needed no edit. The `deep-work` model profile now deep-equals
+`deep-high ++ deep-low` instead of the single old chain.
+
+## `categories.deep` migrates once, and does nothing to configs that never used it
+
+`omo-config-core` gains `canonicalizeLegacyCategoryNames`, which rewrites a retired category key
+(`categories.deep`) and a retired category VALUE (`teams.*.members[].category`,
+`memory.reflection.category`) through the base block, `[senpi]`/`[opencode]`/`[codex]`, and every
+`profiles.*` and its harness sub-block. The loader runs it per layer before merge and reports a
+`deprecated-keys` diagnostic, which `config-startup` already surfaces as a startup warning. That is
+what keeps an override working when the file rewrite cannot run (locked batch, read-only project
+file). When both `deep` and `deep-low` exist the canonical entry wins and the drop is reported.
+
+The file rewrite is the new `2026-09-category-deep-split` plan in `config-migration`. Because the
+reasoning-unification plan taught us that a `replace-target` plan writes a backup and a `_migrations`
+marker even when the transform is a no-op, `MigrationPlan` gains `shouldRun`, a content gate that
+`batch.ts` evaluates against the parsed target before the journal, the backup and the write. The new
+plan passes `hasLegacyCategoryNames`, so a config that never named `deep` is left byte-identical with
+no marker - asserted in `migration/should-run.test.ts` by `operations` carrying no write or rename.
+
+The name also resolves at runtime: `validateTaskTarget` canonicalizes the spawn boundary (so the task
+record, telemetry and renderers all carry the name that ran), and both edition resolvers accept the
+retired name, so `task(category: "deep")` in a third-party skill or an AGENTS.md keeps working.
+
+## Daemon-host QA gates observe product transitions, not parent timing
+
+The single-parent control keeps its sixteen-session and single-daemon requirements but waits for
+readiness with the loaded-host allowance. Detach/attach uses two release barriers and resumes the
+original parent session; its gate checks child completion, a persisted resume response and no prompt
+replay rather than requiring the resident parent process to exit within an observation window.
+The second barrier keeps children mid-turn until reattachment, and the resumed parent waits for their
+terminal records before ending its own turn.
+
+Team QA follows the member's stored identity, matches its daemon context and checks delivery of the
+specific mailbox message. Parking QA explicitly authorizes its new sender, checks the revival epoch
+and waits for the same child transcript to contain both the message and its completed response.
+Its acceptance evidence is the persisted `revived` tool result, not the sender process's exit timing.
+The zombie scenario runs a finite workload and counts successful, distinct bash receipts from all
+eight children, not how many remain running after the storm ends. Missing work, a dead daemon,
+zombies, wrong identities and replay still fail their gates.
+
+Self-tests cover healthy terminal states and fault controls. State waits subscribe before triggering
+work. QA no longer reads real agent credentials for digest comparisons; child environments remain
+isolated and each scenario records process and sandbox cleanup.
+
+Fan-out fixtures keep the parent turn active until the cohort is observed. A/A1 still reject a
+terminal aborted/error child transcript even if its store incorrectly appears active and the worker
+count is sufficient. A separate diagnostic captures paired store/transcript snapshots and a bounded
+convergence observation for the graceful-shutdown suspension behavior tracked in #8517; this harness
+change does not change that product behavior.
+
+The daemon lane now owns its mock provider. Its step cursor comes from each conversation's tool-call
+receipts and the current script, so eight in-process children cannot consume one another's steps.
+The shared `task-e2e-mock-provider.ts` is unchanged. An interleaved eight-child regression requires
+all 200 steps and verifies that a replacement script starts at its first step.
+
+Failed-task evidence retains the exact record, the last assistant entry, correlated provider abort
+signals, `agent_end` abort fields, session shutdown events and the driver's teardown boundary.
+An observed `toolUse` stop reason alone is not labeled an intrinsic engine failure.
+
+## The fallback-architect nudge arms on any refusal-driven fallback
+
+`detection.ts` no longer exports `isFableFiveModel`. The exact-id equality it provided was the arming gate
+in `index.ts`, so only a session whose refusing model was literally `claude-fable-5` ever received the
+directive, and `claude-fable-5-1` - the id the shipped architect category itself resolves to - missed it.
+The `model_select` handler now arms on the refusal signal alone: `source === "fallback"`, a previous model
+in the payload, and the refusal predicate on the preceding assistant message, behind the unchanged
+architect-category gate and the unchanged `omo-senpi-fallback-architect-disabled` flag. A second refusal on
+the fallback model therefore arms a fresh directive naming the new pair, which is what the reminder must
+say once the session has moved twice.
+
+Two consequences ride along. The active episode used to clear when the newly selected model was fable 5; it
+now clears when the session returns to the selector that was refused, or on `source === "fallback-revert"`.
+And `directive.ts` gained `isFableFiveSelector`, a copy-only predicate: the consultant is Fable 5 whoever
+refused, but "the same model that just refused" holds only for a fable-family refusal, so that clause is
+conditional now and the mirrored tip line no longer names Fable 5 as the refuser.
+
+## Console-subsystem spawns are hidden on win32, and a gate keeps them that way
+
+`memory-core`'s git exec and its process-start identity probe, plus the adapter's formatter, thread
+worktree-root lookup, init-deep git plumbing and memory sandbox probe, now pass `windowsHide: true`.
+memory-core carried none at all, so every memory auto-commit spawned a visible `git.exe` console and
+every PowerShell start-time fallback spawned a visible `powershell.exe` console, both of which
+Windows foregrounds. On a Node runtime that PowerShell fallback is the steady-state path, because
+the kernel32 reader it falls back from is reached through `bun:ffi`.
+
+The audit meant to catch this matched `spawn(` and `spawnSync(` over three hand-listed files under
+`memory/worker`, so it could see neither the `exec*` family nor any file outside that list. Two
+gates replace it: `packages/memory-core/src/windows-console-hide.test.ts` and the root gate
+`packages/omo-senpi/src/windows-console-hide.test.ts`. Each resolves the child_process entry points
+a file actually imports, aliases included, and walks its whole source tree. A foreground process
+that must keep the user's console opts out with a `windowsHide-exempt:` comment at the call site,
+which is how `install/local-launcher.ts` stays exempt without reopening the hole.
+
+## Package-provided extensions reach process task children
+
+The process task runner now carries the parent's loaded package extension paths into a child when
+they are not already covered by argv extensions. It discovers configured package roots without
+changing the existing argv extension base, so package-provided providers remain available to the
+child while agent-directory and project extensions stay out of the child profile.
+
+## `task-host-e2e.mjs`: live QA for daemon-hosted task children
+
+`scripts/qa/task-host-e2e.mjs` drives a REAL compiled omo binary against a throwaway sandbox and asks
+whether a `process` child actually lives as a session of `omo daemon`. It follows `task-rpc-e2e.mjs`'s
+isolation model with two additions the compiled binary forces: all THREE agent-dir names are pointed at
+the sandbox (the binary reads `OMO_` first, so setting only `SENPI_` hands it the real agent dir), and
+`HOME` is a sandbox dir before the FIRST call, because the binary provisions its runtime under
+`$HOME/.omo/binary-runtime/<ver>/`. The daemon loads extensions only from its launch spec, and the spec
+refuses absolute paths, so the keyless mock provider is copied into the sandbox's provisioned plugin
+root and added there - the repo and every real install are untouched.
+
+Scenarios A (two parents x 16 children on one daemon), B (detach/attach), C/C2 (team members, parking),
+D (DAG child toolset), E/E2/E3/E4 (generation handoff), F (zombie budget), G (CLI exit codes + a tmux
+pty attach), H/H2 (a pre-wave-2 host, a fail-closed legacy client) and I (the default-mode rule) each
+write a JSON result, a transcript and a cleanup receipt. A scenario whose input this machine does not
+have - a second build of a newer epoch, a spec-less newer senpi, a pre-change engine CLI, a DAG-run
+driver - reports `skipped` with the exact command that would run it, never a pass. `--baseline` records
+what the current mainline omob does instead, and `--self-test` proves the harness itself without a
+binary.
+
+The busy-child fixture is load-bearing and easy to get wrong, so `--self-test` pins its contract.
+Its step must call a tool the child can COMPLETE on this engine - `bash` is eval-only (a direct
+call is refused instantly) and `eval` aborts at startup in a mock-provider child, so it is `read`
+- against a file that does NOT carry the prompts, because a tool result echoing the child's own
+prompt reads as a prompt replay. It must take TIME, which `step.delayMs` supplies rather than any
+tool's own latency. And it must END with a text step: the mock provider repeats its LAST step, so
+a script that ends on a tool call never frees its concurrency slot and the sessions the host
+should accumulate never open. A child's transcripts live under `children/<id>/sessions/<id>/`;
+the flat `sessions/<id>/` layout is older and is read only as a fallback.
+
+## daemon-launch-spec.json ships in every payload
+
+The task daemon's launch spec was generated at build time but reached only the source tree: the
+native payload copies root-level files from an allowlist, the npm plugin publishes from `files`, and
+neither listed it, so every installed `omo daemon run` exited 5 with "launch spec missing". It is on
+both lists now and on `REQUIRED_PLUGIN_ARTIFACTS`, so a payload without it fails the build.
+
+## 2026-09-19 - The daemon-host QA fixture matches the engine it drives again
+
+### What changed
+
+The busy-child fixture and the transcript readers, after four live matrix runs against a compiled
+binary found four independent drifts (the contract is now stated at the top of this file and
+pinned by `--self-test`): `CHILD_BUSY` called `bash` directly; it read the prompt-bearing
+`mock-script.json`; it never terminated; and `childSessionFiles` / `childStartDiagnosis` read only
+the flat session layout. `task-e2e-mock-provider.ts` gained `step.delayMs` (abort-aware).
+
+### Why
+
+`bash` is eval-only on this engine and the mock repeats its last step, so the child spun at 100%
+of the host's single loop: every sibling `open_session` failed `host_unavailable`, the socket
+stopped answering (`get_protocol_info` unanswered for 5 s while `daemon status` reported
+`reachable:false` for a live host), and the run stalled for 13 minutes. With the flat-layout
+reader, transcripts that had thousands of lines counted as 0, so every transcript assertion in A,
+B and C was blind. The driver could not reach its own assertions.
+
+### Impact
+
+QA-only; nothing here ships to users. On the same binary the fixed harness shows one daemon
+identity, no per-child `--mode rpc` process, zero zombies, 32 children admitted with zero errors,
+and children still working - transcripts growing - after their parent is SIGKILLed.
+
+## 2026-09-17 — Process children go to the shared daemon, and the plugin gates itself per session
+
+`DEFAULT_RUNNER_FACTORIES.process` now builds an `RpcHostRunner` (children as sessions of the
+machine-wide daemon) with the per-child `RpcProcessRunner` as its loud fallback. `process_runner:
+"child-process"` and win32 keep the per-child runner; both inputs are injectable on
+`RunnerBuildContext` (`platform`, `agentDir`, `env`, `onHostWarning`) so the selection is testable
+without pretending to run on Windows.
+
+`host-execution-mode.ts` owns this session's daemon wiring: the gate that answers
+`default_execution_mode: "auto"` (ensure once, read the capabilities, fail closed to in-process) and
+the deduped notice list the gate and the runner share. Each distinct `host_unavailable:<reason>` is
+logged once and appears once in `task_output`, so the parent learns why its children are not daemon
+sessions without reading a log file.
+
+Session-role gating replaces the process-wide env checks: the task component registers nothing for a
+`dag_child` (parity with the per-child launch, which drops omo's own `-e` entry for DAG children) or
+a `member` session, the session-start process sweep skips any child session, and a memory run is
+one-shot when the session says it is a child. Every one of them falls back to the old environment
+variables for the per-child process runner.
+
+## 2026-09-17 — the residency registry reads the runner's kind, not the pid
+
+`components/task/residency-registry.ts` used to derive a resident's kind from `handle.pid`
+(`undefined` meant in-process). A child that is a SESSION of the shared daemon also has no pid, so
+it was classified in-process — and `terminate()` for an in-process resident is a deliberate no-op.
+Cancel, eviction and the TTL sweep therefore left the daemon session running with nobody attached.
+The kind now comes from `ManagedChildHandle.kind`, which the runner adapters set; a handle from
+before that field shipped is in-process by construction.
+
+## 2026-09-17 — the thread surface reads the shared task-daemon socket resolver
+
+`components/thread/live-surface.ts` no longer spells out its own socket-name list. `THREAD_SOCKET_ENV_NAMES`
+is now the list exported by `senpi-task`'s `runners/rpc-host/daemon.ts`, and `resolveThreadSocket`
+delegates to `resolveTaskHostSocket(env, resolveAgentHome({ env }))`. Precedence and the
+`<agentDir>/rpc/rpc.sock` fallback are unchanged; the point is that the thread tools and the shared
+task daemon can no longer disagree about which socket the machine's engine host listens on.
+
+## 2026-09-17 — the absent-path bwrap rebind is synchronous again, and exit-time containment blocks
+
+Making the session-reachable probes async left two contracts of the memory component broken.
+
+`defaultProbe` in `sandbox-platform.ts` became `async`, so it returned a Promise even for the
+branch that deliberately spawns nothing: an executable a test's injected `which` resolved to a
+path that does not exist on this machine. `buildPathSandboxTransform` reads the probe's
+Promise-ness as "defer the verdict", so a Linux transform built over a runtime write dir that
+does not exist yet stopped returning its `--bind` arguments and returned a Promise instead - the
+rebind of the absent path was no longer in the built arguments at all. Only the branch that
+actually spawns bwrap is async now; the existence gate answers synchronously, so a seam-resolved
+executable keeps a synchronous transform while a real `/usr/bin/bwrap` is still probed off the
+event loop.
+
+The supervisor's hard termination lost its synchronous form, and with it the `process.once("exit")`
+containment. `spawnTerminationCommand` in `worker/supervisor-process-identity.ts` takes
+`synchronous` again and `runSupervisor` passes it from the exit handler alone. An exit handler
+cannot await, and the "error" event of an async child is queued on a loop that never turns again:
+measured on bun 1.4.2, a taskkill spawned there finishes only after the supervisor is gone, and one
+that cannot be spawned at all (`ENOENT`) writes nothing anywhere. The blocking form finishes before
+the supervisor exits and throws that `ENOENT` into the containment's own `catch`, which is what puts
+it on the run's stderr. Every other caller - the signal handlers, the deadline hard kill, the
+injected posix signal command - stays async. That branch is also the second spawn call
+`worker/windows-console-hide.test.ts` audits for `windowsHide: true`; without it the audit had
+nothing left to check in that file and would have passed on a chain with no taskkill spawn at all.
+
+
+## 2026-09-17 - Defer plugin startup work past the first paint
+
+### What changed
+
+- `src/extension/startup-deferral.ts` (new): `createLazyValue` (construct on first use, with a
+  `constructed` flag a test can assert on) and `createStartupDeferral` (queue work, retire it on
+  session_shutdown), plus `createFirstPaintScheduler` and the `deferUntilAfterFirstPaint` call-site
+  helper.
+- `src/extension/compose.ts` / `types.ts`: compose builds one deferral per activation, hands it to
+  every component as `ComponentContext.deferStartupWork`, and retires it on `session_shutdown`
+  beside the idle coordinator.
+- `src/components/lsp/index.ts`: the mutation formatter is a lazy accessor built on the first
+  `tool_result`; the project-config notice moved onto the deferral. Tools, flags and all four hooks
+  still register eagerly.
+- `src/components/init-deep-advisor/component.ts`, `src/components/telemetry/omo-native-session.ts`:
+  the `session_start` bodies moved onto the deferral; the telemetry one refuses to build a client
+  once `session_shutdown` has landed.
+- `src/components/telemetry/index.ts`: the legacy product config resolves the package version on
+  first capture instead of at module scope.
+
+### Why
+
+- `session_start` is dispatched from inside the engine's `interactiveMode.init`, so everything a
+  handler does synchronously is billed to the phase before the first paint. A plain
+  `setTimeout(…, 0)` does NOT escape it — that phase awaits I/O, so the macrotask fires before init
+  returns (measured: 0 ms saved, where a scheduler that never fired saved 34 ms). The gate opens on
+  the first post-paint host edge or a 750 ms backstop instead.
+
+### Why an extension could not handle it
+
+- This IS the extension; the work is the plugin's own registration and session-binding path.
+
+### Expected merge conflict zones
+
+- LOW: `compose.ts`'s activation sequence (upstream edits the same block when adding seams) and the
+  `ComponentContext` shape in `types.ts`.
+
+## 2026-09-17 — ulw-execute continuation repairs a work its session abandoned
+
+`findContinuableBoulderWork` reads `.omo/boulder.json` on every user input and on
+`agent_settled`, and it used to accept whatever status it found there. A work whose
+session ended abnormally kept `status: "active"` forever, because `completeBoulder`
+is the only transition away from it and it runs only on an explicit completion
+(#8413). The read now starts with `reconcileStaleWorks`, which demotes such a work
+to `paused` and stamps `stale_since` once its last activity - the newest of its
+sessions' transcript mtimes, `updated_at` and `started_at` - is six hours old
+(`OMO_BOULDER_STALE_WORK_THRESHOLD_MS`). A healthy work is never rewritten, and the
+continuation itself is unchanged: `active` and `paused` were both continuable
+before this change and still are.
+
+The transcripts are found through this package's own agent-home resolver, which
+gained `resolveAgentSessionsDirectory(options)` beside `resolveAgentHome` and is now
+reachable as the `@oh-my-opencode/omo-senpi/agent-home` subpath, so the OpenCode
+ulw-execute hook resolves the same directory rather than re-deriving it.
+`boulder-state` takes the directory as an option and resolves no home path itself.
+
+## 2026-09-16 — Kibitzer nudges are reference-only
+
+A recalled note used to arrive with no stated posture, and 54% of the hints
+Kibitzer delivered this month were written as orders to the primary agent
+("verify these before ...", "하지 말아야 합니다"), which is advice the agent did
+not ask for and cannot audit. The injected block now names its sender and its
+posture in the header itself - Kibitzer, a background memory advisor, surfaced
+this stored note; it may or may not apply, reference only, the current task
+stands - in English or Korean according to the hint
+(`packages/memory-core/src/recall/render.ts`). The persona's sample block and the
+renderer are pinned to each other byte for byte by `render.test.ts`, so the judge
+is never shown a block the harness does not produce.
+
+The persona asks for the other half of the contract: a hint states what the
+stored note records ("the note records that ..."), and an instruction to the
+agent joins commentary-only and topical-only nudges as a worked bad example
+(`packages/memory-core/src/recall/assets/kibitzer-persona.md`).
+
+The rule is enforced where nudges are admitted instead of being left to the
+model. `describeInvalidHint` in `packages/memory-core/src/recall/gate.ts` answers
+`addresses-agent` for a hint that carries the second person, opens with an
+imperative or negated imperative, or ends in a Korean request form, next to the
+existing `empty`, `too-long`, `multiline` and `decision-commentary` reasons.
+`validateNudges` drops such a hint on the parent side and the sidecar's `nudge`
+tool refuses it at call time with the reason and the fix - restate what the note
+records as a plain observation - keeping the single correction the tool contract
+allows. Only the opening of the sentence is scanned for imperatives, so an
+observation that quotes a rule mid-sentence ("the release note records that
+publish must follow the green-main guard") is still accepted, as are Korean
+plain-form endings. `isValidHint` deliberately keeps its older shape-only
+meaning: pending payloads and stored `omo-kibitzer:nudged` entries were admitted
+under the contract of their own day, and replaying them must not retroactively
+drop a nudge that is already on screen (#8355).
+
+## 2026-09-16 — memory_notice reports only messages compacted out of the live context
+
+`<memory_notice>` told every session that N previous messages had left the live context, with N read
+off `sessionManager.getBranch().length`. The branch is the whole path to the leaf, not what the
+compaction dropped, so a fresh session of fifteen entries and zero compactions announced that twelve
+of its own live messages were gone. The count now comes from the branch's latest compaction entry:
+the `message` entries positioned before its `firstKeptEntryId` - or before the compaction entry
+itself when that id is no longer on the branch - are the ones senpi no longer sends. A branch that
+never compacted counts zero, and a zero count prints no line at all.
+
+The notice is now strictly session-volatile. When the compaction count is zero and there is no save
+nudge and no soul update, the `before_agent_start` handler returns its `systemPrompt` with no message
+at all, so an uncompacted session spends no tokens on a notice that has nothing to report.
+
+The reason the old line existed survives where it belongs. That relevant stored memory arrives on its
+own as `<recalled-memory>` blocks and that there is no recall tool to call are standing facts about
+the toolset, not facts about this turn, so they are one sentence at the end of memory-core's compiled
+REMINDER, present in every prompt whether or not anything compacted. Models still learn there is
+nothing to search for, and they learn it from the block that is always there.
+
+## 2026-09-13 — Project persisted reflection reports into TUI and RPC
+
+Recap projection requires an explicit positive outcome attempt matching the
+ledger. Two omitted attempt IDs are not proof of the same child execution;
+legacy records without that evidence retain their operational notice.
+
+Report and page reads use the existing resilient memory filesystem boundary.
+An interrupted positional report read retries the same explicit offset, retaining
+short-read and file-change checks; it does not become a missing report merely
+because a child-reaping signal interrupted the syscall.
+
+Bundle import normalization preserves `bun` and namespaced specifiers. Bun's
+ambient builtin catalog includes its own modules; prefixing those with `node:`
+made Bun-generated artifacts disagree with the Node-driven CI freshness check.
+Both launchers must generate identical bytes without relaxing artifact checks.
+
+Committed reflection results derive a bounded, attributed report from existing
+run output and matching finalization artifacts. The completion file remains
+unchanged; only the delivered custom entry carries the presentation projection.
+The read-only `omo.memory.reflections` method pages relevant results without
+consuming delivery state. Failed, unchanged and unmerged runs do not become
+learned-memory recaps.
+
+The TUI supports compact and expanded report content without flattening Markdown
+whitespace. The real-runtime QA driver covers actual child commits, exclusions,
+disconnection recovery and source/recipient session switching. Its readiness
+signal is the existing memory binding entry, not an extension-event capability
+that the stdio client did not negotiate.
+
+## 2026-09-13 - Ship the agent toolkit as an eval SDK
+
+Adds `plugin/runtime/agent-toolkit-sdk/sdk.js` at `OMO_AGENT_TOOLKIT_SDK_ROOT`. The SDK imports only Node builtins and binds each call synchronously from `PI_SESSION_ID`, `PI_SESSION_CWD`, and `PI_GOAL_STORE_FILE`; importing it performs no I/O. Missing session facts resolve as operation-tagged failure envelopes. Checkpoints and review blockers use the session's driver snapshot unless explicitly supplied, with authoritative `goal:null` stopping fallback reads. Invalid stores are advisory warnings and are never rewritten.
+
+The host status reader uses the additive `#omo-agent-toolkit-sdk` import map. Build freshness, installer/payload allowlists, node-only input checks, and isolated worker tests cover the new artifact. Generic directory provisioning preserves DAG behavior. This increment retains the old tool registration, runtime alias, and sidecar; their removal is a separate change.
+
 ## 2026-09-12 — Drop the retired agent-name alias notices
 
 The `omo-config:agent-alias-deprecated` startup warning is removed from `components/config-startup/index.ts` together with its `StartupNotice.kind` discriminator: with the alias gone from senpi-task, `agents.metis` / `agents.momus` are ordinary custom agent keys and there is nothing to deprecate. `components/task/dag-lint.ts` no longer warns on a retired `subagent_type`, and `components/telemetry/omo-native-tools.ts` reports the submitted subagent name (a retired id masks to `custom` like any other unknown name) instead of canonicalizing it first. `scripts/qa/plan-gated-agents-e2e.mjs`'s four alias scenarios become `retired-id` / `team-retired` / `dag-retired` / `retired-config`, each asserting the removal on a real senpi process: the retired id never reaches plan-reviewer, team_create names the submitted id, a workflow route keeps it verbatim, the config key defines a custom agent, and no surface prints a deprecation line.

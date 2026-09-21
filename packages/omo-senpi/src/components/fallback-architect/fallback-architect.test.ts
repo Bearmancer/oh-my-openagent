@@ -9,6 +9,7 @@ import { createFallbackArchitectComponent } from "./index"
 import { FALLBACK_ARCHITECT_NOTICE_TYPE } from "./notice"
 
 const FABLE = { provider: "anthropic", id: "claude-fable-5" }
+const FABLE_51 = { provider: "anthropic", id: "claude-fable-5-1" }
 const OPUS = { provider: "anthropic", id: "claude-opus-5" }
 const KIMI = { provider: "kimi-coding", id: "kimi-k3-unlocked" }
 const DISABLED_FLAG = "omo-senpi-fallback-architect-disabled"
@@ -148,13 +149,87 @@ describe("fallback-architect component", () => {
     })
   })
 
-  describe("#given a refusal on a model that is not fable 5", () => {
+  describe("#given a refusal on a dotted fable release the old gate missed", () => {
     describe("#when the session falls back", () => {
-      it("#then nothing is injected", async () => {
+      it("#then it injects the directive naming both models", async () => {
+        const pi = await setup()
+        await endMessage(pi, refusalMessage())
+        await selectModel(pi, { model: OPUS, previousModel: FABLE_51, source: "fallback" })
+
+        const injected = directives(pi)
+        expect(injected).toHaveLength(1)
+        expect(String(injected[0]?.["content"])).toContain("anthropic/claude-fable-5-1")
+        expect(String(injected[0]?.["content"])).toContain("anthropic/claude-opus-5")
+        expect(notices(pi)).toHaveLength(1)
+      })
+
+      it("#then the directive keeps the same-model caveat for the fable family", async () => {
+        const pi = await setup()
+        await endMessage(pi, refusalMessage())
+        await selectModel(pi, { model: OPUS, previousModel: FABLE_51, source: "fallback" })
+        expect(String(directives(pi)[0]?.["content"])).toContain("the same model that just refused")
+      })
+    })
+  })
+
+  describe("#given a refusal on a model outside the fable family", () => {
+    describe("#when the session falls back", () => {
+      it("#then it still injects the directive and the notice", async () => {
         const pi = await setup()
         await endMessage(pi, refusalMessage())
         await selectModel(pi, { model: KIMI, previousModel: OPUS, source: "fallback" })
+
+        expect(directives(pi)).toHaveLength(1)
+        expect(String(directives(pi)[0]?.["content"])).toContain("anthropic/claude-opus-5")
+        expect(String(directives(pi)[0]?.["content"])).toContain("kimi-coding/kimi-k3-unlocked")
+        expect(notices(pi)).toHaveLength(1)
+      })
+
+      it("#then the directive drops the same-model caveat instead of claiming Fable 5 refused", async () => {
+        const pi = await setup()
+        await endMessage(pi, refusalMessage())
+        await selectModel(pi, { model: KIMI, previousModel: OPUS, source: "fallback" })
+
+        const content = String(directives(pi)[0]?.["content"])
+        expect(content).not.toContain("the same model that just refused")
+        expect(content).toContain('task(category: "architect")')
+      })
+
+      it("#then returning to the refused model stops the reminder", async () => {
+        const pi = await setup()
+        await endMessage(pi, refusalMessage())
+        await selectModel(pi, { model: KIMI, previousModel: OPUS, source: "fallback" })
+        await selectModel(pi, { model: OPUS, previousModel: KIMI, source: "set" })
+        await sendInput(pi)
+        expect(reminders(pi)).toHaveLength(0)
+      })
+    })
+
+    describe("#when a fallback carries no previous model", () => {
+      it("#then nothing is injected", async () => {
+        const pi = await setup()
+        await endMessage(pi, refusalMessage())
+        await selectModel(pi, { model: OPUS, source: "fallback" })
         expect(pi.messages).toHaveLength(0)
+      })
+    })
+  })
+
+  describe("#given a second refusal on the fallback model", () => {
+    describe("#when the chain steps down again", () => {
+      it("#then a fresh directive names the new pair", async () => {
+        const pi = await setup()
+        await endMessage(pi, refusalMessage())
+        await selectModel(pi, { model: OPUS, previousModel: FABLE, source: "fallback" })
+        await endMessage(pi, refusalMessage())
+        await selectModel(pi, { model: KIMI, previousModel: OPUS, source: "fallback" })
+
+        const injected = directives(pi)
+        expect(injected).toHaveLength(2)
+        expect(String(injected[1]?.["content"])).toContain("kimi-coding/kimi-k3-unlocked")
+
+        await sendInput(pi)
+        expect(String(reminders(pi)[0]?.["content"])).toContain("anthropic/claude-opus-5")
       })
     })
   })

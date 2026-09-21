@@ -32,7 +32,7 @@ describe("loadSenpiOmoConfig", () => {
     writeConfig(home, {
       categories: {
         quick: { model: "kimi-coding/kimi-for-coding-highspeed-unlocked", reasoningEffort: "minimal" },
-        deep: { fallback_models: ["openai-codex/gpt-5.6-terra"] },
+        "deep-low": { fallback_models: ["openai-codex/gpt-5.6-terra"] },
       },
       agents: {
         explore: { model: "kimi-coding/kimi-for-coding-highspeed", models: ["openai-codex/gpt-5.6-luna-fast"] },
@@ -47,7 +47,7 @@ describe("loadSenpiOmoConfig", () => {
     expect(result.diagnostics).toEqual([])
     expect(result.config.categories).toEqual({
       quick: { model: "kimi-coding/kimi-for-coding-highspeed-unlocked", reasoning: "minimal" },
-      deep: { fallback_models: ["openai-codex/gpt-5.6-terra"] },
+      "deep-low": { fallback_models: ["openai-codex/gpt-5.6-terra"] },
     })
     expect(result.config.agents).toEqual({
       explore: { model: "kimi-coding/kimi-for-coding-highspeed", models: ["openai-codex/gpt-5.6-luna-fast"] },

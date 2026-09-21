@@ -177,14 +177,18 @@ describe("sisyphus-task", () => {
       expect(category.variant).toBe("max")
     })
 
-    test("deep category has model and variant config", () => {
+    test("the deep lanes each carry their own model and variant config", () => {
       // given
-      const category = DEFAULT_CATEGORIES["deep"]
+      const low = DEFAULT_CATEGORIES["deep-low"]
+      const high = DEFAULT_CATEGORIES["deep-high"]
 
       // when / #then
-      expect(category).toBeDefined()
-      expect(category.model).toBe("openai/gpt-6-astra")
-      expect(category.variant).toBe("high")
+      expect(low).toBeDefined()
+      expect(low.model).toBe("openai/gpt-5.6-sol")
+      expect(low.variant).toBe("medium")
+      expect(high).toBeDefined()
+      expect(high.model).toBe("openai/gpt-6-astra")
+      expect(high.variant).toBe("high")
     })
 
     test("unspecified-high category uses GPT-6 Astra high as primary", () => {
@@ -869,9 +873,9 @@ describe("sisyphus-task", () => {
       expect(result?.model).toBe("anthropic/claude-fable-5-1")
     })
 
-    test("returns null for deep when neither gpt-6-astra nor gpt-5.6-sol is available and no user config overrides it", () => {
+    test("returns null for deep-high when neither gpt-6-astra nor gpt-5.6-sol is available and no user config overrides it", () => {
       // #given
-      const categoryName = "deep"
+      const categoryName = "deep-high"
       const availableModels = new Set<string>(["anthropic/claude-opus-4-7"])
 
       // #when
@@ -884,9 +888,9 @@ describe("sisyphus-task", () => {
       expect(result).toBeNull()
     })
 
-    test("keeps deep available with its builtin gpt-6-astra high config when only the gpt-5.6-sol gate model is present", () => {
-      // #given: the gate opens on either flagship; the runtime chain later lands the sol rung
-      const categoryName = "deep"
+    test("keeps deep-low available on its own sol gate model", () => {
+      // #given: each lane is a single rung gated on its own model, so sol opens deep-low only
+      const categoryName = "deep-low"
       const availableModels = new Set<string>(["openai/gpt-5.6-sol"])
 
       // #when
@@ -897,13 +901,14 @@ describe("sisyphus-task", () => {
 
       // #then
       const resolved = expectResolvedCategoryConfig(result)
-      expect(resolved.config.model).toBe("openai/gpt-6-astra")
-      expect(resolved.config.variant).toBe("high")
+      expect(resolved.config.model).toBe("openai/gpt-5.6-sol")
+      expect(resolved.config.variant).toBe("medium")
+      expect(resolveCategoryConfig("deep-high", { systemDefaultModel: SYSTEM_DEFAULT_MODEL, availableModels })).toBeNull()
     })
 
-    test("keeps deep available when only gpt-6-astra is present", () => {
+    test("keeps deep-high available when only gpt-6-astra is present", () => {
       // #given
-      const categoryName = "deep"
+      const categoryName = "deep-high"
       const availableModels = new Set<string>(["openai/gpt-6-astra"])
 
       // #when
@@ -3364,8 +3369,8 @@ describe("sisyphus-task", () => {
   })
 
   describe("browserProvider propagation", () => {
-    test("should resolve agent-browser skill when browserProvider is passed", async () => {
-      // given - task configured with browserProvider: "agent-browser"
+    test("should resolve dev-browser skill when browserProvider is passed", async () => {
+      // given - task configured with an alternate browser provider
       const { createDelegateTask } = require("./tools")
       let promptBody: CapturedPromptBody = {}
 
@@ -3395,7 +3400,7 @@ describe("sisyphus-task", () => {
        const tool = createDelegateTask({
          manager: mockManager,
          client: mockClient,
-         browserProvider: "agent-browser",
+         browserProvider: "dev-browser",
        })
 
       const toolContext = {
@@ -3405,34 +3410,34 @@ describe("sisyphus-task", () => {
         abort: new AbortController().signal,
       }
 
-      // when - request agent-browser skill
+      // when - request dev-browser skill
       await tool.execute(
         {
           description: "Test browserProvider propagation",
           prompt: "Do something",
           category: "ultrabrain",
           run_in_background: false,
-          load_skills: ["agent-browser"],
+          load_skills: ["dev-browser"],
         },
         toolContext
       )
 
-      // then - agent-browser skill should be resolved
+      // then - dev-browser skill should be resolved
       expect(promptBody).toBeDefined()
       expect(promptBody.system).toBeDefined()
       expect(promptBody.system).toContain("<Category_Context>")
       expect(String(promptBody.system).startsWith("<Category_Context>")).toBe(false)
     }, { timeout: 20000 })
 
-    test("should resolve configured agent-browser skill when browserProvider is not set", async () => {
+    test("should resolve a configured custom browser skill when browserProvider is not set", async () => {
       // given - delegate_task without browserProvider
       const { createDelegateTask } = require("./tools")
       const nativeSkills = {
         all: async () => [{
-          name: "agent-browser",
+          name: "custom-browser",
           description: "Browser automation skill",
-          location: "/native/agent-browser/SKILL.md",
-          content: "Agent browser instructions",
+          location: "/native/custom-browser/SKILL.md",
+          content: "Custom browser instructions",
         }],
         get: async () => undefined,
       }
@@ -3468,14 +3473,14 @@ describe("sisyphus-task", () => {
         abort: new AbortController().signal,
       }
 
-      // when - request agent-browser skill without browserProvider
+      // when - request custom browser skill without browserProvider
       const result = await tool.execute(
         {
           description: "Test missing browserProvider",
           prompt: "Do something",
           category: "ultrabrain",
           run_in_background: false,
-          load_skills: ["agent-browser"],
+          load_skills: ["custom-browser"],
         },
         toolContext
       )

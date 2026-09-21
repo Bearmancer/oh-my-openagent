@@ -18,6 +18,12 @@ export { OmoHarnessIdSchema }
 
 export const OmoOpenCodeHarnessConfigSchema = z.record(z.string(), z.unknown())
 
+/**
+ * Canonical skill denylist. Names listed here are absent from the run on every harness that
+ * loads the skill; layers (user, project, `[harness]`, profile) are unioned, never replaced.
+ */
+export const OmoDisabledSkillsSchema = z.array(z.string())
+
 export const OmoTypedHarnessConfigSchema = z.object({
   formatOnMutation: OmoFormatOnMutationLayerSchema.optional(),
   categories: OmoCategoriesConfigSchema.optional(),
@@ -31,6 +37,7 @@ export const OmoTypedHarnessConfigSchema = z.object({
   memory: OmoMemorySettingsLayerSchema.optional(),
   telemetry: OmoTelemetrySettingsLayerSchema.optional(),
   side_panel: OmoSidePanelSettingsLayerSchema.optional(),
+  disabled_skills: OmoDisabledSkillsSchema.optional(),
 }).strict()
 
 export const OmoConfigProfileSchema = z.object({
@@ -46,6 +53,7 @@ export const OmoConfigProfileSchema = z.object({
   memory: OmoMemorySettingsLayerSchema.optional(),
   telemetry: OmoTelemetrySettingsLayerSchema.optional(),
   side_panel: OmoSidePanelSettingsLayerSchema.optional(),
+  disabled_skills: OmoDisabledSkillsSchema.optional(),
   "[opencode]": OmoOpenCodeHarnessConfigSchema.optional(),
   "[senpi]": OmoTypedHarnessConfigSchema.optional(),
   "[codex]": OmoTypedHarnessConfigSchema.optional(),
@@ -65,6 +73,7 @@ export const OmoConfigSchema = z.object({
   memory: OmoMemorySettingsSchema.optional(),
   telemetry: OmoTelemetrySettingsSchema.optional(),
   side_panel: OmoSidePanelSettingsSchema.optional(),
+  disabled_skills: OmoDisabledSkillsSchema.optional(),
   "[opencode]": OmoOpenCodeHarnessConfigSchema.optional(),
   "[senpi]": OmoTypedHarnessConfigSchema.optional(),
   "[codex]": OmoTypedHarnessConfigSchema.optional(),
@@ -87,6 +96,7 @@ export const OmoConfigLayerSchema = z.object({
   memory: OmoMemorySettingsLayerSchema.optional(),
   telemetry: OmoTelemetrySettingsLayerSchema.optional(),
   side_panel: OmoSidePanelSettingsLayerSchema.optional(),
+  disabled_skills: OmoDisabledSkillsSchema.optional(),
   "[opencode]": OmoOpenCodeHarnessConfigSchema.optional(),
   "[senpi]": OmoTypedHarnessConfigSchema.optional(),
   "[codex]": OmoTypedHarnessConfigSchema.optional(),

@@ -143,13 +143,14 @@ When the plan annotates a todo with `Recommended task executor category:`, follo
 | `visual-engineering` (medium) | frontend, UI/UX, styling, animation |
 | `writing` (low) | documentation and prose |
 | `git` (low) | git operations |
-| `deep` (high) | hairy debugging, research-heavy or subtle cross-module work |
+| `deep-low` (medium) | hairy debugging, research-heavy or subtle cross-module work the worker can settle from what it reads |
+| `deep-high` (high) | the same, when the central decision cannot be settled from evidence: a trade-off, a cross-package contract, or correctness argued from invariants |
 | `ultrabrain` (high) | ONE genuinely hard, logic-heavy problem — hand it the goal, not step-by-step instructions |
 
 Sizing is a two-branch decision made per checkbox, before dispatch:
 
 - **Splittable work splits.** When the checkbox decomposes into independent pieces, dispatch them as a swarm of `quick`/`unspecified-low` workers in ONE parallel burst — many small cheap workers in parallel beat one large delegation.
-- **Cohesive hard work stays whole.** When splitting would sever shared reasoning (one algorithm, one migration, one subtle bug), send the WHOLE problem to `deep` or `ultrabrain` as ONE delegation. Never force-split work whose parts share one insight.
+- **Cohesive hard work stays whole.** When splitting would sever shared reasoning (one algorithm, one migration, one subtle bug), send the WHOLE problem to `deep-low`, `deep-high` or `ultrabrain` as ONE delegation. Never force-split work whose parts share one insight.
 
 Each sub-task message must include:
 
@@ -160,7 +161,7 @@ Each sub-task message must include:
 5. One Manual-QA channel, named with the exact tool and exact invocation (the literal `curl`, `send-keys`, `browser:control-in-app-browser` action, `page.click`, payload, selectors, and the binary observable that decides PASS/FAIL), not "verify it works". A LIGHT checkbox needs one real-surface proof of its deliverable, and auxiliary surfaces (CLI stdout, DB state diff, parsed config dump) are first-class when the surface is CLI- or data-shaped:
    - HTTP call: `curl -i` against the live endpoint.
    - Terminal / TUI: drive a real pty; `tmux send-keys` is fine for a boot/behavior smoke, but color/layout/CJK evidence goes through the xterm.js web terminal below, NEVER `tmux capture-pane`.
-   - Browser use: prefer the harness's in-app browser control when available and the scenario does not need an authenticated or persistent user browser profile; otherwise drive the real page with Chrome, or agent-browser (https://github.com/vercel-labs/agent-browser) when Chrome is unavailable.
+   - Browser use: from js eval, use `new Bun.WebView()` on Bun >= 1.4 (macOS default; Linux/Windows need Chrome/Chromium/Edge). Otherwise, or for Chrome semantics, stealth, trace, or auth, write and run a `playwright-core` script against local Chrome (`channel: "chrome"`; persistent context on a CLONED profile). Codex: `browser:control-in-app-browser` for ordinary page control.
    - Computer use: OS-level GUI automation against the running desktop app when the surface is not a page.
    - TUI visual evidence: when a TUI claim needs visual QA or PR proof, run `bun script/qa/web-terminal-visual-qa.mjs --command "<cmd>" --input "{Enter}" --evidence-dir <dir>` (real pty rendered through xterm.js in Chrome) and attach `terminal.png` plus `metadata.json`.
 6. The adversarial classes that apply to this sub-task (from the 9 ultraqa classes) and how each is probed.

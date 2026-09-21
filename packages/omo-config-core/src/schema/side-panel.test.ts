@@ -19,6 +19,7 @@ describe("omo config side_panel section", () => {
     expect(result.data.side_panel?.usage_poll_seconds).toBe(150)
     expect(result.data.side_panel?.sections).toEqual({
       session: true,
+      goal: true,
       context: true,
       usage: true,
       agents: true,

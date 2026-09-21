@@ -35,7 +35,27 @@ describe("fallback-architect directive", () => {
         expect(directive).toContain('task(category: "architect")')
       })
 
+      it("#then it keeps the same-model caveat because a fable release refused", () => {
+        expect(directive).toContain("the same model that just refused")
+      })
 
+
+    })
+
+    describe("#when the refusing model is outside the fable family", () => {
+      const directive = buildFallbackArchitectDirective({
+        from: "anthropic/claude-opus-5",
+        to: "kimi-coding/kimi-k3-unlocked",
+      })
+
+      it("#then it still names the architect consultant", () => {
+        expect(directive).toContain("The architect consultant is Fable 5")
+        expect(directive).toContain('task(category: "architect")')
+      })
+
+      it("#then it does not claim the consultant is the model that just refused", () => {
+        expect(directive).not.toContain("the same model that just refused")
+      })
     })
 
     describe("#when the compact reminder is built", () => {

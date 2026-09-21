@@ -44,8 +44,9 @@
     // Architecture consult lane: task(category: "architect")
     "architect": { "model": "anthropic/claude-fable-5-1", "reasoning": "max" },
 
-    // Deep research and analysis
-    "deep": { "model": "openai/gpt-6-astra", "reasoning": "high" },
+    // Deep research and analysis: the default lane, then the escalation lane
+    "deep-low": { "model": "openai/gpt-5.6-sol", "reasoning": "medium" },
+    "deep-high": { "model": "openai/gpt-6-astra", "reasoning": "high" },
 
     // Strategic reasoning
     "ultrabrain": { "model": "openai/gpt-6-astra", "reasoning": "max" },

@@ -13,7 +13,7 @@
     "librarian": { "model": "openai/gpt-5.6-luna-fast", "reasoning": "low" },
 
     // Pre-planning consultant: minimal overhead for coding plans
-    "plan-consultant": { "model": "anthropic/claude-sonnet-4-6" },
+    "plan-consultant": { "model": "anthropic/claude-sonnet-5" },
 
     // Plan reviewer: code quality, edge cases, and test coverage
     "plan-reviewer": {
@@ -39,8 +39,9 @@
     // Architecture consult lane: task(category: "architect")
     "architect": { "model": "anthropic/claude-fable-5-1", "reasoning": "max" },
 
-    // Deep autonomous work
-    "deep": { "model": "openai/gpt-6-astra", "reasoning": "high" },
+    // Deep autonomous work: the default lane, then the escalation lane
+    "deep-low": { "model": "openai/gpt-5.6-sol", "reasoning": "medium" },
+    "deep-high": { "model": "openai/gpt-6-astra", "reasoning": "high" },
 
     // Hard reasoning problems
     "ultrabrain": { "model": "openai/gpt-6-astra", "reasoning": "max" },

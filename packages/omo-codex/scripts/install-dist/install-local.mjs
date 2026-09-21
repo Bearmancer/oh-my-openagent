@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// omo-codex-install:6df5dbbbb7ca9b9dce86fae98a525a9caa7de96caed85a4b77d4e8b4ab4d1501:2eadf9a8f707e37de3ebdc7c93549f35fe264495bb42faa16e3071f2e426ea01
+// omo-codex-install:6df5dbbbb7ca9b9dce86fae98a525a9caa7de96caed85a4b77d4e8b4ab4d1501:22d5be94e5d18d210fd29271002ead106586ea0f47260699758540fc8993779b
 var __esm = (fn, res, err) => () => {
   if (fn)
     try {
@@ -106,37 +106,82 @@ var init_atomic_write = __esm(() => {
   ]);
 });
 
+// packages/telemetry-core/src/day-claim.ts
+import { closeSync as closeSync2, mkdirSync as mkdirSync2, openSync as openSync2, readdirSync, rmSync as rmSync2 } from "node:fs";
+import { join as join33 } from "node:path";
+function getTelemetryDayClaimFilePath(stateDir, dayUTC) {
+  return join33(stateDir, `${CLAIM_PREFIX}${dayUTC}${CLAIM_SUFFIX}`);
+}
+function claimUtcDay(stateDir, dayUTC) {
+  try {
+    mkdirSync2(stateDir, { recursive: true });
+    closeSync2(openSync2(getTelemetryDayClaimFilePath(stateDir, dayUTC), "wx"));
+  } catch (error) {
+    return error.code === "EEXIST" ? "already-claimed" : "unavailable";
+  }
+  pruneSupersededClaims(stateDir, dayUTC);
+  return "claimed";
+}
+function pruneSupersededClaims(stateDir, dayUTC) {
+  const currentClaim = `${CLAIM_PREFIX}${dayUTC}${CLAIM_SUFFIX}`;
+  let entries;
+  try {
+    entries = readdirSync(stateDir);
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (entry === currentClaim)
+      continue;
+    if (!entry.startsWith(CLAIM_PREFIX) || !entry.endsWith(CLAIM_SUFFIX))
+      continue;
+    try {
+      rmSync2(join33(stateDir, entry), { force: true });
+    } catch {}
+  }
+}
+var CLAIM_PREFIX = "daily-active.", CLAIM_SUFFIX = ".claim";
+var init_day_claim = () => {};
+
 // packages/telemetry-core/src/activity-state.ts
-import { existsSync as existsSync5, mkdirSync as mkdirSync2, readFileSync as readFileSync3 } from "node:fs";
-import { basename as basename6, join as join33 } from "node:path";
+import { existsSync as existsSync5, mkdirSync as mkdirSync3, readFileSync as readFileSync3 } from "node:fs";
+import { basename as basename6, join as join34 } from "node:path";
 function resolveTelemetryStateDir(product, options = {}) {
   const dataDir = resolveXdgDataDir(product.cacheDirName, {
     env: options.env,
     osProvider: options.osProvider
   });
-  const xdgStateDir = options.env?.XDG_DATA_HOME === undefined ? undefined : join33(options.env.XDG_DATA_HOME, product.cacheDirName);
+  const xdgStateDir = options.env?.XDG_DATA_HOME === undefined ? undefined : join34(options.env.XDG_DATA_HOME, product.cacheDirName);
   if (dataDir === xdgStateDir || xdgStateDir === undefined && basename6(dataDir) === product.cacheDirName) {
     return dataDir;
   }
-  return join33(dataDir, product.cacheDirName);
+  return join34(dataDir, product.cacheDirName);
 }
 function getTelemetryActivityStateFilePath(stateDir) {
-  return join33(stateDir, POSTHOG_ACTIVITY_STATE_FILE);
+  return join34(stateDir, POSTHOG_ACTIVITY_STATE_FILE);
 }
 function getDailyActiveCaptureState(input) {
-  const state = readPostHogActivityState(input.stateDir, input.diagnostics);
   const dayUTC = getUtcDayString(input.now ?? new Date);
-  const captureDaily = state.lastActiveDayUTC !== dayUTC;
-  if (captureDaily) {
+  if (capturedDaysByStateDir.get(input.stateDir) === dayUTC) {
+    return { dayUTC, captureDaily: false };
+  }
+  const state = readPostHogActivityState(input.stateDir, input.diagnostics);
+  if (state.lastActiveDayUTC === dayUTC) {
+    capturedDaysByStateDir.set(input.stateDir, dayUTC);
+    return { dayUTC, captureDaily: false };
+  }
+  const claim = claimUtcDay(input.stateDir, dayUTC);
+  capturedDaysByStateDir.set(input.stateDir, dayUTC);
+  if (claim === "already-claimed") {
+    return { dayUTC, captureDaily: false };
+  }
+  if (claim === "claimed") {
     writePostHogActivityState(input.stateDir, {
       ...state,
       lastActiveDayUTC: dayUTC
     }, input.diagnostics);
   }
-  return {
-    dayUTC,
-    captureDaily
-  };
+  return { dayUTC, captureDaily: true };
 }
 function getUtcDayString(date) {
   return date.toISOString().slice(0, 10);
@@ -169,7 +214,7 @@ function readPostHogActivityState(stateDir, diagnostics) {
 function writePostHogActivityState(stateDir, nextState, diagnostics) {
   const stateFilePath = getTelemetryActivityStateFilePath(stateDir);
   try {
-    mkdirSync2(stateDir, { recursive: true });
+    mkdirSync3(stateDir, { recursive: true });
     writeFileAtomically(stateFilePath, `${JSON.stringify(nextState, null, 2)}
 `);
   } catch (error) {
@@ -181,26 +226,28 @@ function writePostHogActivityState(stateDir, nextState, diagnostics) {
     });
   }
 }
-var POSTHOG_ACTIVITY_STATE_FILE = "posthog-activity.json";
+var POSTHOG_ACTIVITY_STATE_FILE = "posthog-activity.json", capturedDaysByStateDir;
 var init_activity_state = __esm(() => {
   init_atomic_write();
   init_xdg_data_dir();
+  init_day_claim();
+  capturedDaysByStateDir = new Map;
 });
 
 // packages/telemetry-core/src/constants.ts
 var DEFAULT_POSTHOG_HOST = "https://us.i.posthog.com", DEFAULT_POSTHOG_API_KEY = "phc_CFJhj5HyvA62QPhvyaUCtaq23aUfznnijg5VaaGkNk74", UNCONFIGURED_POSTHOG_API_KEY = "phc_REPLACE_ME_OMO_NATIVE";
 
 // packages/telemetry-core/src/diagnostics.ts
-import { appendFileSync, existsSync as existsSync6, mkdirSync as mkdirSync3, readFileSync as readFileSync4 } from "node:fs";
-import { join as join34 } from "node:path";
+import { appendFileSync, existsSync as existsSync6, mkdirSync as mkdirSync4, readFileSync as readFileSync4 } from "node:fs";
+import { join as join35 } from "node:path";
 function getTelemetryDiagnosticsFilePath(diagnosticsDir) {
-  return join34(diagnosticsDir, DIAGNOSTICS_FILE_NAME);
+  return join35(diagnosticsDir, DIAGNOSTICS_FILE_NAME);
 }
 function writeTelemetryDiagnostic(input, options) {
   const now = options.now ?? new Date;
   try {
     cleanupTelemetryDiagnostics({ diagnosticsDir: options.diagnosticsDir, now });
-    mkdirSync3(options.diagnosticsDir, { recursive: true });
+    mkdirSync4(options.diagnosticsDir, { recursive: true });
     appendFileSync(getTelemetryDiagnosticsFilePath(options.diagnosticsDir), `${JSON.stringify(toDiagnosticRecord(input, now))}
 `, "utf-8");
   } catch (error) {
@@ -7706,7 +7753,7 @@ var package_default;
 var init_package = __esm(() => {
   package_default = {
     name: "@oh-my-opencode/omo-codex",
-    version: "5.0.0-beta.60",
+    version: "5.0.0-beta.79",
     type: "module",
     private: true,
     description: "Codex harness adapter for oh-my-openagent. Vendored Codex plugin namespace (omo) + TypeScript installer + telemetry.",
@@ -7898,7 +7945,7 @@ var init_telemetry = __esm(() => {
 
 // packages/omo-codex/src/install/install-local-cli.ts
 import { readFile as readFile24 } from "node:fs/promises";
-import { dirname as dirname13, join as join39, resolve as resolve11 } from "node:path";
+import { dirname as dirname13, join as join40, resolve as resolve11 } from "node:path";
 import { fileURLToPath as fileURLToPath2 } from "node:url";
 
 // packages/utils/src/runtime/spawn.ts
@@ -8166,7 +8213,7 @@ var defaultRunCommand = async (command, args, options) => {
 };
 
 // packages/omo-codex/src/install/install-codex.ts
-import { join as join35, resolve as resolve10 } from "node:path";
+import { join as join36, resolve as resolve10 } from "node:path";
 
 // node_modules/.bun/zod@4.4.3/node_modules/zod/v4/core/core.js
 var _a;
@@ -13004,8 +13051,8 @@ var OmoGitMasterSettingsShape = {
 };
 var OmoGitMasterSettingsLayerSchema = object(OmoGitMasterSettingsShape).partial().strict();
 var OmoGitMasterSettingsSchema = OmoGitMasterSettingsLayerSchema.extend({
-  commit_footer: union([boolean2(), string2()]).default(true),
-  include_co_authored_by: boolean2().default(true)
+  commit_footer: union([boolean2(), string2()]).default(false),
+  include_co_authored_by: boolean2().default(false)
 }).strict();
 
 // packages/omo-config-core/src/schema/harness.ts
@@ -13264,13 +13311,17 @@ var OmoTaskDagSettingsSchema = object({
   max_prompt_bytes: number2().int().positive().default(262144)
 }).strict();
 var OmoTaskSettingsSchema = object({
-  default_execution_mode: _enum(["in-process", "process"]).default("in-process"),
+  default_execution_mode: _enum(["auto", "in-process", "process"]).default("auto"),
+  process_runner: _enum(["host", "child-process"]).default("host"),
+  host_engine_policy: _enum(["upgrade", "fallback"]).default("upgrade"),
+  host_idle_exit_ms: number2().int().positive().optional(),
   default_concurrency: number2().int().nonnegative().default(5),
   global_concurrency: number2().int().nonnegative().default(8),
   provider_concurrency: record(string2(), number2().int().nonnegative()).optional(),
   model_concurrency: record(string2(), number2().int().nonnegative()).optional(),
   max_depth: number2().int().nonnegative().default(1),
   residency_max_children: ResidencyMaxChildrenInputSchema.default(8),
+  resident_idle_timeout_ms: number2().int().positive().max(Number.MAX_SAFE_INTEGER).default(900000),
   ttl_ms: number2().int().positive().default(86400000),
   state_dir: string2().optional(),
   reattach_on_reconcile: boolean2().optional(),
@@ -13308,13 +13359,17 @@ var OmoTaskWarningsLayerSchema = object({
   unavailable_categories: boolean2().optional()
 }).strict();
 var OmoTaskSettingsLayerSchema = object({
-  default_execution_mode: _enum(["in-process", "process"]).optional(),
+  default_execution_mode: _enum(["auto", "in-process", "process"]).optional(),
+  process_runner: _enum(["host", "child-process"]).optional(),
+  host_engine_policy: _enum(["upgrade", "fallback"]).optional(),
+  host_idle_exit_ms: number2().int().positive().optional(),
   default_concurrency: number2().int().nonnegative().optional(),
   global_concurrency: number2().int().nonnegative().optional(),
   provider_concurrency: record(string2(), number2().int().nonnegative()).optional(),
   model_concurrency: record(string2(), number2().int().nonnegative()).optional(),
   max_depth: number2().int().nonnegative().optional(),
   residency_max_children: ResidencyMaxChildrenInputSchema.optional(),
+  resident_idle_timeout_ms: number2().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
   ttl_ms: number2().int().positive().optional(),
   state_dir: string2().optional(),
   reattach_on_reconcile: boolean2().optional(),
@@ -13406,6 +13461,7 @@ var OmoFormatOnMutationSchema = OmoFormatOnMutationLayerSchema.extend({
 
 // packages/omo-config-core/src/schema/config.ts
 var OmoOpenCodeHarnessConfigSchema = record(string2(), unknown());
+var OmoDisabledSkillsSchema = array(string2());
 var OmoTypedHarnessConfigSchema = object({
   formatOnMutation: OmoFormatOnMutationLayerSchema.optional(),
   categories: OmoCategoriesConfigSchema.optional(),
@@ -13417,7 +13473,8 @@ var OmoTypedHarnessConfigSchema = object({
   model_profiles: OmoModelProfilesLayerSchema.optional(),
   model_profile: string2().optional(),
   memory: OmoMemorySettingsLayerSchema.optional(),
-  telemetry: OmoTelemetrySettingsLayerSchema.optional()
+  telemetry: OmoTelemetrySettingsLayerSchema.optional(),
+  disabled_skills: OmoDisabledSkillsSchema.optional()
 }).strict();
 var OmoConfigProfileSchema = object({
   formatOnMutation: OmoFormatOnMutationLayerSchema.optional(),
@@ -13431,6 +13488,7 @@ var OmoConfigProfileSchema = object({
   model_profile: string2().optional(),
   memory: OmoMemorySettingsLayerSchema.optional(),
   telemetry: OmoTelemetrySettingsLayerSchema.optional(),
+  disabled_skills: OmoDisabledSkillsSchema.optional(),
   "[opencode]": OmoOpenCodeHarnessConfigSchema.optional(),
   "[senpi]": OmoTypedHarnessConfigSchema.optional(),
   "[codex]": OmoTypedHarnessConfigSchema.optional()
@@ -13448,6 +13506,7 @@ var OmoConfigSchema = object({
   model_profile: string2().optional(),
   memory: OmoMemorySettingsSchema.optional(),
   telemetry: OmoTelemetrySettingsSchema.optional(),
+  disabled_skills: OmoDisabledSkillsSchema.optional(),
   "[opencode]": OmoOpenCodeHarnessConfigSchema.optional(),
   "[senpi]": OmoTypedHarnessConfigSchema.optional(),
   "[codex]": OmoTypedHarnessConfigSchema.optional(),
@@ -13468,6 +13527,7 @@ var OmoConfigLayerSchema = object({
   model_profile: string2().optional(),
   memory: OmoMemorySettingsLayerSchema.optional(),
   telemetry: OmoTelemetrySettingsLayerSchema.optional(),
+  disabled_skills: OmoDisabledSkillsSchema.optional(),
   "[opencode]": OmoOpenCodeHarnessConfigSchema.optional(),
   "[senpi]": OmoTypedHarnessConfigSchema.optional(),
   "[codex]": OmoTypedHarnessConfigSchema.optional(),
@@ -19232,7 +19292,7 @@ async function runCodexInstaller(options = {}) {
   const env = options.env ?? process.env;
   const platform = options.platform ?? process.platform;
   const repoRoot = resolve10(options.repoRoot ?? findRepoRoot({ importerDir: import.meta.dir, env }));
-  const codexHome = resolve10(options.codexHome ?? env.CODEX_HOME ?? join35(homedir2(), ".codex"));
+  const codexHome = resolve10(options.codexHome ?? env.CODEX_HOME ?? join36(homedir2(), ".codex"));
   const projectDirectory = resolve10(options.projectDirectory ?? env.OMO_CODEX_PROJECT ?? process.cwd());
   const binDir = resolveCodexInstallerBinDir({ binDir: options.binDir, codexHome, env });
   const runCommand = options.runCommand ?? defaultRunCommand;
@@ -19249,9 +19309,9 @@ async function runCodexInstaller(options = {}) {
   if (!gitBashResolution.found) {
     throw new Error(gitBashResolution.installHint);
   }
-  const codexPackageRoot = join35(repoRoot, "packages", "omo-codex");
+  const codexPackageRoot = join36(repoRoot, "packages", "omo-codex");
   const marketplace = await readMarketplace(repoRoot, {
-    marketplacePath: join35(codexPackageRoot, "marketplace.json")
+    marketplacePath: join36(codexPackageRoot, "marketplace.json")
   });
   const distributionManifest = await readDistributionManifest(repoRoot);
   const installed = [];
@@ -19297,7 +19357,7 @@ async function runCodexInstaller(options = {}) {
       if (runtimeLink !== null)
         log(`Linked ${runtimeLink.name} -> ${runtimeLink.target}`);
       else
-        log(`Warning: skipped the omo-agent-toolkit runtime wrapper because ${join35(repoRoot, "dist", "cli", "index.js")} is missing; omo-agent-toolkit ulw-loop commands will be unavailable until a package shipping dist/cli is installed`);
+        log(`Warning: skipped the omo-agent-toolkit runtime wrapper because ${join36(repoRoot, "dist", "cli", "index.js")} is missing; omo-agent-toolkit ulw-loop commands will be unavailable until a package shipping dist/cli is installed`);
     }
     pluginSources.push({ name: entry.name, sourcePath });
     installed.push(plugin);
@@ -19364,13 +19424,13 @@ async function runCodexInstaller(options = {}) {
       continue;
     log(`Warning: deferred legacy Codex LSP daemon cleanup for v${cleanup.version}: ${cleanup.reason}`);
   }
-  const marketplaceRoot = join35(codexHome, "plugins", "cache", marketplace.name);
+  const marketplaceRoot = join36(codexHome, "plugins", "cache", marketplace.name);
   await writeCachedMarketplaceManifest({
     marketplaceName: marketplace.name,
     marketplaceRoot,
     plugins: installed
   });
-  const configPath = join35(codexHome, "config.toml");
+  const configPath = join36(codexHome, "config.toml");
   await updateCodexConfig({
     configPath,
     repoRoot: codexPackageRoot,
@@ -19429,7 +19489,7 @@ function findRepoRootFromImporter(importerDir) {
   for (let depth = 0;depth <= 7; depth += 1) {
     if (isRepoRootWithCodexPlugin(current))
       return current;
-    for (const wrapperPackageRoot of [join35(current, "node_modules", "oh-my-openagent"), join35(current, "oh-my-openagent")]) {
+    for (const wrapperPackageRoot of [join36(current, "node_modules", "oh-my-openagent"), join36(current, "oh-my-openagent")]) {
       if (isRepoRootWithCodexPlugin(wrapperPackageRoot))
         return wrapperPackageRoot;
     }
@@ -19447,7 +19507,7 @@ function findRepoRoot(input) {
   return findRepoRootFromImporter(input.importerDir);
 }
 function isRepoRootWithCodexPlugin(repoRoot) {
-  return existsSync7(join35(repoRoot, "packages", "omo-codex", "plugin", ".codex-plugin", "plugin.json"));
+  return existsSync7(join36(repoRoot, "packages", "omo-codex", "plugin", ".codex-plugin", "plugin.json"));
 }
 function codexMarketplaceSource(marketplaceRoot) {
   return { sourceType: "local", source: marketplaceRoot };
@@ -19760,12 +19820,12 @@ function shellQuote(value) {
 // packages/omo-codex/src/install/lazycodex-manual-update.ts
 import { spawn as spawn3, spawnSync as spawnSync2 } from "node:child_process";
 import { readFileSync as readFileSync5 } from "node:fs";
-import { dirname as dirname12, join as join37 } from "node:path";
+import { dirname as dirname12, join as join38 } from "node:path";
 import { createInterface as createInterface2 } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
 // packages/omo-codex/src/install/lazycodex-bun-global-paths.ts
-import { join as join36 } from "node:path";
+import { join as join37 } from "node:path";
 function isBunGlobalEntrypointPath(invokedPath, env) {
   if (typeof invokedPath !== "string" || invokedPath.trim().length === 0)
     return false;
@@ -19776,8 +19836,8 @@ function resolveBunGlobalRoots(env) {
   const bunInstallRoot = env.BUN_INSTALL?.trim();
   const homeRoot = env.HOME?.trim();
   return [
-    ...bunInstallRoot ? [join36(bunInstallRoot, "bin"), join36(bunInstallRoot, "install", "global", "node_modules")] : [],
-    ...homeRoot ? [join36(homeRoot, ".bun", "bin"), join36(homeRoot, ".bun", "install", "global", "node_modules")] : []
+    ...bunInstallRoot ? [join37(bunInstallRoot, "bin"), join37(bunInstallRoot, "install", "global", "node_modules")] : [],
+    ...homeRoot ? [join37(homeRoot, ".bun", "bin"), join37(homeRoot, ".bun", "install", "global", "node_modules")] : []
   ].map(normalizePathForPrefix);
 }
 function normalizePathForPrefix(path) {
@@ -19870,7 +19930,7 @@ function resolveCurrentVersion(env) {
   if (env.LAZYCODEX_CURRENT_VERSION?.trim())
     return env.LAZYCODEX_CURRENT_VERSION.trim();
   const pluginRoot = dirname12(dirname12(fileURLToPath(import.meta.url)));
-  return readVersionManifest(resolveInstalledVersionPath(env, pluginRoot)) ?? readVersionManifest(join37(pluginRoot, "..", "..", "..", "package.json")) ?? readVersionManifest(join37(pluginRoot, ".codex-plugin", "plugin.json"));
+  return readVersionManifest(resolveInstalledVersionPath(env, pluginRoot)) ?? readVersionManifest(join38(pluginRoot, "..", "..", "..", "package.json")) ?? readVersionManifest(join38(pluginRoot, ".codex-plugin", "plugin.json"));
 }
 function resolveLatestVersion(env) {
   if (env.LAZYCODEX_LATEST_VERSION?.trim())
@@ -19986,7 +20046,7 @@ function compareVersions(left, right) {
 function resolveInstalledVersionPath(env, pluginRoot) {
   if (env.LAZYCODEX_INSTALLED_VERSION_FILE?.trim())
     return env.LAZYCODEX_INSTALLED_VERSION_FILE.trim();
-  return join37(pluginRoot, INSTALLED_VERSION_FILE);
+  return join38(pluginRoot, INSTALLED_VERSION_FILE);
 }
 function readVersionManifest(path) {
   try {
@@ -20003,10 +20063,10 @@ function readVersionManifest(path) {
 }
 // packages/omo-codex/src/install/codex-git-bash-mcp-env.ts
 import { readFile as readFile23, writeFile as writeFile13 } from "node:fs/promises";
-import { join as join38 } from "node:path";
+import { join as join39 } from "node:path";
 var GIT_BASH_ENV_KEY2 = "OMO_CODEX_GIT_BASH_PATH";
 async function stampGitBashMcpEnv(input) {
-  const manifestPath = join38(input.pluginRoot, ".mcp.json");
+  const manifestPath = join39(input.pluginRoot, ".mcp.json");
   if (!await fileExistsStrict(manifestPath))
     return false;
   const parsed = JSON.parse(await readFile23(manifestPath, "utf8"));
@@ -20053,7 +20113,7 @@ async function runLazyCodexInstallLocalCli(input) {
     return 0;
   }
   if (parsed.kind === "version") {
-    const packageJson = JSON.parse(await readFile24(join39(input.defaultRepoRoot, "package.json"), "utf8"));
+    const packageJson = JSON.parse(await readFile24(join40(input.defaultRepoRoot, "package.json"), "utf8"));
     const version = typeof packageJson.version === "string" ? packageJson.version : "unknown";
     input.log(`lazycodex-ai ${version}`);
     return 0;

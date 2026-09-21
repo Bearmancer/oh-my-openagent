@@ -60,8 +60,18 @@ describe("BUILTIN_MODEL_PROFILES", () => {
     expect(offenders).toEqual([])
   })
 
-  it("copies the deep category chain verbatim into deep-work", () => {
-    expect(BUILTIN_MODEL_PROFILES["deep-work"]?.models).toEqual(CATEGORY_FALLBACK_CHAINS["deep"])
+  it("lists no rung on the openai API lane so openai-codex is the only OpenAI lane", () => {
+    const apiLaneRungs = rungs()
+      .filter((rung) => rung.providers.includes("openai"))
+      .map((rung) => `${rung.profile}: ${rung.providers.join("|")}/${rung.model}`)
+    expect(apiLaneRungs).toEqual([])
+  })
+
+  it("copies the deep lane chains verbatim into deep-work, strongest lane first", () => {
+    expect(BUILTIN_MODEL_PROFILES["deep-work"]?.models).toEqual([
+      ...CATEGORY_FALLBACK_CHAINS["deep-high"],
+      ...CATEGORY_FALLBACK_CHAINS["deep-low"],
+    ])
   })
 
   it("orders the capable chain fable -> opus -> kimi -> glm", () => {

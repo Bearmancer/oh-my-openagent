@@ -69,8 +69,8 @@ describe("generateModelConfig", () => {
       // Astra max/high rungs land first; Copilot clamps the max tier to high like the Sol rungs.
       expect(result.categories?.ultrabrain?.model).toBe("github-copilot/gpt-6-astra")
       expect(result.categories?.ultrabrain?.variant).toBe("high")
-      expect(result.categories?.deep?.model).toBe("github-copilot/gpt-6-astra")
-      expect(result.categories?.deep?.variant).toBe("high")
+      expect(result.categories?.["deep-high"]?.model).toBe("github-copilot/gpt-6-astra")
+      expect(result.categories?.["deep-high"]?.variant).toBe("high")
       expect(result.categories?.["unspecified-low"]?.model).toBe("github-copilot/grok-4.6")
       expect(result.categories?.["unspecified-low"]?.variant).toBe("high")
     })

@@ -76,7 +76,7 @@ The `/ulw-plan` skill used to mirror this split with separate model-family promp
 
 ## Curated agents and categories keep their own chains
 
-A model profile picks the main session model and nothing else. Every delegated child, curated agent or category, walks its own chain, and `model_profile` isn't consulted at any rung of that path. A user who sets `categories.deep.model` sees identical behavior with or without a profile active.
+A model profile picks the main session model and nothing else. Every delegated child, curated agent or category, walks its own chain, and `model_profile` isn't consulted at any rung of that path. A user who sets `categories.deep-low.model` sees identical behavior with or without a profile active.
 
 ### Curated agents
 
@@ -84,9 +84,9 @@ Delegation goes through the `task` tool. Four curated read-only agents have thei
 
 | Agent | Job | Primary | Chain |
 | --- | --- | --- | --- |
-| `explore` | Fast codebase grep and pattern discovery | `gpt-5.6-luna-fast` (low) | `openai\|openai-codex/gpt-5.6-luna-fast (low)` -> `deepseek/deepseek-v4-flash (max)` -> `opencode-go\|bailian-coding-plan/qwen3.5-plus` -> cheaper utility rungs -> `anthropic\|github-copilot/claude-haiku-4-5` -> `openai\|openai-codex/gpt-5.4-nano` |
+| `explore` | Fast codebase grep and pattern discovery | `gpt-5.6-luna-fast` (low) | `openai\|openai-codex/gpt-5.6-luna-fast (low)` -> `deepseek/deepseek-v4-flash (max)` -> `opencode-go\|bailian-coding-plan/qwen3.7-plus` -> cheaper utility rungs -> `anthropic\|github-copilot/claude-haiku-4-5` -> `openai\|openai-codex/gpt-5.4-nano` |
 | `librarian` | Documentation and OSS code search | `gpt-5.6-luna-fast` (low) | Same chain as `explore`. |
-| `plan-consultant` | Pre-planning gap analysis for `/ulw-plan` | `claude-sonnet-4-6` | `anthropic\|github-copilot\|opencode/claude-sonnet-4-6` -> `anthropic\|github-copilot\|opencode/claude-opus-5 (max)` -> `openai\|openai-codex\|github-copilot\|opencode/gpt-5.6-sol (medium)` -> `opencode-go/glm-5.2` -> `kimi-for-coding/kimi-k3` |
+| `plan-consultant` | Pre-planning gap analysis for `/ulw-plan` | `claude-fable-5-1` (max) | `anthropic\|github-copilot\|opencode/claude-fable-5-1 (max)` -> `anthropic\|github-copilot\|opencode/claude-opus-5 (max)` -> `opencode-go\|kimi-for-coding\|moonshotai\|opencode/kimi-k3 (max)` |
 | `plan-reviewer` | One-shot plan review against clarity, verification, and context criteria | `gpt-6-astra` (xhigh) | `openai\|openai-codex/gpt-6-astra (xhigh)` -> `github-copilot/gpt-6-astra (high)` -> `openai\|openai-codex\|opencode/gpt-6-astra (high)` -> `anthropic\|github-copilot\|opencode/claude-opus-5 (max)` -> two lower rungs listed in the source file -> `opencode-go/glm-5.2` |
 
 The utility rungs elided above are cheap fast models; read the source file for the exact list. They exist so the system degrades gracefully when you don't hold every subscription. If you have a paid tier connected, it's always preferred.
@@ -101,7 +101,7 @@ If one premium model is quota-limited while your other models are effectively un
 2. **Prefer a low-frequency, high-leverage role.** `plan-consultant` contributes one gap-analysis pass per plan generation. High-accuracy planning runs one `plan-reviewer` pass per round and repeats after any rejection. Both are far cheaper places for a rare model than the main agent, which runs throughout the workflow.
 3. **Avoid execution-heavy slots.** The category worker, `explore`, and `librarian` are high-volume. They're usually poor homes for the rarest model.
 
-For a scarce Claude Fable 5 allocation, `plan-consultant` is the default value-per-token placement: it runs before the plan is finalized and can prevent expensive downstream work.
+For a scarce Claude Fable 5 allocation, `plan-consultant` is the default value-per-token placement: it runs before the plan is finalized and can prevent expensive downstream work. The builtin chain already heads it with Claude Fable 5.1 at `max`; pin a lower effort when the allocation is tight:
 
 ```jsonc
 {
@@ -130,7 +130,7 @@ When the main agent delegates implementation work, it doesn't pick a model name.
 | `quick` | Trivial tasks: single-file changes, typos | `kimi-coding/kimi-for-coding-highspeed` | `kimi-for-coding-highspeed` -> `openai-codex/gpt-5.6-luna-fast (low)` -> `deepseek/deepseek-v4-flash (off)` -> `qwen3.6-flash (low)` -> cheaper utility rungs -> `xai/grok-4.20-0309-non-reasoning` -> `claude-haiku-4-5 (off)` |
 | `unspecified-low` | Doesn't fit elsewhere, low effort | `xai/grok-4.6 (xhigh)` | `xai\|github-copilot\|opencode/grok-4.6 (xhigh)` -> `gpt-5.6-terra (high)` -> `claude-sonnet-5 (low)` -> `qwen3.8-max-preview (max)` -> `deepseek\|opencode-go/deepseek-v4-pro (max)` -> `xiaomi\|opencode-go/mimo-v2.5-pro (max)` |
 | `unspecified-high` | Doesn't fit elsewhere, high effort | `openai/gpt-6-astra (high)` | `gpt-6-astra (high)` -> `claude-opus-5 (xhigh)` -> `zai-coding-plan\|opencode-go/glm-5.3 (max)` -> `kimi-k3 (max)` |
-| `writing` | Documentation, prose, technical writing | `anthropic/claude-fable-5-1 (medium)` | `claude-fable-5-1 (medium)` -> `kimi-k3 (max)` |
+| `writing` | Documentation, prose, technical writing | `anthropic/claude-fable-5-1 (low)` | `claude-fable-5-1 (low)` -> `kimi-k3 (low)` -> `claude-opus-4-6 (low)` |
 
 The `quick` category ships a caller warning: small fast models need an explicit prompt with numbered must-do steps, forbidden deviations, and concrete success criteria. `deep` is one goal plus one deliverable per call; fan out multiple goals as parallel `deep` calls.
 
@@ -157,7 +157,7 @@ Override any category or curated agent in `omo.json`. `model` sets one model; `m
 
   "categories": {
     "visual-engineering": { "model": "anthropic/claude-fable-5-1", "reasoning": "max" },
-    "deep": { "model": "openai/gpt-6-astra", "reasoning": "high" },
+    "deep-high": { "model": "openai/gpt-6-astra", "reasoning": "high" },
     "ultrabrain": { "model": "openai/gpt-6-astra", "reasoning": "max" },
     "unspecified-high": { "model": "anthropic/claude-opus-5", "reasoning": "xhigh" }
   }
@@ -188,7 +188,7 @@ Override any category or curated agent in `omo.json`. `model` sets one model; `m
 ```jsonc
 {
   "categories": {
-    "deep": {
+    "deep-low": {
       "models": [
         { "model": "openai/gpt-6-astra", "reasoning": "high" },
         { "model": "deepseek/deepseek-v4-pro", "reasoning": "max" }

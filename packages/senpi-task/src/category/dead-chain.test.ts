@@ -118,11 +118,11 @@ describe("dead-chain category disabling", () => {
       const models = registry([model("vercel", "openai/gpt-5.6-sol")])
 
       // when
-      const result = resolveCategory("deep", {}, models)
+      const result = resolveCategory("deep-low", {}, models)
 
       // then
       expect(result.kind).toBe("resolved")
-      expect(result.availableCategories).toContain("deep")
+      expect(result.availableCategories).toContain("deep-low")
     })
   })
 
@@ -171,7 +171,8 @@ describe("dead-chain category disabling", () => {
       expect(result.kind).toBe("disabled")
       expect(result.availableCategories).toContain("quick")
       expect(result.availableCategories).toContain("visual-engineering")
-      expect(result.availableCategories).not.toContain("deep")
+      expect(result.availableCategories).not.toContain("deep-low")
+      expect(result.availableCategories).not.toContain("deep-high")
     })
 
     test("#when the category is unknown #then the result still returns the gated list", () => {
@@ -182,7 +183,8 @@ describe("dead-chain category disabling", () => {
       expect(result.kind).toBe("not_found")
       expect(result.availableCategories).toContain("visual-engineering")
       expect(result.availableCategories).not.toContain("quick")
-      expect(result.availableCategories).not.toContain("deep")
+      expect(result.availableCategories).not.toContain("deep-low")
+      expect(result.availableCategories).not.toContain("deep-high")
     })
   })
 })

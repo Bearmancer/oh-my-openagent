@@ -169,14 +169,12 @@ describe("generateOmoConfig - model fallback system", () => {
         variant: "medium",
       },
     ])
-    expect(categories.deep.model).toBe("openai/gpt-6-astra")
-    expect(categories.deep.variant).toBe("high")
-    expect(categories.deep.fallback_models).toEqual([
-      {
-        model: "openai/gpt-5.6-sol",
-        variant: "medium",
-      },
-    ])
+    expect(categories["deep-high"].model).toBe("openai/gpt-6-astra")
+    expect(categories["deep-high"].variant).toBe("high")
+    expect(categories["deep-high"].fallback_models ?? []).toEqual([])
+    expect(categories["deep-low"].model).toBe("openai/gpt-5.6-sol")
+    expect(categories["deep-low"].variant).toBe("medium")
+    expect(categories["deep-low"].fallback_models ?? []).toEqual([])
   })
 
   test("uses haiku for explore when Claude max20", () => {

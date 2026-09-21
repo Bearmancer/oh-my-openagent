@@ -100,6 +100,9 @@ if (selfUpdate) {
   console.log("omo is updated via npm: npm i -g omo-ai@beta")
   process.exit(0)
 }
+// windowsHide-exempt: this is the interactive foreground CLI, spawned with inherited stdio.
+// CREATE_NO_WINDOW would suppress the console a console-less launch needs to render the TUI,
+// so the launcher keeps the user's console instead of hiding it (#8501).
 const child = spawn(process.execPath, [cli, "--extension", plugin, ...process.argv.slice(2)], {
   env,
   stdio: "inherit",
@@ -282,7 +285,6 @@ var REQUIRED_PLUGIN_ARTIFACTS = [
   join4("extensions", "omo.js"),
   join4("extensions", "omo-task.js"),
   join4("extensions", "omo-member.js"),
-  join4("extensions", "omo-agent-toolkit.js"),
   join4("extensions", "memory-run-supervisor.mjs"),
   ...PERSONA_ASSET_FILES.map((filename) => join4("extensions", filename)),
   join4("skills", "ast-grep", "SKILL.md"),
@@ -304,6 +306,7 @@ var REQUIRED_PLUGIN_ARTIFACTS = [
   join4("skills", "ulw-research", "SKILL.md"),
   join4("skills", "visual-qa", "SKILL.md"),
   join4("skills-conditional", "x-search", "SKILL.md"),
+  join4("runtime", "agent-toolkit-sdk", "sdk.js"),
   join4("runtime", "ast-grep-mcp", "cli.js"),
   join4("runtime", "lsp-daemon", "dist", "cli.js"),
   join4("runtime", "lsp-daemon", "dist", "index.js"),
@@ -312,7 +315,8 @@ var REQUIRED_PLUGIN_ARTIFACTS = [
   join4("runtime", "lsp-daemon", "dist", "daemon-client.d.ts"),
   join4("runtime", "lsp-daemon", "dist", "package.json"),
   join4("runtime", "lsp-daemon", "dist", ".omo-runtime-manifest.json"),
-  join4("scripts", "install.mjs")
+  join4("scripts", "install.mjs"),
+  "daemon-launch-spec.json"
 ];
 async function ensurePluginArtifacts(context) {
   if (context.allowBuild) {
