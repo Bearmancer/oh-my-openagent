@@ -68,6 +68,34 @@ does not exist yet.
    the label is the host's own `goalStatusLabel` wording so the footer and the column cannot
    describe one goal in two ways.
 
+## THE SAME BUILD IN THE USER'S OWN OMO
+
+The stand proves the code; this proves the thing the user actually runs. `omo-panel-patch`
+re-applied the branch onto the installed **omo 5.0.0-0.beta.80** (tag `v5.0.0-beta.80`,
+8 source commits cherry-picked, plugin rebuilt, both bundles swapped by `rename(2)` so live
+sessions keep their loaded code), and the patched `omo.js` carries every marker: `goalStoreFile`,
+`limited by budget`, `parked`, `omo-panel:`.
+
+A real session of that install (`omo --tui-mode fullscreen` in `/tmp/panel-live-check`) was asked
+to call `create_goal`. The HOST wrote the record - no seeding this time -
+(`~/.omo/agent/sessions/--tmp-panel-live-check--/extensions/goal/01a0c2b7-….json`, `"status":
+"active"`), and the column drew it (`capture-goal-in-real-omo-200x50.txt`):
+
+```
+GOAL  active
+Verify the side panel goal block against the patche…
+```
+
+Two things the patch run itself surfaced and fixed, both recorded because the script is re-run after
+every omo update:
+
+- the cherry-pick range now carries a merge commit (dev merged into the branch), and a merge cannot
+  be cherry-picked without `-m`; the collector takes `--no-merges`.
+- a commit that carries a generated bundle instead of leaving it to its own `build(...)` commit
+  conflicts on `plugin/extensions/omo.js`. The script now resolves `packages/omo-senpi/plugin/*`
+  automatically (it is rebuilt seconds later anyway), and the branch commit that caused it was split
+  into its source and bundle halves.
+
 ## WHY IT IS ENOUGH
 
 The path under test is: host getter -> `panelFactsFrom` -> `data/goal.ts` -> `sections/goal.ts` ->
