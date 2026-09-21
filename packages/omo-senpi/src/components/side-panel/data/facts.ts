@@ -1,4 +1,4 @@
-import { finiteNumber, isRecord, optional } from "../guards"
+import { finiteNumber, isRecord, nonEmptyString, optional } from "../guards"
 import type { PanelContextUsage } from "../sections/context"
 import type { PanelSessionTotals } from "../sections/session"
 
@@ -12,6 +12,8 @@ export interface PanelHostFacts {
   readonly usage?: PanelContextUsage
   readonly totals?: PanelSessionTotals
   readonly sessionId?: string
+  /** Absolute path of this session's goal store, when the host publishes one. */
+  readonly goalStoreFile?: string
 }
 
 export function panelFactsFrom(value: unknown): PanelHostFacts {
@@ -20,6 +22,7 @@ export function panelFactsFrom(value: unknown): PanelHostFacts {
     ...optional("model", modelName(value["model"])),
     ...optional("usage", contextUsage(call(value, "getContextUsage"))),
     ...optional("sessionId", sessionId(value["sessionManager"])),
+    ...optional("goalStoreFile", nonEmptyString(value["goalStoreFile"])),
     ...optional("totals", usageTotals(value["sessionManager"])),
   }
 }

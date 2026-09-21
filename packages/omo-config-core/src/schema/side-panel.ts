@@ -8,6 +8,8 @@ const OmoSidePanelWidthSchema = z.union([z.number().int().min(24).max(160), z.st
 const OmoSidePanelSectionsShape = {
   /** Session header: model, elapsed time, cost, token total. */
   session: z.boolean(),
+  /** The session's registered goal: objective, status, elapsed, spend and continuation count. */
+  goal: z.boolean(),
   /** Context window split: tool definitions, system prompt, skills, conversation. */
   context: z.boolean(),
   /** Subscription usage bars for the serving account. */
@@ -26,6 +28,7 @@ export const OmoSidePanelSectionsLayerSchema = z.object(OmoSidePanelSectionsShap
 
 export const OmoSidePanelSectionsSchema = OmoSidePanelSectionsLayerSchema.extend({
   session: z.boolean().default(true),
+  goal: z.boolean().default(true),
   context: z.boolean().default(true),
   usage: z.boolean().default(true),
   agents: z.boolean().default(true),
@@ -59,6 +62,7 @@ export const OmoSidePanelSettingsSchema = OmoSidePanelSettingsLayerSchema.extend
   usage_poll_seconds: z.number().int().min(60).max(3600).default(150),
   sections: OmoSidePanelSectionsSchema.default({
     session: true,
+    goal: true,
     context: true,
     usage: true,
     agents: true,

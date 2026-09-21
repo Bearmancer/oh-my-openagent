@@ -4,12 +4,13 @@ import type { PanelHostFacts } from "./data/facts"
 import { buildAgentRows } from "./sections/agents"
 import { buildContextRows } from "./sections/context"
 import { buildFileRows, type PanelGitStatus } from "./sections/files"
+import { buildGoalRows } from "./sections/goal"
 import { buildLocationRows, type PanelLocation } from "./sections/location"
 import { buildSessionRows } from "./sections/session"
 import { buildToolRows } from "./sections/tools"
 import { buildUsageRows } from "./sections/usage"
 import type { PanelState } from "./store"
-import type { PanelRow } from "./types"
+import type { PanelGoal, PanelRow } from "./types"
 import type { PanelUsageSnapshot } from "./usage/types"
 
 export interface PanelRowsInput {
@@ -24,6 +25,8 @@ export interface PanelRowsInput {
   /** How many file rows the column shows before it starts counting the rest. */
   readonly fileRows: number
   readonly git?: PanelGitStatus
+  /** The session's registered goal; absent when none is registered or the host publishes none. */
+  readonly goal?: PanelGoal
   readonly home?: string
   /** Subscription usage, absent until the poller has something - or when the section is off. */
   readonly usage?: PanelUsageSnapshot
@@ -51,6 +54,7 @@ export function buildPanelRows(input: PanelRowsInput, width: number): readonly P
           ),
         ]
       : [],
+    input.sections.goal && input.goal !== undefined ? [...buildGoalRows(input.goal, width)] : [],
     input.sections.context ? [...buildContextRows(input.facts.usage, width)] : [],
     input.sections.usage && input.usage !== undefined ? [...buildUsageRows(input.usage, input.now, width)] : [],
     input.sections.agents ? [...buildAgentRows(input.state.children, input.now, width)] : [],

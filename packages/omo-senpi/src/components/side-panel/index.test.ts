@@ -177,6 +177,7 @@ interface FakeTui {
   renders: number
   setLayoutRoot(component: unknown): void
   requestRender(): void
+  openUrl?: (url: string) => void
   readonly [PI_TUI_VIEWPORT]: true
 }
 
@@ -233,7 +234,10 @@ function columnRows(tui: FakeTui, width = 52): string[] {
   return panel.render(width).map((line) => line.trimEnd())
 }
 
-function mounted(overrides: Partial<Parameters<typeof createSidePanelComponent>[0]> = {}) {
+function mounted(
+  overrides: Partial<Parameters<typeof createSidePanelComponent>[0]> = {},
+  hostExtras: Record<string, unknown> = {},
+) {
   const pi = new FakeExtensionAPI()
   const widgets: WidgetCall[] = []
   const timers = manualTimers()
@@ -248,6 +252,7 @@ function mounted(overrides: Partial<Parameters<typeof createSidePanelComponent>[
   })
   component.register(pi, componentContext(pi))
   const tui = fakeTui()
+  const notices: string[] = []
   const host = hostContext(widgets, {
     model: { id: "anthropic/claude-opus-5" },
     getContextUsage: () => ({ tokens: 29_000, contextWindow: 1_000_000, percent: 2.9 }),
@@ -255,6 +260,15 @@ function mounted(overrides: Partial<Parameters<typeof createSidePanelComponent>[
       getSessionId: () => "session-1",
       getUsageTotals: () => ({ input: 12_300, output: 4_500, cacheRead: 0, cacheWrite: 0, cost: 1.2 }),
     },
+    ui: {
+      setWidget(key: string, content: unknown) {
+        widgets.push({ key, content })
+      },
+      notify(message: string) {
+        notices.push(message)
+      },
+    },
+    ...hostExtras,
   })
   return {
     pi,
@@ -262,6 +276,7 @@ function mounted(overrides: Partial<Parameters<typeof createSidePanelComponent>[
     host,
     timers,
     widgets,
+    notices,
     advance: (ms: number) => {
       clock += ms
     },
@@ -606,3 +621,90 @@ describe("side panel usage wiring", () => {
 function allSections(): OmoSidePanelSettings["sections"] {
   return OmoSidePanelSettingsSchema.parse({}).sections
 }
+
+describe("side panel goal wiring", () => {
+  const GOAL_PATH = "/state/goal.json"
+  const OBJECTIVE = "Extend the side panel with the subsystems omo gained since beta.53"
+  const goal = {
+    objective: OBJECTIVE,
+    status: "active" as const,
+    tokensUsed: 148_000,
+    timeUsedSeconds: 8_040,
+    consecutiveContinuations: 0,
+    unattendedContinuations: 0,
+  }
+
+  test("#given a host that publishes no goal store #when mounted #then no goal block is drawn", async () => {
+    // given most sessions carry no goal; the reader's own suite pins that an absent path costs no
+    // filesystem call, so what the wiring owes is passing the host's absence through untouched
+    const asked: (string | undefined)[] = []
+    const harness = mounted({
+      readGoal: (path) => {
+        asked.push(path)
+        return path === undefined ? undefined : goal
+      },
+    })
+
+    // when
+    await harness.pi.dispatch("session_start", {}, harness.host)
+    harness.attach()
+
+    // then
+    expect(columnRows(harness.tui).some((row) => row.startsWith("GOAL"))).toBe(false)
+    expect(asked.every((path) => path === undefined)).toBe(true)
+  })
+
+  test("#given the host exposes a goal store #when mounted #then the goal is on screen", async () => {
+    // given
+    const harness = mounted({ readGoal: () => goal }, { goalStoreFile: GOAL_PATH })
+
+    // when
+    await harness.pi.dispatch("session_start", {}, harness.host)
+    harness.attach()
+
+    // then
+    const rows = columnRows(harness.tui)
+    expect(rows.some((row) => row.startsWith("GOAL  active"))).toBe(true)
+    expect(rows.some((row) => row.includes("Extend the side panel"))).toBe(true)
+  })
+
+  test("#given a turn ends #when the goal moved #then the column follows it", async () => {
+    // given senpi publishes no goal event an extension can subscribe to, so the ordinary refresh
+    // path is what keeps the block current
+    let status: "active" | "complete" = "active"
+    const harness = mounted({ readGoal: () => ({ ...goal, status }) }, { goalStoreFile: GOAL_PATH })
+    await harness.pi.dispatch("session_start", {}, harness.host)
+    harness.attach()
+    expect(columnRows(harness.tui).some((row) => row.startsWith("GOAL  active"))).toBe(true)
+
+    // when
+    status = "complete"
+    await harness.pi.dispatch("turn_end", {}, harness.host)
+
+    // then
+    expect(columnRows(harness.tui).some((row) => row.startsWith("GOAL  complete"))).toBe(true)
+  })
+
+  test("#given the goal row is clicked #when the host activates it #then the whole objective opens", async () => {
+    // given the row shows a cut objective; the rest of it is the entire point of the click
+    const harness = mounted(
+      { readGoal: () => goal, loadSettings: () => settings({ enabled: true, clickable: true }) },
+      { goalStoreFile: GOAL_PATH },
+    )
+    const foreign: string[] = []
+    harness.tui.openUrl = (url) => foreign.push(url)
+    await harness.pi.dispatch("session_start", {}, harness.host)
+    harness.attach()
+
+    // when
+    harness.tui.openUrl?.("omo-panel:goal/current")
+    await Promise.resolve()
+    await Promise.resolve()
+
+    // then the host's own callback never sees our scheme, and the full text is delivered - the
+    // viewer wraps it to its own column, so the text is compared with those breaks undone
+    expect(foreign).toEqual([])
+    const delivered = harness.notices.join("\n").replace(/\n/g, " ")
+    expect(delivered).toContain(OBJECTIVE)
+  })
+})

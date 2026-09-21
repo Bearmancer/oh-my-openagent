@@ -4,14 +4,23 @@ import { resolveOmoSidePanelSettings, type OmoSidePanelSettings } from "@oh-my-o
 
 import type { ComponentContext, OmoSenpiComponent, SenpiExtensionAPI } from "../../extension/types"
 import { loadSenpiOmoConfig } from "../config-resolution"
-import { FILE_VISIBLE_ROWS, GIT_REFRESH_FLOOR_MS, LIVE_REFRESH_MS, SIDE_PANEL_FLAG, TOOL_VISIBLE_ROWS } from "./constants"
+import {
+  FILE_VISIBLE_ROWS,
+  GIT_REFRESH_FLOOR_MS,
+  GOAL_OBJECTIVE_COLUMNS,
+  LIVE_REFRESH_MS,
+  SIDE_PANEL_FLAG,
+  TOOL_VISIBLE_ROWS,
+} from "./constants"
 import { openFileDiff, registerPanelCommands } from "./commands"
 import { panelContextFrom } from "./context"
 import { asRecord } from "./guards"
 import { panelFactsFrom, type PanelHostFacts } from "./data/facts"
 import { childOutputRows } from "./data/child-output"
+import { createPanelGoalReader } from "./data/goal"
 import { panelChildrenFromRecords, type PanelTaskRecord } from "./data/task-records"
 import { readGitStatus, type PanelExec } from "./git/read"
+import { wrapVisible } from "./format/truncate"
 import { findGitRoot, readGitBranch } from "./git/repo"
 import { createPanelHostSurface } from "./host-surface"
 import type { PanelAction } from "./links"
@@ -20,7 +29,7 @@ import { buildAgentCardRows } from "./sections/agents"
 import type { PanelGitStatus } from "./sections/files"
 import { buildPanelRows } from "./rows"
 import { createPanelStore } from "./store"
-import type { PanelHostSurface, PanelRow, PanelTimerHandle, PanelTimers, PanelUi } from "./types"
+import type { PanelGoal, PanelHostSurface, PanelRow, PanelTimerHandle, PanelTimers, PanelUi } from "./types"
 import { createCredentialReader } from "./usage/credentials"
 import { createUsageFetch, type UsageFetch } from "./usage/http"
 import { createUsagePoller, type UsageCredentialSource, type UsagePoller } from "./usage/poller"
@@ -37,6 +46,8 @@ export interface SidePanelComponentOptions {
   readonly now?: () => number
   /** Delegated children come from the task engine's own store; injected here for tests. */
   readonly readTaskRecords?: (cwd: string) => readonly PanelTaskRecord[] | Promise<readonly PanelTaskRecord[]>
+  /** The session's goal, read from the host's store path; injected so tests never read a disk. */
+  readonly readGoal?: (path: string | undefined) => PanelGoal | undefined
   /** A clicked child shows its own work; injected so tests never read a state dir. */
   readonly readChildOutput?: (cwd: string, taskId: string) => Promise<readonly PanelRow[]>
   /** Injectable so the git reads are exercised without spawning anything. */
@@ -83,6 +94,7 @@ export function createSidePanelComponent(options: SidePanelComponentOptions = {}
       const store = createPanelStore(now)
       const readTaskRecords = options.readTaskRecords ?? createRecordReader()
       const readChildOutput = options.readChildOutput ?? createChildOutputReader()
+      const readGoal = options.readGoal ?? createPanelGoalReader()
       const locateGit = options.findGitRoot ?? findGitRoot
       const branchOf = options.readGitBranch ?? readGitBranch
       // Bound to the host so the method keeps its own receiver, the way the memory palace
@@ -104,6 +116,7 @@ export function createSidePanelComponent(options: SidePanelComponentOptions = {}
       let surface: PanelHostSurface | undefined
       let usage: UsagePoller | undefined
       let hostUi: PanelUi | undefined
+      let goal: PanelGoal | undefined
       let facts: PanelHostFacts = {}
       let startedAt: number | undefined
       let liveTimer: PanelTimerHandle | undefined
@@ -185,6 +198,15 @@ export function createSidePanelComponent(options: SidePanelComponentOptions = {}
           await openFileDiff(ui, exec, status, file)
           return
         }
+        if (action.kind === "goal") {
+          if (goal === undefined) return
+          await openPanelViewer(
+            ui,
+            "goal",
+            wrapVisible(goal.objective, GOAL_OBJECTIVE_COLUMNS).map((text) => ({ text })),
+          )
+          return
+        }
         const child = store.state().children.find((entry) => entry.id === action.id)
         if (child === undefined) return
         // The card is the header; what the child actually did is the body, and the point.
@@ -196,6 +218,9 @@ export function createSidePanelComponent(options: SidePanelComponentOptions = {}
       const refresh = async (eventCtx: unknown): Promise<undefined> => {
         if (surface === undefined) return undefined
         facts = { ...facts, ...panelFactsFrom(eventCtx) }
+        // senpi publishes no goal event an extension can subscribe to, so the store is re-read on
+        // the ordinary refresh; an unchanged file costs one stat and nothing more.
+        goal = readGoal(facts.goalStoreFile)
         surface.requestRender()
         // A credential-pool rotation must not sit behind the poll interval: the numbers on screen
         // would keep naming the account the session just moved off. This pass is self-gating - it
@@ -214,6 +239,7 @@ export function createSidePanelComponent(options: SidePanelComponentOptions = {}
         surface?.dispose()
         surface = undefined
         hostUi = undefined
+        goal = undefined
         return undefined
       }
 
@@ -227,6 +253,7 @@ export function createSidePanelComponent(options: SidePanelComponentOptions = {}
           return undefined
         }
         facts = panelFactsFrom(eventCtx)
+        goal = readGoal(facts.goalStoreFile)
         startedAt = now()
         hostUi = context.ui
         surface = createPanelHostSurface({
@@ -244,6 +271,7 @@ export function createSidePanelComponent(options: SidePanelComponentOptions = {}
                   toolRows: TOOL_VISIBLE_ROWS,
                   fileRows: FILE_VISIBLE_ROWS,
                   ...(git === undefined ? {} : { git }),
+                  ...(goal === undefined ? {} : { goal }),
                   ...(usage === undefined ? {} : { usage: usage.snapshot() }),
                   home: homedir(),
                 },

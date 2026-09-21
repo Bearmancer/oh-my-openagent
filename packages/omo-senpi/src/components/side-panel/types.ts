@@ -122,6 +122,30 @@ export type PanelSurfaceKind =
   /** Nothing rendered: no TUI, or the panel is disabled. */
   | "dark"
 
+/** The statuses senpi's goal store actually writes. */
+export type PanelGoalStatus = "active" | "paused" | "blocked" | "budgetLimited" | "complete"
+
+/** The session's goal, reduced to what the column draws. */
+export interface PanelGoal {
+  readonly objective: string
+  readonly status: PanelGoalStatus
+  readonly tokensUsed: number
+  readonly timeUsedSeconds: number
+  readonly consecutiveContinuations: number
+  readonly unattendedContinuations: number
+  /** Only present when the goal was registered with one. */
+  readonly tokenBudget?: number
+}
+
+/**
+ * The two filesystem calls the goal reader needs, injected so the unit tests never touch a disk.
+ * `stat` answers undefined for an absent file, which is the ordinary case.
+ */
+export interface PanelGoalSource {
+  stat(path: string): { readonly mtimeMs: number; readonly size: number } | undefined
+  read(path: string): string | undefined
+}
+
 /** Semantic colour names; the body resolves them against the host theme. */
 export type PanelColor = "text" | "muted" | "dim" | "accent" | "warning" | "error" | "success"
 

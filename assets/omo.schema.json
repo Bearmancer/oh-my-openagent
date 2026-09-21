@@ -2171,6 +2171,7 @@
         "sections": {
           "default": {
             "session": true,
+            "goal": true,
             "context": true,
             "usage": true,
             "agents": true,
@@ -2181,6 +2182,10 @@
           "type": "object",
           "properties": {
             "session": {
+              "default": true,
+              "type": "boolean"
+            },
+            "goal": {
               "default": true,
               "type": "boolean"
             },
@@ -2211,6 +2216,7 @@
           },
           "required": [
             "session",
+            "goal",
             "context",
             "usage",
             "agents",
@@ -14027,6 +14033,9 @@
                 "session": {
                   "type": "boolean"
                 },
+                "goal": {
+                  "type": "boolean"
+                },
                 "context": {
                   "type": "boolean"
                 },
@@ -15939,6 +15948,9 @@
               "type": "object",
               "properties": {
                 "session": {
+                  "type": "boolean"
+                },
+                "goal": {
                   "type": "boolean"
                 },
                 "context": {
@@ -17859,6 +17871,9 @@
                 "type": "object",
                 "properties": {
                   "session": {
+                    "type": "boolean"
+                  },
+                  "goal": {
                     "type": "boolean"
                   },
                   "context": {
@@ -29681,6 +29696,9 @@
                       "session": {
                         "type": "boolean"
                       },
+                      "goal": {
+                        "type": "boolean"
+                      },
                       "context": {
                         "type": "boolean"
                       },
@@ -31593,6 +31611,9 @@
                     "type": "object",
                     "properties": {
                       "session": {
+                        "type": "boolean"
+                      },
+                      "goal": {
                         "type": "boolean"
                       },
                       "context": {

@@ -55,3 +55,42 @@ export function truncateVisibleStart(text: string, width: number): string {
   if (width <= 1) return plain.slice(plain.length - width)
   return `…${plain.slice(plain.length - (width - 1))}`
 }
+
+/**
+ * Break text into rows no wider than `width` printable characters, for a viewer that paints one
+ * row per line. Existing newlines are kept, words are not broken unless a single word is wider
+ * than the column, and colour is out of scope here: this runs on raw text before painting.
+ */
+export function wrapVisible(text: string, width: number): string[] {
+  if (!Number.isFinite(width) || width <= 0) return []
+  const rows: string[] = []
+  for (const paragraph of text.split("\n")) {
+    if (paragraph === "") {
+      rows.push("")
+      continue
+    }
+    let row = ""
+    for (const word of paragraph.split(" ")) {
+      let pending = word
+      // A word wider than the column cannot be placed whole; cut it rather than overflow the frame.
+      while (pending.length > width) {
+        if (row !== "") {
+          rows.push(row)
+          row = ""
+        }
+        rows.push(pending.slice(0, width))
+        pending = pending.slice(width)
+      }
+      if (pending === "") continue
+      const candidate = row === "" ? pending : `${row} ${pending}`
+      if (candidate.length <= width) {
+        row = candidate
+        continue
+      }
+      if (row !== "") rows.push(row)
+      row = pending
+    }
+    if (row !== "") rows.push(row)
+  }
+  return rows
+}

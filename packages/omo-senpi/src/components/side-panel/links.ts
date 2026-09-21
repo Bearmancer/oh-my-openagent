@@ -21,13 +21,16 @@ const SCHEME = "omo-panel:"
 export type PanelAction =
   | { readonly kind: "file"; readonly path: string }
   | { readonly kind: "agent"; readonly id: string }
+  // A session carries at most one goal, so this action needs no identity of its own; the literal
+  // only keeps the scheme's kind/value shape.
+  | { readonly kind: "goal" }
 
 /**
  * Percent-encoding is not cosmetic here: a value carrying BEL or ESC would terminate the
  * escape sequence early and paint the rest of the row as garbage.
  */
 export function panelActionUrl(action: PanelAction): string {
-  const value = action.kind === "file" ? action.path : action.id
+  const value = action.kind === "file" ? action.path : action.kind === "agent" ? action.id : "current"
   return `${SCHEME}${action.kind}/${encodeURIComponent(value)}`
 }
 
@@ -50,6 +53,7 @@ export function parsePanelActionUrl(url: string): PanelAction | undefined {
   if (value === "") return undefined
   if (kind === "file") return { kind, path: value }
   if (kind === "agent") return { kind, id: value }
+  if (kind === "goal" && value === "current") return { kind }
   return undefined
 }
 

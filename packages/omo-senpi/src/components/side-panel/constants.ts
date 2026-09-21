@@ -36,6 +36,14 @@ export const AGENT_ROW_CAP = 12
 /** Tool calls retained for the current exchange; the section shows the most recent few. */
 export const TOOL_ROW_CAP = 24
 
+/**
+ * Columns the goal objective is wrapped to for its viewer. The framed viewer is 70% of the
+ * terminal but never narrower than 52 columns, so wrapping at that minimum's inner width is the
+ * only width that cannot truncate on a small terminal - and losing the tail of an objective would
+ * defeat the click that opened it.
+ */
+export const GOAL_OBJECTIVE_COLUMNS = 48
+
 /** Tool rows the column shows before it starts counting the rest as "earlier". */
 export const TOOL_VISIBLE_ROWS = 6
 

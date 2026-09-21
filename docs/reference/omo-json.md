@@ -166,7 +166,8 @@ The block may live at the shared top level, in `[senpi]`, or in profile layers, 
 ### `side_panel` (Senpi harness)
 
 The optional `side_panel` block controls the omo side panel (`schema/side-panel.ts`): a right-hand
-column in the Senpi TUI carrying session, context, usage, subagent, tool, git and memory state. The
+column in the Senpi TUI carrying session, goal, context, usage, subagent, tool, git and memory
+state. The
 transcript reflows into the remaining width instead of being covered. The panel is **off by
 default** because it rearranges the whole screen.
 
@@ -177,7 +178,7 @@ default** because it rearranges the whole screen.
 | `min_columns` | integer | `120` | Terminals narrower than this keep the classic single-column layout; the panel hides itself rather than squeezing the transcript. |
 | `clickable` | boolean | `true` | Paint file and subagent rows as OSC 8 links, so a mouse click opens the same viewer a command would. Set it to `false` on a terminal that mangles hyperlinks. |
 | `usage_poll_seconds` | integer | `150` | Subscription usage refresh interval, and a floor rather than a ceiling: each provider keeps its own freshness window (five minutes for Anthropic, two and a half for Codex), so a smaller value does not poll faster than that. The cache is shared across sessions on one machine, so this is per machine, not per session. Minimum `60`. |
-| `sections` | object | all `true` | Per-section switches: `session`, `context`, `usage`, `agents`, `tools`, `files`, `memory`. |
+| `sections` | object | all `true` | Per-section switches: `session`, `goal`, `context`, `usage`, `agents`, `tools`, `files`, `memory`. |
 
 Rows are clickable because the fullscreen renderer already captures the mouse and activates OSC 8
 hyperlinks; the panel paints its rows as links to a private scheme and claims the renderer's URL
@@ -192,6 +193,14 @@ an overlay is not part of that layout, so without this the wheel would scroll th
 the popup instead. Text selection is untouched either way, because the renderer activates a link
 only on a press and release inside one cell with no drag - dragging still selects, and double or
 triple clicks still take a word or a line.
+
+The `goal` section is drawn only while a goal is registered, so an ordinary session loses no rows
+to it. It carries the objective, the goal's status, the time and tokens it has spent, how much of a
+token budget is gone when one is set, and the continuation count once the loop has run unattended.
+Clicking the objective opens the whole text, which is the point of that row: the column has space
+for one cut line of it. The block follows the panel's ordinary refresh instead of subscribing,
+because a goal publishes no event an extension can listen for; an unchanged store costs one `stat`
+and no parse at all.
 
 The `usage` section is the only part of omo that reaches the network on its own: it reads the
 subscription windows your plan publishes (`api.anthropic.com/api/oauth/usage` for a Claude

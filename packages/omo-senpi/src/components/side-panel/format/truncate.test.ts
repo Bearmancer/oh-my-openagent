@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import { padVisible, truncateVisible, truncateVisibleStart, visibleWidth } from "./truncate"
+import { padVisible, wrapVisible, truncateVisible, truncateVisibleStart, visibleWidth } from "./truncate"
 
 const PURPLE = "\x1b[38;2;203;166;247m"
 const RESET = "\x1b[39m"
@@ -114,5 +114,41 @@ describe("truncateVisibleStart", () => {
     // then
     expect(cut).toBe("…d/e/f")
     expect(visibleWidth(cut)).toBeLessThanOrEqual(6)
+  })
+})
+
+describe("wrapVisible", () => {
+  test("#given text shorter than the column #when wrapped #then it stays one row", () => {
+    // given / when / then
+    expect(wrapVisible("short enough", 40)).toEqual(["short enough"])
+  })
+
+  test("#given a long sentence #when wrapped #then every row fits and no word is broken", () => {
+    // given an objective is prose, and prose read mid-word is worse than prose read short
+    const rows = wrapVisible("Extend the side panel with the subsystems omo gained since beta 53", 20)
+
+    // then
+    expect(rows.length).toBeGreaterThan(1)
+    expect(rows.every((row) => row.length <= 20)).toBe(true)
+    expect(rows.join(" ")).toBe("Extend the side panel with the subsystems omo gained since beta 53")
+  })
+
+  test("#given text that already has newlines #when wrapped #then they survive as rows", () => {
+    // given objectives are written in paragraphs and the shape carries meaning
+    expect(wrapVisible("first\nsecond", 40)).toEqual(["first", "second"])
+  })
+
+  test("#given a word wider than the column #when wrapped #then it is split rather than overflowing", () => {
+    // given a path or a token can exceed the column on its own
+    const rows = wrapVisible("/very/long/path/that/never/fits/in/the/column", 12)
+
+    // then
+    expect(rows.every((row) => row.length <= 12)).toBe(true)
+    expect(rows.join("")).toBe("/very/long/path/that/never/fits/in/the/column")
+  })
+
+  test("#given no room at all #when wrapped #then nothing is produced", () => {
+    // given / when / then
+    expect(wrapVisible("anything", 0)).toEqual([])
   })
 })
