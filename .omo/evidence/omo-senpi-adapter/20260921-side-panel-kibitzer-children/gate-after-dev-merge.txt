@@ -8,8 +8,15 @@ The difference between the two runs is the whole point, so it is recorded rather
 
 1. "reflection sandbox with not-yet-created paths" fails in BOTH runs. It also fails on a pristine
    origin/dev worktree on this machine (see ../20260921-side-panel-memory/dev-gate.txt:
-   3673 pass / 1 fail, that test). This kernel denies unprivileged user namespaces, so bwrap
-   cannot build its transform here. Not ours, and not fixable from this branch.
+   3673 pass / 1 fail, that same test), so it is dev's, not ours.
+
+   The first guess - that this kernel's `apparmor_restrict_unprivileged_userns=1` stopped bwrap -
+   was WRONG, and was tested rather than assumed: with the restriction flipped to 0 the file still
+   reports 3 pass / 1 fail (the sysctl was restored to 1 immediately). The real cause is in dev's
+   own test: `sandbox-absent-paths.test.ts` unwraps the transform through a sync helper that
+   throws "Transform returned a Promise in a sync context", while `c25d6668d refactor(memory):
+   make session-reachable probes async` made that transform async. The test was never updated to
+   await it. Nothing on this branch can fix it, and this branch does not touch that component.
 
 2. "facts payload byte cap" failed in run 1 and PASSED in run 2 of the identical tree. It also
    passes alone (3 pass / 0 fail) and passed on dev's own full run. Repeating just the memory
