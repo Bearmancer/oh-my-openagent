@@ -1,0 +1,15 @@
+bun test v1.4.2 (744846f84)
+
+packages/omo-senpi/src/components/side-panel/usage/accounts.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+SyntaxError: Export named 'resolveUsageCredentialFrom' not found in module '/home/kirill.ohapkin/_code/omo-side-panel/packages/omo-senpi/src/components/side-panel/usage/accounts.ts'.
+-------------------------------
+
+
+ 0 pass
+ 1 fail
+ 1 error
+Ran 1 test across 1 file. [929.00ms]
+EXIT=1
