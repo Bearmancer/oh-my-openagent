@@ -1,13 +1,13 @@
 import {
-  CLAUDE_PROVIDER,
+  CLAUDE_PROVIDERS,
   CLAUDE_USAGE_URL,
-  CODEX_PROVIDER,
+  CODEX_PROVIDERS,
   CODEX_USAGE_URL,
   USAGE_MAX_BACKOFF_MS,
 } from "../constants"
 import { asRecord } from "../guards"
 import type { PanelTimerHandle, PanelTimers } from "../types"
-import { resolveUsageCredential, type PanelUsageCredential } from "./accounts"
+import { resolveUsageCredentialFrom, type PanelUsageCredential } from "./accounts"
 import {
   claimProviders,
   mergeUsageResults,
@@ -49,16 +49,15 @@ export interface UsagePoller {
 
 interface ProviderPlan {
   readonly key: PanelUsageProviderKey
-  readonly provider: string
   readonly credential: PanelUsageCredential | undefined
   /** The provider appears in auth.json at all. One nobody signed into is skipped in silence. */
   readonly configured: boolean
 }
 
-/** Which senpi credential each usage endpoint speaks for. */
-const PROVIDER_IDS: Readonly<Record<PanelUsageProviderKey, string>> = {
-  claude: CLAUDE_PROVIDER,
-  codex: CODEX_PROVIDER,
+/** Which senpi credentials each usage endpoint speaks for, in the order they are tried. */
+const PROVIDER_IDS: Readonly<Record<PanelUsageProviderKey, readonly string[]>> = {
+  claude: CLAUDE_PROVIDERS,
+  codex: CODEX_PROVIDERS,
 }
 
 /** Poll intervals to wait before asking again about a credential only a `/login` can fix. */
@@ -90,12 +89,11 @@ export function createUsagePoller(deps: UsagePollerDeps): UsagePoller {
     const { auth, pool } = deps.readCredentials()
     const now = deps.now()
     return USAGE_PROVIDER_KEYS.map((key) => {
-      const provider = PROVIDER_IDS[key]
+      const providers = PROVIDER_IDS[key]
       return {
         key,
-        provider,
-        credential: resolveUsageCredential(auth, pool, provider, now),
-        configured: hasProvider(auth, provider),
+        credential: resolveUsageCredentialFrom(auth, pool, providers, now),
+        configured: providers.some((provider) => hasProvider(auth, provider)),
       }
     })
   }

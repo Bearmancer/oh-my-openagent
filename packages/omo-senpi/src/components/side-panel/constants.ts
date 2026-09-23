@@ -88,8 +88,15 @@ export const KIBITZER_WAKES_TAIL_BYTES = 256 * 1024
  */
 export const CLAUDE_USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 export const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage"
-export const CLAUDE_PROVIDER = "claude-sdk-oauth"
-export const CODEX_PROVIDER = "openai-codex"
+/**
+ * Credential providers per usage endpoint, current name first and the retired spelling behind it.
+ * senpi renamed its subscription providers - `claude-sdk-oauth` became `anthropic-subscription`,
+ * `openai-codex` became `chatgpt-subscription` - and an install that predates the rename still
+ * carries the old key while a migrated one carries the new. Reading a name nobody writes any more
+ * is silent: no credential, no poll, and bars that quietly age instead of going blank.
+ */
+export const CLAUDE_PROVIDERS: readonly string[] = ["anthropic-subscription", "claude-sdk-oauth"]
+export const CODEX_PROVIDERS: readonly string[] = ["chatgpt-subscription", "openai-codex"]
 
 /** Window lengths the payloads name only by kind; used to pace the bar's marker. */
 export const FIVE_HOUR_MS = 5 * 60 * 60 * 1_000

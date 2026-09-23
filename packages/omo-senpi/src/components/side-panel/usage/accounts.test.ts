@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import { resolveUsageCredential } from "./accounts"
+import { resolveUsageCredential, resolveUsageCredentialFrom } from "./accounts"
 
 const NOW = 1_700_000_000_000
 const PROVIDER = "claude-sdk-oauth"
@@ -115,5 +115,82 @@ describe("resolveUsageCredential", () => {
       state: "ok",
       account: "work",
     })
+  })
+})
+
+describe("the provider ids senpi renamed", () => {
+  // The engine renamed its subscription providers: auth.json now carries `anthropic-subscription`
+  // and `chatgpt-subscription` where it used to carry `claude-sdk-oauth` and `openai-codex`.
+  // Reading only the retired name means no credential, no poll, and a usage block that silently
+  // ages - which is exactly how this was found: bars frozen with "43h ago" on them.
+  const CURRENT = "anthropic-subscription"
+  const LEGACY = "claude-sdk-oauth"
+  const IDS = [CURRENT, LEGACY] as const
+
+  const node = (accounts: readonly Record<string, unknown>[], pinned?: string) => ({
+    type: "oauth",
+    accounts,
+    ...(pinned === undefined ? {} : { pinned }),
+  })
+
+  test("#given auth under the current name #when resolved #then the credential is found", () => {
+    // given
+    const credential = resolveUsageCredentialFrom(
+      { [CURRENT]: node([{ name: "work", access: token("work") }], "work") },
+      undefined,
+      IDS,
+      NOW,
+    )
+
+    // then
+    expect(credential?.account).toBe("work")
+    expect(credential?.access).toBe(token("work"))
+  })
+
+  test("#given an install that still uses the retired name #when resolved #then it keeps working", () => {
+    // given the engine kept the old spelling as a legacy alias, and so does this
+    const credential = resolveUsageCredentialFrom(
+      { [LEGACY]: node([{ name: "work", access: token("work") }], "work") },
+      undefined,
+      IDS,
+      NOW,
+    )
+
+    // then
+    expect(credential?.account).toBe("work")
+  })
+
+  test("#given both names present #when resolved #then the current one wins", () => {
+    // given a migrated install can carry both for a while
+    const credential = resolveUsageCredentialFrom(
+      {
+        [CURRENT]: node([{ name: "current", access: token("current") }], "current"),
+        [LEGACY]: node([{ name: "legacy", access: token("legacy") }], "legacy"),
+      },
+      undefined,
+      IDS,
+      NOW,
+    )
+
+    // then
+    expect(credential?.account).toBe("current")
+  })
+
+  test("#given health recorded under the retired pool key #when resolved #then the cooldown is still seen", () => {
+    // given auth and the credential pool were renamed on different schedules
+    const credential = resolveUsageCredentialFrom(
+      { [CURRENT]: node([{ name: "work", access: token("work") }], "work") },
+      { providers: { [LEGACY]: { lanes: { stored: { slots: { work: { blockedUntil: NOW + 60_000 } } } } } } },
+      IDS,
+      NOW,
+    )
+
+    // then
+    expect(credential?.state).toBe("cooldown")
+  })
+
+  test("#given no signed-in provider at all #when resolved #then nothing is invented", () => {
+    // given
+    expect(resolveUsageCredentialFrom({ "some-other-provider": node([]) }, undefined, IDS, NOW)).toBeUndefined()
   })
 })

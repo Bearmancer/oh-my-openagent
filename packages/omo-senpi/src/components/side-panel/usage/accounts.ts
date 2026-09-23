@@ -37,9 +37,44 @@ export function resolveUsageCredential(
   provider: string,
   now: number,
 ): PanelUsageCredential | undefined {
+  return resolveOne(auth, pool, provider, [provider], now)
+}
+
+/**
+ * The first of `providers` that auth.json actually carries.
+ *
+ * The engine renamed its subscription providers - `claude-sdk-oauth` became
+ * `anthropic-subscription`, `openai-codex` became `chatgpt-subscription` - and installs that
+ * predate the rename still hold the old spelling, so the current name is read first and the
+ * retired one remains a fallback. Reading only the retired name is not a visible error: there is
+ * simply no credential, so nothing polls and the block ages in place.
+ *
+ * Health is looked up under EVERY listed name, because auth.json and the credential pool were
+ * renamed on different schedules and a slot filed under the old key still describes this account.
+ */
+export function resolveUsageCredentialFrom(
+  auth: unknown,
+  pool: unknown,
+  providers: readonly string[],
+  now: number,
+): PanelUsageCredential | undefined {
+  for (const provider of providers) {
+    const credential = resolveOne(auth, pool, provider, providers, now)
+    if (credential !== undefined) return credential
+  }
+  return undefined
+}
+
+function resolveOne(
+  auth: unknown,
+  pool: unknown,
+  provider: string,
+  healthProviders: readonly string[],
+  now: number,
+): PanelUsageCredential | undefined {
   const node = asRecord(asRecord(auth)?.[provider])
   if (node === undefined) return undefined
-  const slots = poolSlots(pool, provider)
+  const slots = poolSlots(pool, healthProviders)
   const accounts = asArray(node["accounts"])
     .map((entry) => asRecord(entry))
     .filter((entry): entry is Record<string, unknown> => entry !== undefined)
@@ -90,12 +125,19 @@ export function resolveUsageCredential(
   return undefined
 }
 
-function poolSlots(pool: unknown, provider: string): Readonly<Record<string, PoolSlot>> {
+function poolSlots(pool: unknown, providerIds: readonly string[]): Readonly<Record<string, PoolSlot>> {
   const providers = asRecord(asRecord(pool)?.["providers"])
-  const lanes = asRecord(asRecord(providers?.[provider])?.["lanes"])
-  const slots = asRecord(asRecord(lanes?.["stored"])?.["slots"])
-  if (slots === undefined) return {}
   const parsed: Record<string, PoolSlot> = {}
+  for (const provider of providerIds) {
+    const lanes = asRecord(asRecord(providers?.[provider])?.["lanes"])
+    const slots = asRecord(asRecord(lanes?.["stored"])?.["slots"])
+    if (slots === undefined) continue
+    collectSlots(slots, parsed)
+  }
+  return parsed
+}
+
+function collectSlots(slots: Record<PropertyKey, unknown>, parsed: Record<string, PoolSlot>): void {
   for (const [name, value] of Object.entries(slots)) {
     const slot = asRecord(value)
     if (slot === undefined) continue
@@ -106,7 +148,6 @@ function poolSlots(pool: unknown, provider: string): Readonly<Record<string, Poo
       ...(typeof cooldownUntil === "number" ? { cooldownUntil } : {}),
     }
   }
-  return parsed
 }
 
 function usableToken(value: unknown): boolean {
