@@ -84,12 +84,12 @@ type SidePanelSettingKey = keyof OmoSidePanelSettings
 type SidePanelSettingPath = `side_panel.${SidePanelSettingKey}`
 
 export const SIDE_PANEL_HARNESS_SUPPORT: Record<SidePanelSettingPath, readonly OmoHarnessId[]> = {
-  "side_panel.enabled": ["senpi"],
-  "side_panel.clickable": ["senpi"],
-  "side_panel.width": ["senpi"],
-  "side_panel.min_columns": ["senpi"],
-  "side_panel.usage_poll_seconds": ["senpi"],
-  "side_panel.sections": ["senpi"],
+  "side_panel.enabled": ["native"],
+  "side_panel.clickable": ["native"],
+  "side_panel.width": ["native"],
+  "side_panel.min_columns": ["native"],
+  "side_panel.usage_poll_seconds": ["native"],
+  "side_panel.sections": ["native"],
 } as const
 
 /** Resolve the effective side-panel settings, applying defaults when the section is absent. */
