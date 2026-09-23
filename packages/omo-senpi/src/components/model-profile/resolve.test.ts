@@ -4,11 +4,13 @@ import { describe, expect, it } from "bun:test"
 
 import { resolveModelProfile } from "./resolve"
 
-const FABLE = "anthropic/claude-fable-5-1"
+const FABLE = "anthropic-subscription/claude-fable-5-1"
+const FABLE_ZEN = "opencode/claude-fable-5-1"
 const FABLE_API = "anthropic-api/claude-fable-5-1"
-const OPUS = "anthropic/claude-opus-5"
+const OPUS = "anthropic/claude-opus-5-5"
+const OPUS_SUBSCRIPTION = "anthropic-subscription/claude-opus-5-5"
 const KIMI = "moonshotai/kimi-k3"
-const FLASH = "deepseek/deepseek-v4-flash"
+const FLASH = "deepseek/deepseek-flash"
 const LUNA = "openai/gpt-5.6-luna-fast"
 
 describe("resolveModelProfile", () => {
@@ -21,7 +23,7 @@ describe("resolveModelProfile", () => {
       provider: "moonshotai",
       modelId: "kimi-k3",
       reasoning: "max",
-      skipped: [FABLE, OPUS],
+      skipped: [FABLE, OPUS_SUBSCRIPTION],
     })
   })
 
@@ -43,7 +45,7 @@ describe("resolveModelProfile", () => {
       kind: "resolved",
       profile: { id: OPUS, displayName: OPUS, source: "pin" },
       provider: "anthropic",
-      modelId: "claude-opus-5",
+      modelId: "claude-opus-5-5",
       skipped: [],
     })
   })
@@ -65,7 +67,7 @@ describe("resolveModelProfile", () => {
       kind: "resolved",
       profile: { id: "capable", displayName: "capable", source: "user" },
       provider: "deepseek",
-      modelId: "deepseek-v4-flash",
+      modelId: "deepseek-flash",
       skipped: [],
     })
   })
@@ -104,7 +106,7 @@ describe("resolveModelProfile", () => {
       availableModels: [OPUS],
     })
 
-    expect(result).toMatchObject({ kind: "resolved", provider: "anthropic", modelId: "claude-opus-5", reasoning: "high" })
+    expect(result).toMatchObject({ kind: "resolved", provider: "anthropic", modelId: "claude-opus-5-5", reasoning: "high" })
   })
 
   it("reports an empty registry as unavailable and lists the chain", () => {
@@ -113,7 +115,7 @@ describe("resolveModelProfile", () => {
     expect(result).toEqual({
       kind: "unavailable",
       profile: { id: "capable", displayName: "Capable", source: "builtin" },
-      chain: [FABLE, OPUS, "kimi-coding/kimi-k3", "zai-coding-plan/glm-5.3"],
+      chain: [FABLE, OPUS_SUBSCRIPTION, "kimi-coding/kimi-k3", "zai-coding-plan/glm-5.3"],
     })
   })
 
@@ -127,14 +129,36 @@ describe("resolveModelProfile", () => {
     expect(result).toEqual({
       kind: "unknown",
       name: "nope",
-      known: ["capable", "deep-work", "night-shift", "simple-work"],
-      message: 'model_profile "nope" is not defined; known profiles: capable, deep-work, night-shift, simple-work',
+      known: ["capable", "deep-work", "night-shift"],
+      message: 'model_profile "nope" is not defined; known profiles: capable, deep-work, night-shift',
     })
   })
 
   it("reports a blank value as unknown rather than silently doing nothing", () => {
     const result = resolveModelProfile({ active: "   ", availableModels: [LUNA] })
 
-    expect(result).toMatchObject({ kind: "unknown", name: "", known: ["capable", "deep-work", "simple-work"] })
+    expect(result).toMatchObject({ kind: "unknown", name: "", known: ["capable", "deep-work"] })
+  })
+})
+
+describe("builtin chain routing", () => {
+  it("keeps capable on the Claude subscription when an OpenCode Zen key serves the same model", () => {
+    const result = resolveModelProfile({ active: "capable", availableModels: [FABLE_ZEN, FABLE] })
+
+    expect(result).toMatchObject({ kind: "resolved", provider: "anthropic-subscription", modelId: "claude-fable-5-1", reasoning: "xhigh" })
+  })
+
+  it("reports the removed simple-work profile as unknown instead of resolving it", () => {
+    const result = resolveModelProfile({ active: "simple-work", availableModels: ["chatgpt-subscription/gpt-6-luna-fast"] })
+
+    expect(result).toMatchObject({ kind: "unknown", name: "simple-work", known: ["capable", "deep-work"] })
+  })
+
+  it("stops deep-work after GPT-6 Sol instead of falling to GPT-5.6 Sol", () => {
+    const sol = resolveModelProfile({ active: "deep-work", availableModels: ["chatgpt-subscription/gpt-6-sol"] })
+    const onlyOldSol = resolveModelProfile({ active: "deep-work", availableModels: ["chatgpt-subscription/gpt-5.6-sol"] })
+
+    expect(sol).toMatchObject({ kind: "resolved", modelId: "gpt-6-sol", reasoning: "medium" })
+    expect(onlyOldSol).toMatchObject({ kind: "unavailable" })
   })
 })

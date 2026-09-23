@@ -6,12 +6,12 @@ import type { DelegateFallbackEntry } from "@oh-my-opencode/delegate-core"
 // no such providers):
 //   - kimi rungs carry BOTH provider ids ("kimi-coding" senpi registry id and the "kimi-for-coding"
 //     models.dev/opencode id); model-core carries "kimi-for-coding" only.
-//   - every claude-* rung is headed by "claude-sdk-oauth", senpi's Claude subscription lane
+//   - every claude-* rung is headed by "anthropic-subscription", senpi's Claude subscription lane
 //     (Claude Pro/Max). It serves the same model ids as "anthropic", so a machine that is logged in
 //     there AND holds an OpenCode Zen key must not be routed to the metered `opencode/claude-*` lane
 //     (#8051). Rung provider order IS the ranking in resolveModelForDelegateTask, so it goes first,
 //     mirroring senpi's own PROVIDER_PRECEDENCE in retry-fallback/expansion.ts.
-//   - no rung lists "openai", senpi's metered API-key lane; "openai-codex" (ChatGPT subscription)
+//   - no rung lists "openai", senpi's metered API-key lane; "chatgpt-subscription" (ChatGPT subscription)
 //     is the only OpenAI lane, so a machine holding both never routes delegated GPT work to API
 //     billing (#8300). Like vercel/openrouter, an API-key-only registry still resolves through the
 //     resolver's cross-provider fallthrough. model-core keeps "openai": it is OpenCode's single
@@ -19,13 +19,13 @@ import type { DelegateFallbackEntry } from "@oh-my-opencode/delegate-core"
 export const CATEGORY_FALLBACK_CHAINS: Readonly<Record<string, readonly DelegateFallbackEntry[]>> = {
   "visual-engineering": [
     {
-      providers: ["claude-sdk-oauth", "anthropic", "anthropic-api", "github-copilot", "opencode"],
+      providers: ["anthropic-subscription", "anthropic", "anthropic-api", "github-copilot", "opencode"],
       model: "claude-fable-5-1",
       variant: "max",
     },
     {
-      providers: ["claude-sdk-oauth", "anthropic", "anthropic-api", "github-copilot", "opencode"],
-      model: "claude-opus-5",
+      providers: ["anthropic-subscription", "anthropic", "anthropic-api", "github-copilot", "opencode"],
+      model: "claude-opus-5-5",
       variant: "max",
     },
     {
@@ -36,54 +36,56 @@ export const CATEGORY_FALLBACK_CHAINS: Readonly<Record<string, readonly Delegate
   ],
   architect: [
     {
-      providers: ["claude-sdk-oauth", "anthropic", "anthropic-api", "github-copilot", "opencode"],
+      providers: ["anthropic-subscription", "anthropic", "anthropic-api", "github-copilot", "opencode"],
       model: "claude-fable-5-1",
       variant: "max",
     }
   ],
   ultrabrain: [
-    { providers: ["openai-codex"], model: "gpt-6-astra", variant: "max" },
+    { providers: ["chatgpt-subscription"], model: "gpt-6-astra", variant: "max" },
     { providers: ["github-copilot"], model: "gpt-6-astra", variant: "max" },
-    { providers: ["openai-codex", "opencode"], model: "gpt-6-astra", variant: "max" },
-    { providers: ["openai-codex"], model: "gpt-5.6-sol", variant: "max" },
+    { providers: ["chatgpt-subscription", "opencode"], model: "gpt-6-astra", variant: "max" },
+    { providers: ["chatgpt-subscription"], model: "gpt-5.6-sol", variant: "max" },
     { providers: ["github-copilot"], model: "gpt-5.6-sol", variant: "max" },
-    { providers: ["openai-codex", "opencode"], model: "gpt-5.6-sol", variant: "max" }
+    { providers: ["chatgpt-subscription", "opencode"], model: "gpt-5.6-sol", variant: "max" }
   ],
   "deep-low": [
+    // The Fast (priority) tier exists only on the ChatGPT subscription lane; Copilot and OpenCode Zen
+    // serve plain gpt-6-sol, so the next rung keeps the lane open there at the same effort.
+    { providers: ["chatgpt-subscription"], model: "gpt-6-sol-fast", variant: "medium" },
     {
-      providers: ["openai-codex", "github-copilot", "opencode"],
-      model: "gpt-5.6-sol",
+      providers: ["chatgpt-subscription", "github-copilot", "opencode"],
+      model: "gpt-6-sol",
       variant: "medium",
     }
   ],
   "deep-high": [
     {
-      providers: ["openai-codex", "github-copilot", "opencode"],
+      providers: ["chatgpt-subscription", "github-copilot", "opencode"],
       model: "gpt-6-astra",
-      variant: "high",
+      variant: "xhigh",
     }
   ],
   artistry: [
     {
-      providers: ["claude-sdk-oauth", "anthropic", "anthropic-api", "github-copilot", "opencode"],
+      providers: ["anthropic-subscription", "anthropic", "anthropic-api", "github-copilot", "opencode"],
       model: "claude-fable-5-1",
+      variant: "max",
+    },
+    {
+      providers: ["anthropic-subscription", "anthropic", "anthropic-api", "github-copilot", "opencode"],
+      model: "claude-opus-5-5",
       variant: "max",
     },
     {
       providers: ["kimi-coding", "kimi-for-coding", "moonshotai", "opencode-go"],
       model: "kimi-k3",
       variant: "max",
-    },
-    {
-      providers: ["claude-sdk-oauth", "anthropic", "anthropic-api", "github-copilot", "opencode"],
-      model: "claude-opus-5",
-      variant: "xhigh",
     }
   ],
   quick: [
-    { providers: ["kimi-coding", "kimi-for-coding"], model: "kimi-for-coding-highspeed" },
-    { providers: ["openai-codex"], model: "gpt-5.6-luna-fast", variant: "low" },
-    { providers: ["deepseek"], model: "deepseek-v4-flash", variant: "off" },
+    { providers: ["chatgpt-subscription"], model: "gpt-6-luna-fast", variant: "low" },
+    { providers: ["deepseek"], model: "deepseek-flash", variant: "off" },
     {
       providers: ["qwen-token-plan", "alibaba-token-plan", "bailian-coding-plan"],
       model: "qwen3.6-flash",
@@ -93,20 +95,21 @@ export const CATEGORY_FALLBACK_CHAINS: Readonly<Record<string, readonly Delegate
     { providers: ["opencode-go"], model: "minimax-m2.7", variant: "max" },
     { providers: ["xai"], model: "grok-4.20-0309-non-reasoning" },
     {
-      providers: ["claude-sdk-oauth", "anthropic", "anthropic-api", "github-copilot"],
+      providers: ["anthropic-subscription", "anthropic", "anthropic-api", "github-copilot"],
       model: "claude-haiku-4-5",
       variant: "off",
     }
   ],
   "unspecified-low": [
-    { providers: ["xai", "github-copilot", "opencode"], model: "grok-4.6", variant: "xhigh" },
+    { providers: ["xiaomi", "opencode-go"], model: "mimo-v2.6-pro", variant: "max" },
+    { providers: ["xai", "github-copilot", "opencode-go"], model: "grok-4.7", variant: "xhigh" },
     {
-      providers: ["openai-codex", "github-copilot", "opencode"],
+      providers: ["chatgpt-subscription", "github-copilot", "opencode"],
       model: "gpt-5.6-terra",
       variant: "high",
     },
     {
-      providers: ["claude-sdk-oauth", "anthropic", "anthropic-api", "github-copilot", "opencode"],
+      providers: ["anthropic-subscription", "anthropic", "anthropic-api", "github-copilot", "opencode"],
       model: "claude-sonnet-5",
       variant: "low",
     },
@@ -120,14 +123,9 @@ export const CATEGORY_FALLBACK_CHAINS: Readonly<Record<string, readonly Delegate
   ],
   "unspecified-high": [
     {
-      providers: ["openai-codex", "github-copilot", "opencode"],
-      model: "gpt-6-astra",
-      variant: "high",
-    },
-    {
-      providers: ["claude-sdk-oauth", "anthropic", "anthropic-api", "github-copilot", "opencode"],
-      model: "claude-opus-5",
-      variant: "xhigh",
+      providers: ["anthropic-subscription", "anthropic", "anthropic-api", "github-copilot", "opencode"],
+      model: "claude-opus-5-5",
+      variant: "max",
     },
     { providers: ["zai-coding-plan", "opencode-go"], model: "glm-5.3", variant: "max" },
     {
@@ -138,19 +136,19 @@ export const CATEGORY_FALLBACK_CHAINS: Readonly<Record<string, readonly Delegate
   ],
   writing: [
     {
-      providers: ["claude-sdk-oauth", "anthropic", "anthropic-api", "github-copilot", "opencode"],
+      providers: ["anthropic-subscription", "anthropic", "anthropic-api", "github-copilot", "opencode"],
       model: "claude-fable-5-1",
       variant: "low",
     },
     {
-      providers: ["kimi-coding", "kimi-for-coding", "moonshotai", "opencode-go"],
-      model: "kimi-k3",
+      providers: ["anthropic-subscription", "anthropic", "anthropic-api", "github-copilot", "opencode"],
+      model: "claude-opus-5-5",
       variant: "low",
     },
     {
-      providers: ["claude-sdk-oauth", "anthropic", "anthropic-api", "github-copilot", "opencode"],
+      providers: ["anthropic-subscription", "anthropic", "anthropic-api", "github-copilot", "opencode"],
       model: "claude-opus-4-6",
-      variant: "low",
+      variant: "max",
     }
   ],
 }

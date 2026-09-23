@@ -15,6 +15,9 @@ export type TaskTargetSelection =
   | { readonly kind: "error"; readonly error: TaskTargetError }
 
 type TargetInput = {
+  readonly isolated?: boolean
+  readonly apply?: boolean
+  readonly merge?: "patch" | "branch"
   readonly prompt?: string
   readonly category?: string
   readonly subagent_type?: string
@@ -194,8 +197,14 @@ export function resolveSpawnItems(params: SpawnParamsInput): ResolveSpawnItemsRe
     }
 
     const model = effectiveModel
+    const isolated = input.isolated ?? params.isolated
+    const apply = input.apply ?? params.apply
+    const merge = input.merge ?? params.merge
     const common = {
       prompt: input.prompt,
+      ...(isolated === undefined ? {} : { isolated }),
+      ...(apply === undefined ? {} : { apply }),
+      ...(merge === undefined ? {} : { merge }),
       load_skills: input.load_skills ?? params.load_skills ?? [],
       ...(input.task_summary === undefined ? {} : { task_summary: input.task_summary }),
       ...(input.description === undefined ? {} : { description: input.description }),

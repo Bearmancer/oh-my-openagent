@@ -7,7 +7,13 @@ import { transformConfigJsoncSources } from "./transform-config-jsonc"
 import { transformOpenCodeSources } from "./transform-opencode"
 import { REASONING_UNIFICATION_MIGRATION_ID, transformReasoningUnification } from "./reasoning-unification"
 import { CATEGORY_DEEP_SPLIT_MIGRATION_ID, transformCategoryDeepSplit } from "./category-deep-split"
-import { hasLegacyCategoryNames } from "@oh-my-opencode/omo-config-core"
+import { HARNESS_NATIVE_RENAME_MIGRATION_ID, transformHarnessNativeRename } from "./harness-native-rename"
+import {
+  hasLegacySubscriptionProviderIds,
+  SUBSCRIPTION_PROVIDER_RENAME_MIGRATION_ID,
+  transformSubscriptionProviderRename,
+} from "./subscription-provider-rename"
+import { hasLegacyCategoryNames, hasLegacyHarnessBlocks } from "@oh-my-opencode/omo-config-core"
 import type { ConfigMigrationDiscoveryOptions, DiscoveredLegacyConfigSource } from "./types"
 import type { ConfigMigrationTransformResult, OpenCodeTransformScope } from "./transform-types"
 
@@ -139,6 +145,36 @@ function categoryDeepSplitPlan(targetPath: string): LegacyConfigMigrationPlan {
   }
 }
 
+// Gated on content like the category plan: a config that never named the legacy harness block is
+// left untouched - no backup, no journal, no `_migrations` marker.
+function harnessNativeRenamePlan(targetPath: string): LegacyConfigMigrationPlan {
+  const inspect = (sources: Parameters<MigrationTransform>[0]): ConfigMigrationTransformResult =>
+    transformHarnessNativeRename(sources[0]?.value)
+  return {
+    id: HARNESS_NATIVE_RENAME_MIGRATION_ID,
+    inspect,
+    mode: "replace-target",
+    shouldRun: hasLegacyHarnessBlocks,
+    sources: [],
+    targetPath,
+    transform: inspect,
+  }
+}
+
+function subscriptionProviderRenamePlan(targetPath: string): LegacyConfigMigrationPlan {
+  const inspect = (sources: Parameters<MigrationTransform>[0]): ConfigMigrationTransformResult =>
+    transformSubscriptionProviderRename(sources[0]?.value)
+  return {
+    id: SUBSCRIPTION_PROVIDER_RENAME_MIGRATION_ID,
+    inspect,
+    mode: "replace-target",
+    shouldRun: hasLegacySubscriptionProviderIds,
+    sources: [],
+    targetPath,
+    transform: inspect,
+  }
+}
+
 function existingOmoConfigPath(directory: string, options: ConfigMigrationDiscoveryOptions): string | undefined {
   const fileSystem = discoveryFileSystem(options)
   for (const fileName of ["omo.jsonc", "omo.json"] as const) {
@@ -208,5 +244,7 @@ export function createLegacyConfigMigrationPlans(
     ...legacyPlans,
     ...inPlaceTargets.map(reasoningPlan),
     ...inPlaceTargets.map(categoryDeepSplitPlan),
+    ...inPlaceTargets.map(harnessNativeRenamePlan),
+    ...inPlaceTargets.map(subscriptionProviderRenamePlan),
   ]
 }

@@ -15,9 +15,9 @@ import {
   updateHint,
   versionLine,
 } from "../compile-entry"
-import { loadOpenAICodexOAuth } from "../../../node_modules/@code-yeongyu/senpi/node_modules/@earendil-works/pi-ai/dist/auth/oauth/load.js"
-import { openaiCodexOAuth } from "../../../node_modules/@code-yeongyu/senpi/node_modules/@earendil-works/pi-ai/dist/auth/oauth/openai-codex.js"
-import { openaiCodexProvider } from "../../../node_modules/@code-yeongyu/senpi/node_modules/@earendil-works/pi-ai/dist/providers/openai-codex.js"
+import { loadChatGptSubscriptionOAuth } from "../../../node_modules/@code-yeongyu/senpi/node_modules/@earendil-works/pi-ai/dist/auth/oauth/load.js"
+import { chatgptSubscriptionOAuth } from "../../../node_modules/@code-yeongyu/senpi/node_modules/@earendil-works/pi-ai/dist/auth/oauth/chatgpt-subscription.js"
+import { chatgptSubscriptionProvider } from "../../../node_modules/@code-yeongyu/senpi/node_modules/@earendil-works/pi-ai/dist/providers/chatgpt-subscription.js"
 import {
   isProvisionedExecutable,
   materializeProvisionedExecutable,
@@ -80,17 +80,17 @@ describe("provisioned executable handoff", () => {
 
 describe("compiled OMO OAuth module identity", () => {
   test("registers the loader in the same nested pi-ai graph used by the provider", async () => {
-    const loadedFlow = await loadOpenAICodexOAuth()
+    const loadedFlow = await loadChatGptSubscriptionOAuth()
 
-    expect(loadedFlow).toBe(openaiCodexOAuth)
-    expect(openaiCodexProvider().id).toBe("openai-codex")
+    expect(loadedFlow).toBe(chatgptSubscriptionOAuth)
+    expect(chatgptSubscriptionProvider().id).toBe("chatgpt-subscription")
   })
 
   test("derives OpenAI Codex request auth from a stored OAuth credential", async () => {
     const secret = "review-secret-must-not-be-printed"
     const credential = { type: "oauth" as const, access: secret, refresh: "discarded", expires: Date.now() + 60_000 }
 
-    const auth = await openaiCodexProvider().auth.oauth?.toAuth(credential)
+    const auth = await chatgptSubscriptionProvider().auth.oauth?.toAuth(credential)
 
     expect(auth).toEqual({ apiKey: secret })
   })

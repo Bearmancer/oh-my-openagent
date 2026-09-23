@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 const here = dirname(fileURLToPath(import.meta.url));
 
 const DEFAULT_SCAN_DIRS = [
+	join(here, "skills", "browser"),
 	join(here, "skills", "ultimate-browsing"),
 	join(here, "skills", "data-scientist"),
 	join(here, "skills", "ulw-research"),
@@ -35,6 +36,10 @@ const DENY_RULES = [
 	["home-path:C:\\Users\\<name>", /C:\\Users\\[A-Za-z0-9._-]+/i],
 	["bearer-literal", /\bBearer\s+[A-Za-z0-9._-]{12,}/],
 	["agent-reach-home", /(?:~|\$HOME)\/\.agent-reach\//],
+	["email-address", /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/],
+	["share-link", /https?:\/\/share\.[A-Za-z0-9.-]+\/\S/],
+	["url-token-fragment", /https?:\/\/\S+#[A-Za-z0-9_-]{20,}/],
+	["credential-env-path", /(?:~|\$HOME)\/\.config\/\S*\.env\b/],
 ];
 
 const TEXT_EXTENSIONS = new Set([".md", ".py", ".yaml", ".yml", ".json", ".js", ".mjs", ".ts", ".txt", ".sh"]);

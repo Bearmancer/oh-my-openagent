@@ -409,7 +409,7 @@ describe("batch spawn types", () => {
 describe("validateTaskTarget category+model exclusivity", () => {
   test("#given category with model #when validated #then returns a typed category_with_model error", () => {
     // given
-    const params = { prompt: "p", category: "architect", model: "openai-codex/gpt-5.6-luna-fast" }
+    const params = { prompt: "p", category: "architect", model: "chatgpt-subscription/gpt-5.6-luna-fast" }
 
     // when
     const result = validateTaskTarget(params)

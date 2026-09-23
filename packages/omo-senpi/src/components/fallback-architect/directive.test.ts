@@ -23,12 +23,12 @@ describe("fallback-architect directive", () => {
     describe("#when the full directive is built", () => {
       const directive = buildFallbackArchitectDirective({
         from: "anthropic/claude-fable-5",
-        to: "anthropic/claude-opus-5",
+        to: "anthropic/claude-opus-5-5",
       })
 
       it("#then it names both models", () => {
         expect(directive).toContain("anthropic/claude-fable-5")
-        expect(directive).toContain("anthropic/claude-opus-5")
+        expect(directive).toContain("anthropic/claude-opus-5-5")
       })
 
       it("#then it routes the model to the architect category", () => {
@@ -44,7 +44,7 @@ describe("fallback-architect directive", () => {
 
     describe("#when the refusing model is outside the fable family", () => {
       const directive = buildFallbackArchitectDirective({
-        from: "anthropic/claude-opus-5",
+        from: "anthropic/claude-opus-5-5",
         to: "kimi-coding/kimi-k3-unlocked",
       })
 

@@ -20,9 +20,9 @@ function registry(models: readonly FakeModel[]) {
   }
 }
 
-// A registry whose only providers serve none of the quick chain rungs; claude-opus-5 keeps
+// A registry whose only providers serve none of the quick chain rungs; claude-opus-5-5 keeps
 // visual-engineering/unspecified-high alive so the gated list is not simply empty.
-const OPUS_ONLY = registry([model("omo-mock", "mock-parent"), model("anthropic", "claude-opus-5")])
+const OPUS_ONLY = registry([model("omo-mock", "mock-parent"), model("anthropic", "claude-opus-5-5")])
 
 describe("dead-chain category disabling", () => {
   describe("#given a builtin category whose chain has no resolvable rung", () => {
@@ -35,16 +35,14 @@ describe("dead-chain category disabling", () => {
       if (result.kind !== "model_unavailable") throw new Error("Expected model_unavailable")
       expect(result.attempted_chain).toEqual(CATEGORY_FALLBACK_CHAINS.quick)
       expect(result.missing_providers).toEqual([
-        "kimi-coding",
-        "kimi-for-coding",
-        "openai-codex",
+        "chatgpt-subscription",
         "deepseek",
         "qwen-token-plan",
         "alibaba-token-plan",
         "bailian-coding-plan",
         "opencode-go",
         "xai",
-        "claude-sdk-oauth",
+        "anthropic-subscription",
         "anthropic-api",
         "github-copilot",
       ])
@@ -115,7 +113,7 @@ describe("dead-chain category disabling", () => {
   describe("#given a gateway-prefixed registry id", () => {
     test("#when the unwrapped id matches a rung #then the category stays available", () => {
       // given
-      const models = registry([model("vercel", "openai/gpt-5.6-sol")])
+      const models = registry([model("vercel", "openai/gpt-6-sol")])
 
       // when
       const result = resolveCategory("deep-low", {}, models)

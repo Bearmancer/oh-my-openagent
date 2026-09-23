@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
-import { spawn } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import {
   embeddedText,

@@ -74,6 +74,7 @@ const EXPECTED_CONFIG = {
     },
   },
   task: {
+    isolation: { enabled: false, backend: "auto", apply: true, merge: "patch", commits: "generic" },
     default_concurrency: 5,
     global_concurrency: Math.max(8, availableParallelism() * 2),
     default_execution_mode: "auto",

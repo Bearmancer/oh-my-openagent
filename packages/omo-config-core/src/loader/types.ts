@@ -1,5 +1,5 @@
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs"
-import type { OmoConfig, OmoHarnessId } from "../schema"
+import type { OmoConfig, OmoHarnessId, OmoLegacyHarnessId } from "../schema"
 
 export type OmoConfigDiagnosticKind = "deprecated-keys" | "parse" | "profile" | "read" | "unknown-keys" | "validation"
 
@@ -41,7 +41,7 @@ export type LoadOmoConfigOptions = {
   readonly cwd?: string
   readonly env?: OmoConfigEnv
   readonly fileSystem?: OmoConfigReadFileSystem
-  readonly harness?: OmoHarnessId
+  readonly harness?: OmoHarnessId | OmoLegacyHarnessId
   readonly platform?: NodeJS.Platform
   readonly profile?: string
 }

@@ -16,6 +16,9 @@
     },
     "./process-identity": {
       "import": "./src/locks/process-identity.ts"
+    },
+    "./process-start-time": {
+      "import": "./src/locks/process-start-time.ts"
     }
   },
   "scripts": {

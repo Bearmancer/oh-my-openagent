@@ -103,6 +103,7 @@ describe("Senpi compatibility test script", () => {
       await mkdir(join(pluginRoot, "extensions"), { recursive: true })
       const requiredSkillNames = [
         "ast-grep",
+        "browser",
         "coding-agent-sessions",
         "debugging",
         "frontend",

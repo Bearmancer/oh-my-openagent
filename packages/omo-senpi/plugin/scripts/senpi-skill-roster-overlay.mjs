@@ -17,7 +17,7 @@ export function applySenpiSkillRosterOverlay(skillName, content) {
     // The shared skill dispatches its single gate reviewer as `oracle`; omo-senpi ships a purpose-built
     // gate reviewer (category-routed deep-high -> unspecified-high), so hand the lane to it instead of
     // a generic category worker.
-    return renameNamedAgent(content, "oracle", "omo-senpi-gate-reviewer")
+    return renameNamedAgent(content, "oracle", "omo-native-gate-reviewer")
   }
   if (skillName === "visual-qa") {
     return routeNamedAgent(content, "oracle", "unspecified-high")

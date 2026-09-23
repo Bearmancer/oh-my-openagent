@@ -1,3 +1,49 @@
+## 2026-09-23 - the launcher prepares an engine postinstall never touched (#8713)
+
+### What changed
+
+`bin/senpi-patch.mjs` keeps resolving the engine root and now only calls `prepareInstalledEngine` and writes the stamp. The preparation moved into `bin/lib/engine-prepare.js` (orchestrator plus the `.omo-engine-prepared` stamp, holding the omo-ai package version, inside the engine tree) and `bin/lib/claude-code-floor.js` (the Claude Code UA floor, unchanged logic). `launcher.js` routes every engine start (`spawnSenpi`, `engineHostCall`, `omo daemon attach`) through `preparedSenpi()`, which calls `ensureEnginePrepared`: a matching stamp costs one small read; a missing or foreign stamp prepares and restamps; a failure prints `omo: could not prepare the installed engine (...); reinstall with: ...` and the launch continues.
+
+### Why
+
+postinstall is skipped under `ignore-scripts=true` and by Bun's untrusted-postinstall default, and nothing noticed: beta.85 installed that way ran without the RPC stream guard and advertised `claude-cli/2.1.251`.
+
+### Why an extension could not handle it
+
+The preparation rewrites the installed engine's files before the engine starts; no extension runs that early.
+
+### Expected merge conflict zones
+
+`bin/senpi-patch.mjs`, `bin/lib/engine-prepare.js`, `bin/lib/claude-code-floor.js`, the engine-start call sites in `bin/lib/launcher.js`, `test/packed-install.test.ts`.
+
+## 2026-09-23 - Claude Code UA floor reaches the bundled engine and rises to 2.1.280
+
+### What changed
+
+`bin/senpi-patch.mjs` raises `claudeCodeVersionFloor` from `2.1.251` to `2.1.280` and applies the
+floor to every `claudeCodeVersion` declaration under the engine's `dist/bundle/` as well as the
+existing `@earendil-works/pi-ai/dist/api/anthropic-messages.js` target. Only the version string of a
+below-floor declaration is rewritten; at-or-above declarations stay byte-identical, and a bundle
+with no declaration fails installation with `omo-ai: unsupported Senpi dist/bundle`.
+
+### Why
+
+Claude Opus 5.5 rejects OAuth requests advertising Claude Code below 2.1.280
+(`claude_code_version_too_old`), and senpi 2026.9.22-4 made `claude-opus-5-5` the recommended
+Anthropic model and the first rung of the Fable fallback ladders. The launcher runs the engine's
+pre-linked `dist/bundle/cli.js` whenever it exists, and that bundle inlines its own
+`claudeCodeVersion`, so the pi-ai-only floor never reached the running engine: raising the floor
+alone still advertised `claude-cli/2.1.251`.
+
+### Why an extension could not handle it
+
+The header is assembled inside the engine's Anthropic client before any extension hook runs; the
+postinstall preparation of the installed engine is the only omo-owned point that reaches it.
+
+### Expected merge conflict zones
+
+`bin/senpi-patch.mjs` floor constant and the bundle pass; `test/senpi-patch.test.ts`.
+
 ## 2026-09-21 - POSIX launchers replace themselves with the engine (#8560)
 
 ### What changed
@@ -57,3 +103,23 @@ through `--build-info`. Correctness of handoff does not depend on the define: a 
 is scheme `nodef`, which per I2 never initiates a handoff.
 
 Refs #8415.
+
+## 2026-09-21 - Remove unused compiled-launcher import after #8568
+
+### What changed
+
+Removed the unused `spawn` import from `compile-entry.ts`. The `spawnSync`
+import and signal-aware `runChild` fallback remain.
+
+### Why
+
+The imported binding had no references outside its declaration. Keeping it
+suggested that the compiled launcher still used that child-process API.
+
+### Why an extension could not handle it
+
+This is a source cleanup in the compiled launcher, before extension loading.
+
+### Expected merge conflict zones
+
+The import list in `compile-entry.ts`. No runtime behavior or Windows paths changed.

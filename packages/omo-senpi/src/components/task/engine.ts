@@ -4,6 +4,7 @@ import { log } from "@oh-my-opencode/utils"
 import {
   createCompletionNotifier,
   createFsSkillLoader,
+  createIsolationRuntime,
   createTaskLifecycle,
   parseExtensionEntries,
   createTaskManager,
@@ -182,7 +183,11 @@ export function composeTaskEngine(deps: ComposeTaskEngineDeps): TaskEngine {
   })
 
   const registry = createManagerResidencyRegistry(getManager)
-  const lifecycle = createTaskLifecycle({ store: storeChain.store, registry, config: settings, kernelToolBindings,
+  // The engine owns ONE isolation runtime: the manager clones the checkout for an isolated child
+  // with it, and the lifecycle salvages and sweeps a crashed host's clones through the same object.
+  // Without it every `isolated: true` spawn is refused as `isolation_unavailable`.
+  const isolation = createIsolationRuntime()
+  const lifecycle = createTaskLifecycle({ store: storeChain.store, registry, config: settings, kernelToolBindings, isolation,
     revivePolicy: {
       currentGeneration: () => {
         const modelRegistry = runtime.modelRegistry()
@@ -219,6 +224,7 @@ export function composeTaskEngine(deps: ComposeTaskEngineDeps): TaskEngine {
   })
   const manager = createTaskManager({
     store: storeChain.store,
+    isolation,
     runners: { "in-process": factories.inProcess(runnerContext), process: factories.process(runnerContext) },
     kernelToolBindings,
     resolveChildToolNames: kernelTools.childToolNames,

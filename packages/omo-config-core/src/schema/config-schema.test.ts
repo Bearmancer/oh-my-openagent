@@ -200,12 +200,12 @@ describe("omo config schema", () => {
     }
   })
 
-  test("#given model_profile inside a [senpi] block #when the senpi view loads #then the harness block selects the profile", () => {
+  test("#given model_profile inside a [native] block #when the senpi view loads #then the harness block selects the profile", () => {
     // given
     const fixture = makeConfigFixture()
     writeFileSync(
       join(fixture.homeDir, ".omo", "omo.json"),
-      `{"model_profile":"simple-work","[senpi]":{"model_profile":"deep-work","model_profiles":{"deep-work":{"models":["openai/gpt-6-astra"]}}}}`,
+      `{"model_profile":"simple-work","[native]":{"model_profile":"deep-work","model_profiles":{"deep-work":{"models":["openai/gpt-6-astra"]}}}}`,
     )
 
     try {

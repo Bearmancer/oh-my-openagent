@@ -55,6 +55,7 @@ export const OmoConfigProfileSchema = z.object({
   side_panel: OmoSidePanelSettingsLayerSchema.optional(),
   disabled_skills: OmoDisabledSkillsSchema.optional(),
   "[opencode]": OmoOpenCodeHarnessConfigSchema.optional(),
+  "[native]": OmoTypedHarnessConfigSchema.optional(),
   "[senpi]": OmoTypedHarnessConfigSchema.optional(),
   "[codex]": OmoTypedHarnessConfigSchema.optional(),
 }).strict()
@@ -75,6 +76,7 @@ export const OmoConfigSchema = z.object({
   side_panel: OmoSidePanelSettingsSchema.optional(),
   disabled_skills: OmoDisabledSkillsSchema.optional(),
   "[opencode]": OmoOpenCodeHarnessConfigSchema.optional(),
+  "[native]": OmoTypedHarnessConfigSchema.optional(),
   "[senpi]": OmoTypedHarnessConfigSchema.optional(),
   "[codex]": OmoTypedHarnessConfigSchema.optional(),
   profiles: z.record(z.string(), OmoConfigProfileSchema).default({}),
@@ -98,6 +100,7 @@ export const OmoConfigLayerSchema = z.object({
   side_panel: OmoSidePanelSettingsLayerSchema.optional(),
   disabled_skills: OmoDisabledSkillsSchema.optional(),
   "[opencode]": OmoOpenCodeHarnessConfigSchema.optional(),
+  "[native]": OmoTypedHarnessConfigSchema.optional(),
   "[senpi]": OmoTypedHarnessConfigSchema.optional(),
   "[codex]": OmoTypedHarnessConfigSchema.optional(),
   profiles: z.record(z.string(), OmoConfigProfileSchema).optional(),

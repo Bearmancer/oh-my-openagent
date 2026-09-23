@@ -6,7 +6,7 @@ import { join } from "node:path"
 import type { SenpiHostProtocolInfo } from "../../../lazy/senpi-barrel"
 import { FakeSessionTable, type FakeDrainedSession, type FakeHostSession } from "./fake-host-sessions"
 import { fakeProtocolInfo, probeFakeHost, type FakeHostIdentityOptions } from "./fake-host-probe"
-import { fakeHostTransport } from "./fake-host-transport"
+import { fakeHostTransport, type FakeHostTransport } from "./fake-host-transport"
 import { handleWireLine, writeFrame, type FakeHostCommand, type FakeHostOpenFailure } from "./fake-host-wire"
 
 /**
@@ -70,7 +70,11 @@ export async function startFakeHost(options: FakeHostOptions = {}): Promise<Fake
   // The logical socket path on every platform; on win32 the transport derives the named pipe and
   // the secret from it, exactly as the engine's client does, so the same session logic runs there.
   const socketPath = join(dir, "rpc.sock")
-  const transport = fakeHostTransport(socketPath)
+  // Derived inside `listen` so a restart never re-binds the address its predecessor may still hold.
+  // On win32 the pipe instance can outlive `server.close()` while a client handle lingers, so one
+  // fixed derivation makes restart race itself with EADDRINUSE. Re-deriving also rotates
+  // `<path>.secret`, which is how the real host behaves and how clients already resolve the address.
+  let transport: FakeHostTransport
   const drainRetryAfterMs = options.drainRetryAfterMs ?? 2_000
   const table = new FakeSessionTable({ transcripts: options.transcripts === true })
   const commands: FakeHostCommand[] = []
@@ -105,6 +109,7 @@ export async function startFakeHost(options: FakeHostOptions = {}): Promise<Fake
   }
 
   const listen = async (): Promise<void> => {
+    transport = fakeHostTransport(socketPath)
     server = createServer((socket) => transport.authenticate(socket, () => {
       sockets.add(socket)
       settleConnectionWaiters()

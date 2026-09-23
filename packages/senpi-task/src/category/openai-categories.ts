@@ -188,13 +188,13 @@ const DEEP_HIGH_CATEGORY_CALLER_GUIDANCE = `<Selection_Gate>Route here only when
 // The GPT flagship gate: either id present in the live registry keeps ultrabrain available. Each deep
 // lane is a single rung with no model fallback, so it gates on its own model and disappears without it.
 const GPT_FLAGSHIP_GATE_MODELS = ["gpt-6-astra", "gpt-5.6-sol"] as const
-const DEEP_LOW_GATE_MODEL = "gpt-5.6-sol"
+const DEEP_LOW_GATE_MODELS = ["gpt-6-sol-fast", "gpt-6-sol"] as const
 const DEEP_HIGH_GATE_MODEL = "gpt-6-astra"
 
 export const OPENAI_CATEGORIES = [
   {
     name: "ultrabrain",
-    config: { model: "openai-codex/gpt-6-astra", variant: "max" },
+    config: { model: "chatgpt-subscription/gpt-6-astra", variant: "max" },
     description: "Use ONLY for genuinely hard, logic-heavy tasks. Give clear goals only, not step-by-step instructions.",
     promptAppend: ULTRABRAIN_CATEGORY_PROMPT_APPEND,
     resolvePromptAppend: resolveUltrabrainCategoryPromptAppend,
@@ -202,16 +202,16 @@ export const OPENAI_CATEGORIES = [
   },
   {
     name: "deep-low",
-    config: { model: "openai-codex/gpt-5.6-sol", variant: "medium" },
+    config: { model: "chatgpt-subscription/gpt-6-sol-fast", variant: "medium" },
     description: "Default deep lane: one goal, one deliverable, decisions the child can settle from what it reads. **3D graphics, computer/browser use, CAPTCHA, multimodal, backend, logic, and algorithm work is routed here.** Multiple goals fan out as parallel calls.",
     callerGuidance: DEEP_LOW_CATEGORY_CALLER_GUIDANCE,
     promptAppend: DEEP_LOW_CATEGORY_PROMPT_APPEND,
     resolvePromptAppend: resolveDeepLowCategoryPromptAppend,
-    requiresModel: DEEP_LOW_GATE_MODEL,
+    requiresModel: DEEP_LOW_GATE_MODELS,
   },
   {
     name: "deep-high",
-    config: { model: "openai-codex/gpt-6-astra", variant: "high" },
+    config: { model: "chatgpt-subscription/gpt-6-astra", variant: "xhigh" },
     description: "Escalation deep lane: a goal whose central decision cannot be settled from evidence alone. Same one-goal, one-deliverable contract as deep-low.",
     callerGuidance: DEEP_HIGH_CATEGORY_CALLER_GUIDANCE,
     promptAppend: DEEP_HIGH_CATEGORY_PROMPT_APPEND,
@@ -220,21 +220,21 @@ export const OPENAI_CATEGORIES = [
   },
   {
     name: "quick",
-    config: { model: "kimi-coding/kimi-for-coding-highspeed" },
+    config: { model: "chatgpt-subscription/gpt-6-luna-fast", variant: "low" },
     description: "Trivial tasks - single file changes, typo fixes, simple modifications",
     callerGuidance: QUICK_CATEGORY_CALLER_GUIDANCE,
     promptAppend: QUICK_CATEGORY_PROMPT_APPEND,
   },
   {
     name: "unspecified-low",
-    config: { model: "xai/grok-4.6", variant: "xhigh" },
+    config: { model: "xiaomi/mimo-v2.6-pro", variant: "max" },
     description: "Tasks that don't fit other categories, low effort required",
     callerGuidance: UNSPECIFIED_LOW_CATEGORY_CALLER_GUIDANCE,
     promptAppend: UNSPECIFIED_LOW_CATEGORY_PROMPT_APPEND,
   },
   {
     name: "unspecified-high",
-    config: { model: "openai-codex/gpt-6-astra", variant: "high" },
+    config: { model: "anthropic/claude-opus-5-5", variant: "max" },
     description: "Tasks that don't fit other categories, high effort required",
     callerGuidance: UNSPECIFIED_HIGH_CATEGORY_CALLER_GUIDANCE,
     promptAppend: UNSPECIFIED_HIGH_CATEGORY_PROMPT_APPEND,

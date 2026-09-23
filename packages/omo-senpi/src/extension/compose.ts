@@ -159,7 +159,6 @@ export function composeOmoSenpiExtension(
 
     const ctx: ComponentContext = {
       logger,
-      sharedHostEnabled: pi.sharedHostEnabled === true,
       config: {
         getFlag(name) {
           return pi.getFlag(name)

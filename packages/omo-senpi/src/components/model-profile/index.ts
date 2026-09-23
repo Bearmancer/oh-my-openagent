@@ -112,14 +112,14 @@ function noticeContent(resolution: ModelProfileResolution): string {
     case "resolved": {
       const model = `${resolution.provider}/${resolution.modelId}`
       const skipped = resolution.skipped.length > 0 ? ` (skipped: ${resolution.skipped.join(", ")})` : ""
-      return `omo-senpi: model profile "${resolution.profile.id}" selected ${model}${skipped}; ${MID_SESSION_NOTE}`
+      return `OmO Native: model profile "${resolution.profile.id}" selected ${model}${skipped}; ${MID_SESSION_NOTE}`
     }
     case "unavailable":
-      return `omo-senpi: model profile "${resolution.profile.id}" has no available model (chain: ${resolution.chain.join(", ")}); keeping senpi's default model`
+      return `OmO Native: model profile "${resolution.profile.id}" has no available model (chain: ${resolution.chain.join(", ")}); keeping senpi's default model`
     case "empty":
-      return `omo-senpi: model profile "${resolution.profile.id}" defines no models; keeping senpi's default model`
+      return `OmO Native: model profile "${resolution.profile.id}" defines no models; keeping senpi's default model`
     case "unknown":
-      return `omo-senpi: ${resolution.message}`
+      return `OmO Native: ${resolution.message}`
   }
 }
 
@@ -168,7 +168,7 @@ export function createModelProfileComponent(options: ModelProfileComponentOption
 
         const model = registry.find(resolution.provider, resolution.modelId)
         if (model === undefined) {
-          const message = `omo-senpi: model profile "${resolution.profile.id}" resolved ${resolution.provider}/${resolution.modelId} but the registry no longer lists it`
+          const message = `OmO Native: model profile "${resolution.profile.id}" resolved ${resolution.provider}/${resolution.modelId} but the registry no longer lists it`
           pi.sendMessage({ customType: MODEL_PROFILE_UNAVAILABLE_TYPE, content: message, display: true })
           ctx.logger.warn(message)
           return

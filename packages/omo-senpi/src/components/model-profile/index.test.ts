@@ -19,7 +19,7 @@ import {
 type FakeModel = { readonly provider: string; readonly id: string }
 
 const FABLE: FakeModel = { provider: "anthropic", id: "claude-fable-5-1" }
-const OPUS: FakeModel = { provider: "anthropic", id: "claude-opus-5" }
+const OPUS: FakeModel = { provider: "anthropic", id: "claude-opus-5-5" }
 const KIMI: FakeModel = { provider: "moonshotai", id: "kimi-k3" }
 const UNRELATED: FakeModel = { provider: "example", id: "nothing-in-any-chain" }
 
@@ -86,10 +86,10 @@ describe("createModelProfileComponent", () => {
     expect(pi.messages[0]?.message).toMatchObject({
       customType: MODEL_PROFILE_APPLIED_TYPE,
       display: true,
-      details: { profile: "capable", model: "moonshotai/kimi-k3", skipped: ["anthropic/claude-fable-5-1", "anthropic/claude-opus-5"] },
+      details: { profile: "capable", model: "moonshotai/kimi-k3", skipped: ["anthropic-subscription/claude-fable-5-1", "anthropic-subscription/claude-opus-5-5"] },
     })
     expect(pi.messages[0]?.message["content"]).toBe(
-      'omo-senpi: model profile "capable" selected moonshotai/kimi-k3 (skipped: anthropic/claude-fable-5-1, anthropic/claude-opus-5); mid-session fallback follows senpi\'s retry chains',
+      'OmO Native: model profile "capable" selected moonshotai/kimi-k3 (skipped: anthropic-subscription/claude-fable-5-1, anthropic-subscription/claude-opus-5-5); mid-session fallback follows senpi\'s retry chains',
     )
     // The component never persists: no settings.json appears under the agent dir.
     expect(existsSync(join(agentDir, "settings.json"))).toBe(false)
@@ -97,7 +97,7 @@ describe("createModelProfileComponent", () => {
 
   test("#given a literal provider/model #when the session starts #then that pin is applied for the session", async () => {
     // given
-    const { pi, start } = harness({ model_profile: "anthropic/claude-opus-5" })
+    const { pi, start } = harness({ model_profile: "anthropic/claude-opus-5-5" })
 
     // when
     await start(STARTUP)
@@ -108,7 +108,7 @@ describe("createModelProfileComponent", () => {
     expect(pi.messages).toHaveLength(1)
     expect(pi.messages[0]?.message).toMatchObject({
       customType: MODEL_PROFILE_APPLIED_TYPE,
-      content: 'omo-senpi: model profile "anthropic/claude-opus-5" selected anthropic/claude-opus-5; mid-session fallback follows senpi\'s retry chains',
+      content: 'OmO Native: model profile "anthropic/claude-opus-5-5" selected anthropic/claude-opus-5-5; mid-session fallback follows senpi\'s retry chains',
     })
   })
 
@@ -125,7 +125,7 @@ describe("createModelProfileComponent", () => {
     expect(pi.messages).toHaveLength(1)
     expect(pi.messages[0]?.message).toMatchObject({ customType: MODEL_PROFILE_UNAVAILABLE_TYPE, display: true })
     expect(pi.messages[0]?.message["content"]).toContain('model profile "capable"')
-    expect(pi.messages[0]?.message["content"]).toContain("anthropic/claude-fable-5-1")
+    expect(pi.messages[0]?.message["content"]).toContain("anthropic-subscription/claude-fable-5-1")
     expect(pi.messages[0]?.message["content"]).toContain("kimi-k3")
   })
 
@@ -141,7 +141,7 @@ describe("createModelProfileComponent", () => {
     expect(pi.messages).toHaveLength(1)
     expect(pi.messages[0]?.message).toMatchObject({
       customType: MODEL_PROFILE_UNKNOWN_TYPE,
-      content: 'omo-senpi: model_profile "turbo" is not defined; known profiles: capable, deep-work, simple-work',
+      content: 'OmO Native: model_profile "turbo" is not defined; known profiles: capable, deep-work',
     })
   })
 

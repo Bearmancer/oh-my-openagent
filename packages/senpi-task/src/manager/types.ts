@@ -3,6 +3,7 @@ import type { DelegateFallbackEntry } from "@oh-my-opencode/delegate-core"
 import type { OmoTaskSettings } from "@oh-my-opencode/omo-config-core"
 
 import type { DagTaskOwner, DagTaskOwnerKey, OwnedStartResult } from "../dag/owner"
+import type { IsolationRuntime, IsolationStartedDetails } from "../isolation"
 import type { KernelToolBindingRegistry } from "../kernel-tools/bindings"
 import type { KernelToolGrant } from "../kernel-tools/resolve"
 import type { ResolvedModelRecord, TaskRecord, TaskRunStats, TaskStatus } from "../state"
@@ -66,6 +67,9 @@ export type ManagedRunner = {
 }
 
 export type ManagerStartSpec = {
+  readonly isolated?: boolean
+  readonly apply?: boolean
+  readonly merge?: "patch" | "branch"
   readonly prompt: string
   readonly task_summary?: string
   readonly parent_session_id: string
@@ -139,6 +143,8 @@ export type StartResult =
       readonly resolved_model?: ResolvedModelRecord
       readonly queue_position?: number
       readonly name_warning?: string
+      // Where an isolated child is working. The merge outcome is NOT here: it does not exist yet.
+      readonly isolation?: IsolationStartedDetails
     }
   | {
       readonly kind: "depth_denied"
@@ -159,8 +165,9 @@ export type StartResult =
       readonly run_in_background: boolean
       readonly error_message: string
       // The runner's typed failure kind (RunnerFailure["kind"]) when the runner rejected the start,
+      // or `isolation_unavailable` when the child's copy-on-write clone could not be created.
       // so a caller can classify the refusal without parsing the sanitized message.
-      readonly failure_kind?: RunnerFailure["kind"]
+      readonly failure_kind?: RunnerFailure["kind"] | "isolation_unavailable"
     }
   | ResidencyDenied
 
@@ -234,6 +241,9 @@ export type TrustedRespawnLaunchResolver = (record: TaskRecord) => Promise<Trust
 
 export type TaskManagerOptions = {
   readonly concurrency?: TaskConcurrency
+  // Injected by row 17. Absent, `isolated` children are refused rather than silently run against the
+  // parent checkout, so a wiring that forgot it can never break the isolation promise.
+  readonly isolation?: IsolationRuntime
   readonly store: TaskRecordStore
   readonly runners: Readonly<Record<ExecutionMode, ManagedRunner>>
   readonly planner: ChildPlanner
@@ -269,6 +279,9 @@ export type TaskManagerOptions = {
 
 export type TaskManager = {
   readonly workpools?: WorkpoolEngine
+  // Optional for structural adapters; the concrete manager exposes its live lease allocator.
+  readonly concurrency?: TaskConcurrency
+  findTaskByChildSession?(sessionId: string): TaskRecord | undefined
   start(spec: ManagerStartSpec): Promise<StartResult>
   startOwned(spec: ManagerStartSpec, owner: DagTaskOwner): Promise<OwnedStartResult>
   findOwnedTask(owner: DagTaskOwnerKey): TaskRecord | undefined
