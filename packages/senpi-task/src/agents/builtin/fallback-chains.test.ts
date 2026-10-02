@@ -42,7 +42,7 @@ describe("AGENT_FALLBACK_CHAINS", () => {
     expect(AGENT_FALLBACK_CHAINS).toEqual({
       explore: [
         { providers: ["kimi-coding", "kimi-for-coding"], model: "kimi-for-coding-highspeed", variant: "off" },
-        { providers: ["chatgpt-subscription"], model: "gpt-6-luna-fast", variant: "low" },
+        { providers: ["chatgpt-subscription", "openai"], model: "gpt-6-luna-fast", variant: "low" },
         { providers: ["deepseek"], model: "deepseek-flash", variant: "max" },
         { providers: ["opencode-go", "bailian-coding-plan"], model: "qwen3.7-plus" },
         { providers: ["opencode-go"], model: "minimax-m2.7" },
@@ -50,7 +50,7 @@ describe("AGENT_FALLBACK_CHAINS", () => {
       ],
       librarian: [
         { providers: ["kimi-coding", "kimi-for-coding"], model: "kimi-for-coding-highspeed", variant: "off" },
-        { providers: ["chatgpt-subscription"], model: "gpt-6-luna-fast", variant: "low" },
+        { providers: ["chatgpt-subscription", "openai"], model: "gpt-6-luna-fast", variant: "low" },
         { providers: ["deepseek"], model: "deepseek-flash", variant: "max" },
         { providers: ["opencode-go", "bailian-coding-plan"], model: "qwen3.7-plus" },
         { providers: ["opencode-go"], model: "minimax-m2.7" },
@@ -62,9 +62,9 @@ describe("AGENT_FALLBACK_CHAINS", () => {
         { providers: ["opencode-go", "kimi-for-coding", "moonshotai", "opencode"], model: "kimi-k3", variant: "max" }
       ],
       "plan-reviewer": [
-        { providers: ["chatgpt-subscription"], model: "gpt-6-astra", variant: "xhigh" },
+        { providers: ["chatgpt-subscription", "openai"], model: "gpt-6-astra", variant: "xhigh" },
         { providers: ["github-copilot"], model: "gpt-6-astra", variant: "high" },
-        { providers: ["chatgpt-subscription", "opencode"], model: "gpt-6-astra", variant: "high" },
+        { providers: ["chatgpt-subscription", "openai", "opencode"], model: "gpt-6-astra", variant: "high" },
         { providers: ["anthropic-subscription", "anthropic", "github-copilot", "opencode"], model: "claude-opus-5-5", variant: "max" },
         { providers: ["google", "github-copilot", "opencode"], model: "gemini-3.1-pro", variant: "high" },
         { providers: ["opencode-go"], model: "glm-5.2" }
@@ -72,21 +72,27 @@ describe("AGENT_FALLBACK_CHAINS", () => {
     })
   })
 
-  test("#given the builtin chains #when scanning providers #then no rung lists vercel, quotio-openai, or the openai API lane", () => {
+  test("#given the builtin chains #when scanning providers #then no rung lists vercel or quotio-openai and only gpt-* rungs list the openai lane", () => {
     for (const name of ALL_CHAIN_NAMES) {
       for (const entry of AGENT_FALLBACK_CHAINS[name] ?? []) {
         expect(entry.providers, `${name} rung ${entry.model} must not list vercel`).not.toContain("vercel")
         expect(entry.providers, `${name} rung ${entry.model} must not list quotio-openai`).not.toContain("quotio-openai")
-        expect(entry.providers, `${name} rung ${entry.model} must not list the openai API lane`).not.toContain("openai")
+        if (entry.model.startsWith("gpt-")) continue
+        expect(entry.providers, `${name} rung ${entry.model} must not list the openai lane`).not.toContain("openai")
       }
     }
   })
 
-  test("#given the builtin chains #when a rung serves a gpt-* model #then chatgpt-subscription is its OpenAI lane", () => {
+  test("#given the builtin chains #when a rung serves a gpt-* model #then chatgpt-subscription leads and the openai lane follows it", () => {
     for (const name of ALL_CHAIN_NAMES) {
       for (const entry of AGENT_FALLBACK_CHAINS[name] ?? []) {
         if (!entry.model.startsWith("gpt-") || entry.providers.every((provider) => provider === "github-copilot")) continue
-        expect(entry.providers, `${name} rung ${entry.model} must route OpenAI through chatgpt-subscription`).toContain("chatgpt-subscription")
+        const subscription = entry.providers.indexOf("chatgpt-subscription")
+        expect(subscription, `${name} rung ${entry.model} must route OpenAI through chatgpt-subscription`).toBeGreaterThanOrEqual(0)
+        expect(
+          entry.providers[subscription + 1],
+          `${name} rung ${entry.model} must list the openai lane right after chatgpt-subscription (#8300, #8734)`,
+        ).toBe("openai")
       }
     }
   })

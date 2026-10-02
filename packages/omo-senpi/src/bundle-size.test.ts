@@ -73,18 +73,24 @@ const builtExtensionPath = join(packageRoot, "plugin", "extensions", "omo.js")
 // and this branch rebuilds to 1,260,200 (+58,012, +4.8%), so the growth is attributable to the versions
 // and not to the build host. 1,300,000 keeps ~3.2% headroom rather than the failing value. Trimming it
 // back needs a lazy-load or split of the inlined validator, which is a refactor and not a version bump.
-// Raised 1_300_000 -> 1_340_000 for the opt-in side panel (PR #8092): pure row builders, a git
-// status/diff reader driven through the host's own exec, the subscription-usage poller with its
-// machine-wide cache, the goal-store reader and one framed popup reached by click or command - all
-// first-party, bundle-purity stays green and nothing third-party was inlined. Measured by building
-// THIS tree twice on linux/amd64 with bun 1.4.2, once with the component registered in
-// `component-list.ts` and once without: 1,204,072 -> 1,241,239, so the panel costs 37,167 bytes
-// (+3.1%). The local build alone would fit under the old ceiling, but it is not the only build
-// environment: dev's own committed artifact for the same source is 1,261,091, 19,852 larger than a
-// local build of it, and carrying that spread puts the panel at ~1,298,258 - inside 1,300,000 by
-// 0.13%, which is a ceiling one unrelated commit would break. 1,340,000 keeps ~3.1% headroom over
-// that worst case instead.
-const BUDGET_BYTES = 1_340_000
+// Raised 1,300,000 -> 1,340,000 for model-profile request-auth (#8881): the session-start walk gains
+// the two-stage credential probe (`request-auth.ts`: per-account resolution honoring a pin, then the
+// model's request configuration, plus the redacting diagnostic) and the surface-aware notice module
+// (`notice.ts`). First-party code only - the dependency manifests are unchanged and bundle-purity stays
+// green. dev measured 1,297,500 with 2,500 bytes of slack left under the previous ceiling; this branch
+// measures 1,301,126 after minification (macOS arm64, bun 1.4.2). 1,340,000 keeps ~3% headroom rather
+// than the failing value.
+// Raised 1,340,000 -> 1,420,000 for computer use (#8893): the `computer-use` component and the first-party
+// `@oh-my-opencode/senpi-desktop-{protocol,engine,prelude,service,tool}` workspaces enter the entry (the
+// computer tool, its eval-kernel prelude assets, the engine client and runtime). Their only third-party
+// dependency, typebox, was already inlined; bundle-purity stays green. Measured 1,380,186 bytes after
+// minification (darwin/arm64, bun 1.4.2); 1,420,000 keeps ~2.9% headroom rather than the failing value.
+// Raised 1,420,000 -> 1,460,000 for per-session task hosts (#9110): shard routing and socket naming, the
+// per-host crash notice, host pre-warm, endpoint-aware thread tools and crash telemetry. First-party code
+// only - no manifest changes, bundle-purity stays green. dev measured 1,414,341 (5,659 bytes of slack left
+// under the previous ceiling); this branch measures 1,420,760 (+6,419) after minification (linux/amd64 and
+// darwin/arm64, bun 1.4.2). 1,460,000 keeps ~2.8% headroom rather than the failing value.
+const BUDGET_BYTES = 1_460_000
 
 describe("omo-senpi bundle size budget", () => {
   it("#given the built extension #when its byte size is measured #then it stays within the documented byte budget", () => {

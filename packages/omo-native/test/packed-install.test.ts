@@ -34,6 +34,16 @@ describe("omo-ai packed install", () => {
       expect(senpiRoot).toBeDefined()
       const sessionRegistryPump = readFileSync(join(senpiRoot!, "dist/core/extensions/builtin/anthropic-subscription/session-registry-pump.js"), "utf8")
       expect(sessionRegistryPump).toContain("sdkResultFailure(message)")
+
+      // omo#8247: the ~255 MiB checker npm payload is deliberately absent from a native install. The
+      // extension resolves it from plugin/extensions/omo.js, and that lookup walks the same node_modules
+      // chain as the package root, so the miss is proven here without the staged plugin payload (which
+      // build:omo-native produces; package-shape.test.ts pins the downloader in the source bundle).
+      const installedExtensionDir = join(installedPackageRoot, "plugin", "extensions")
+      const extensionRequire = createRequire(join(installedExtensionDir, "omo.js"))
+      expect(existsSync(join(installedPackageRoot, "node_modules", "@code-yeongyu", "comment-checker"))).toBe(false)
+      expect(existsSync(join(consumer, "node_modules", "@code-yeongyu", "comment-checker"))).toBe(false)
+      expect(() => extensionRequire.resolve("@code-yeongyu/comment-checker")).toThrow()
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

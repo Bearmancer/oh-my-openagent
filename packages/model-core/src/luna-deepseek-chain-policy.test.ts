@@ -4,7 +4,7 @@ import { AGENT_MODEL_REQUIREMENTS, CATEGORY_MODEL_REQUIREMENTS } from "./model-r
 import type { FallbackEntry } from "./model-requirement-types"
 
 const LUNA_LOW = {
-  providers: ["chatgpt-subscription"],
+  providers: ["openai", "chatgpt-subscription"],
   model: "gpt-6-luna-fast",
   variant: "low",
 } satisfies FallbackEntry
