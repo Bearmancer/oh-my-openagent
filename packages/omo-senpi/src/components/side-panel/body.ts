@@ -1,3 +1,4 @@
+import { sanitizeTerminalText } from "./format/sanitize"
 import { padVisible, truncateVisible } from "./format/truncate"
 import { withActionLink } from "./links"
 import type { PanelComponent, PanelRowSource, PanelTheme } from "./types"
@@ -19,7 +20,8 @@ export function createPanelBody(
       const paint = theme()
       const links = clickable()
       return source.rows(inner).map((row) => {
-        const text = truncateVisible(row.text, inner)
+        // Row text carries strings the panel does not author; this is the column's one paint point.
+        const text = truncateVisible(sanitizeTerminalText(row.text), inner)
         const styled = paint !== undefined && row.color !== undefined ? paint.fg(row.color, text) : text
         const padded = padVisible(styled, inner)
         // The link goes on last, over the padding too, so a click anywhere on the row counts.

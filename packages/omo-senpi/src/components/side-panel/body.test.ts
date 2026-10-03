@@ -44,6 +44,18 @@ describe("createPanelBody", () => {
     expect(painted).toEqual(["\x1b[35mUSAGE\x1b[39m   "])
   })
 
+  test("#given row text with terminal controls #when rendered #then only the theme's SGR reaches the terminal", () => {
+    // given: a git path or tool argument may carry ESC, BEL and newlines
+    const hostile = "a\x1b]8;;https://x\x07b\nc\x1b[2J"
+    const body = createPanelBody(source([{ text: hostile, color: "accent" }]), ansiTheme, () => false)
+
+    // when
+    const [line = ""] = body.render(22)
+
+    // then
+    expect(line).toBe("\x1b[35ma]8;;https://xb c[2J\x1b[39m  ")
+  })
+
   test("#given a row without a colour #when rendered #then no escapes are added", () => {
     // given
     const body = createPanelBody(source([{ text: "plain" }]), ansiTheme, () => false)

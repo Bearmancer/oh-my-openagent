@@ -12,7 +12,7 @@ import type { PanelRow } from "../types"
 export const NO_OUTPUT_NOTICE = "(no transcript recorded for this task)"
 
 export function childOutputRows(text: string, truncated: boolean): readonly PanelRow[] {
-  const body = text === "" ? [NO_OUTPUT_NOTICE] : text.split("\n")
+  const body = text === "" ? [NO_OUTPUT_NOTICE] : text.endsWith("\n") ? text.slice(0, -1).split("\n") : text.split("\n")
   const rows: PanelRow[] = body.map((line) => ({ text: line, color: colorFor(line) }))
   if (truncated) {
     // The engine caps what it reads; saying so beats letting the tail look like the end.

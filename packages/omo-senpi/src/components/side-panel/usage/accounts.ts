@@ -99,10 +99,13 @@ function resolveOne(
     const pinnedName = nonEmptyString(node["pinned"])
     const pinned = accounts.find((account) => nonEmptyString(account["name"]) === pinnedName) ?? accounts[0]
     const healthy = accounts.find((account) => health(account) === "ok" && usableToken(account["access"]))
-    // A pinned slot that is merely stale still serves: the endpoint's 401 is what lets the
-    // column say "auth stale - run /login", whereas offering nothing says nothing at all.
+    // A stale OAuth token still serves: the endpoint's 401 is what lets the column say
+    // "auth stale - run /login". A cooldown is different - the pool has explicitly stopped
+    // serving that account, so offering it would bypass the engine's failover decision.
     const pinnedServes = pinned !== undefined && health(pinned) === "ok" && usableToken(pinned["access"])
-    const serving = pinnedServes ? pinned : (healthy ?? (usableToken(pinned?.["access"]) ? pinned : undefined))
+    const stalePinned =
+      pinned !== undefined && health(pinned) === "stale" && usableToken(pinned["access"]) ? pinned : undefined
+    const serving = pinnedServes ? pinned : (healthy ?? stalePinned)
     const access = serving === undefined ? undefined : nonEmptyString(serving["access"])
     if (serving !== undefined && access !== undefined && usableToken(access)) {
       const name = nonEmptyString(serving["name"])
@@ -116,7 +119,8 @@ function resolveOne(
     }
   }
 
-  // A single-account credential carries the token at the top level and has no name to print.
+  // Subscription usage requires an OAuth access token. Senpi stores that token under `access`;
+  // API-key and well-known `key` / `token` credential shapes cannot call these endpoints.
   const flat = nonEmptyString(node["access"])
   if (flat !== undefined && usableToken(flat)) {
     const expires = node["expires"]

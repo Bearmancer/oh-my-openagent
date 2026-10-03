@@ -57,6 +57,15 @@ describe("resolveUsageCredential", () => {
     expect(credential?.account).toBe("work")
   })
 
+  test("#given every account is on cooldown #when resolved #then no blocked credential is offered", () => {
+    // given
+    const file = auth([{ name: "work", access: token("work") }], "work")
+    const slots = pool({ work: { cooldownUntil: NOW + 60_000 } })
+
+    // when / then
+    expect(resolveUsageCredential(file, slots, PROVIDER, NOW)).toBeUndefined()
+  })
+
   test("#given a single-account credential #when resolved #then the top-level token serves without a name", () => {
     // given
     const file = { [PROVIDER]: { access: token("flat") } }
@@ -176,17 +185,30 @@ describe("the provider ids senpi renamed", () => {
     expect(credential?.account).toBe("current")
   })
 
-  test("#given health recorded under the retired pool key #when resolved #then the cooldown is still seen", () => {
+  test("#given health recorded under the retired pool key #when resolved #then the healthy account serves", () => {
     // given auth and the credential pool were renamed on different schedules
     const credential = resolveUsageCredentialFrom(
-      { [CURRENT]: node([{ name: "work", access: token("work") }], "work") },
+      {
+        [CURRENT]: node(
+          [
+            { name: "work", access: token("work") },
+            { name: "personal", access: token("personal") },
+          ],
+          "work",
+        ),
+      },
       { providers: { [LEGACY]: { lanes: { stored: { slots: { work: { blockedUntil: NOW + 60_000 } } } } } } },
       IDS,
       NOW,
     )
 
     // then
-    expect(credential?.state).toBe("cooldown")
+    expect(credential).toEqual({
+      access: token("personal"),
+      state: "ok",
+      account: "personal",
+      pinnedAccount: "work",
+    })
   })
 
   test("#given no signed-in provider at all #when resolved #then nothing is invented", () => {

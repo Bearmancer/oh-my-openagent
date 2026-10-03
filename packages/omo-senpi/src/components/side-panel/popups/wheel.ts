@@ -19,19 +19,14 @@ const SGR = /^\u001b\[<(\d+);(\d+);(\d+)([Mm])$/
 export interface PanelWheelEvent {
   /** -1 scrolls towards the top, 1 towards the bottom. */
   readonly direction: -1 | 1
-  /**
-   * False for the release form. Terminals report a notch as a press only, but a release is
-   * still claimed rather than passed on, so a stray one cannot reach the surface below.
-   */
-  readonly press: boolean
 }
 
 export function parsePanelWheelEvent(data: string): PanelWheelEvent | undefined {
   const match = SGR.exec(data)
-  if (match === null) return undefined
+  if (match === null || match[4] !== "M") return undefined
   const button = Number.parseInt(match[1] ?? "", 10)
   if (!Number.isFinite(button) || (button & 64) === 0) return undefined
   const direction = button & 3
   if (direction !== 0 && direction !== 1) return undefined
-  return { direction: direction === 0 ? -1 : 1, press: match[4] === "M" }
+  return { direction: direction === 0 ? -1 : 1 }
 }

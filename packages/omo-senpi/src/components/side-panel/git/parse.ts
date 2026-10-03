@@ -28,7 +28,7 @@ export function parsePorcelainZ(output: string): readonly PanelGitEntry[] {
     const path = field.slice(3)
     if (path === "") continue
     // A rename or copy emits its origin path as the next NUL-separated field.
-    if (xy[0] === "R" || xy[0] === "C") {
+    if (xy.includes("R") || xy.includes("C")) {
       const from = fields[index + 1]
       index += 1
       entries.push({ xy, path, ...(from === undefined || from === "" ? {} : { from }) })
@@ -54,11 +54,12 @@ export function parseNumstatZ(output: string): ReadonlyMap<string, PanelGitDelta
   for (let index = 0; index < fields.length; index += 1) {
     const field = fields[index]
     if (field === undefined || field === "") continue
-    const parts = field.split("\t")
-    if (parts.length < 3) continue
-    const added = count(parts[0])
-    const removed = count(parts[1])
-    const inlinePath = parts[2]
+    const firstTab = field.indexOf("\t")
+    const secondTab = firstTab === -1 ? -1 : field.indexOf("\t", firstTab + 1)
+    if (firstTab === -1 || secondTab === -1) continue
+    const added = count(field.slice(0, firstTab))
+    const removed = count(field.slice(firstTab + 1, secondTab))
+    const inlinePath = field.slice(secondTab + 1)
     if (inlinePath !== undefined && inlinePath !== "") {
       deltas.set(inlinePath, { added, removed })
       continue

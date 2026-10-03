@@ -178,6 +178,20 @@ describe("suspended children in the heading", () => {
     // then
     expect(rows[1]?.color).toBe("warning")
   })
+
+  test("#given a parked child without a suspension timestamp #when redrawn #then elapsed time does not keep ticking", () => {
+    // given the task record has no timestamp for when suspension began
+    const parked = child({ id: "b", status: "suspended", startedAt: 0 })
+
+    // when
+    const first = texts(buildAgentRows([parked], 60_000, 60))
+    const later = texts(buildAgentRows([parked], 600_000, 60))
+
+    // then
+    expect(first[1]).toBe("‖ explore")
+    expect(later[1]).toBe(first[1])
+    expect(texts(buildAgentCardRows(parked, 600_000)).some((text) => text.startsWith("elapsed"))).toBe(false)
+  })
 })
 
 describe("why a child is parked", () => {

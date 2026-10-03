@@ -65,6 +65,20 @@ describe("parseClaudeUsage", () => {
     expect(entry.windows).toEqual([])
   })
 
+  test("#given non-finite percentages #when parsed #then no invalid window is exposed", () => {
+    // given
+    const payload = {
+      limits: [{ kind: "session", percent: Number.POSITIVE_INFINITY }],
+      five_hour: { utilization: Number.NaN },
+    }
+
+    // when
+    const entry = parseClaudeUsage(payload, NOW)
+
+    // then
+    expect(entry.windows).toEqual([])
+  })
+
   test("#given a payload that is not an object #when parsed #then it degrades instead of throwing", () => {
     // given / when
     const entry = parseClaudeUsage("nope", NOW)
@@ -105,6 +119,29 @@ describe("parseCodexUsage", () => {
 
     // then
     expect(entry.windows?.[0]?.label).toBe("2h")
+  })
+
+  test("#given non-finite or overflowing numbers #when parsed #then invalid window fields are rejected", () => {
+    // given
+    const payload = {
+      rate_limit: {
+        primary_window: {
+          used_percent: Number.POSITIVE_INFINITY,
+          limit_window_seconds: 18_000,
+        },
+        secondary_window: {
+          used_percent: 5,
+          limit_window_seconds: Number.MAX_VALUE,
+          reset_at: Number.MAX_VALUE,
+        },
+      },
+    }
+
+    // when
+    const entry = parseCodexUsage(payload, NOW)
+
+    // then
+    expect(entry.windows).toEqual([{ label: "window", percent: 5 }])
   })
 })
 

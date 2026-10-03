@@ -5,7 +5,7 @@ import { clampScroll, popupBudget, POPUP_CHROME_ROWS } from "./viewport"
 describe("popupBudget", () => {
   test("#given any terminal height #when budgeted #then the popup never asks for more rows than exist", () => {
     // given
-    const heights = Array.from({ length: 75 }, (_, index) => index + 6)
+    const heights = Array.from({ length: 80 }, (_, index) => index + 1)
 
     // when
     const overflowing = heights.filter((rows) => popupBudget(rows, 0.72).total > rows)

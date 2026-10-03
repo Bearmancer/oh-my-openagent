@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto"
+
 import {
   CLAUDE_PROVIDERS,
   CLAUDE_USAGE_URL,
@@ -9,6 +11,7 @@ import { asRecord } from "../guards"
 import type { PanelTimerHandle, PanelTimers } from "../types"
 import { resolveUsageCredentialFrom, type PanelUsageCredential } from "./accounts"
 import {
+  claimedProviders,
   claimProviders,
   mergeUsageResults,
   providersDue,
@@ -119,6 +122,8 @@ export function createUsagePoller(deps: UsagePollerDeps): UsagePoller {
         error: describeUsageError(error),
         retryAt: deps.now() + backoffFor(error, deps.pollMs),
         ...(credential.account === undefined ? {} : { account: credential.account }),
+        ...(credential.pinnedAccount === undefined ? {} : { pinnedAccount: credential.pinnedAccount }),
+        accountState: credential.state,
       }
     }
   }
@@ -136,18 +141,22 @@ export function createUsagePoller(deps: UsagePollerDeps): UsagePoller {
         pollMs: deps.pollMs,
         ...(plan.credential?.account === undefined ? {} : { account: plan.credential.account }),
       }))
-      const due = providersDue(cached, targets, deps.now())
+      const claimBase = readUsageCache(deps.cachePath)
+      const due = providersDue(claimBase, targets, deps.now())
       if (due.length === 0) return
-
-      writeUsageCache(deps.cachePath, claimProviders(cached, due, deps.now()))
+      const claimTargets = targets.filter((target) => due.includes(target.key))
+      const claimToken = randomUUID()
+      writeUsageCache(deps.cachePath, claimProviders(claimBase, claimTargets, deps.now(), claimToken))
+      const owned = claimedProviders(readUsageCache(deps.cachePath), claimTargets, claimToken)
+      if (owned.length === 0) return
       const results = await Promise.all(
         planned
-          .filter((plan) => due.includes(plan.key))
+          .filter((plan) => owned.includes(plan.key))
           .map(async (plan) => ({ key: plan.key, entry: await readProvider(plan) })),
       )
       // Re-read before merging: a sibling session may have written its own results while this
       // one was waiting on the network, and last-writer-wins should not mean last-writer-erases.
-      const merged = mergeUsageResults(readUsageCache(deps.cachePath), results, due)
+      const merged = mergeUsageResults(readUsageCache(deps.cachePath), results, owned, claimToken)
       writeUsageCache(deps.cachePath, merged)
       publish(snapshotOf(merged))
     } catch (error) {

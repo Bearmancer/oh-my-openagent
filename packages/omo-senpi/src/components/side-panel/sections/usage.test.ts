@@ -136,6 +136,27 @@ describe("buildUsageRows", () => {
     expect(new Set(columns).size).toBe(1)
   })
 
+  test("#given a hidden fifth window has a reset #when built #then visible bar widths ignore it", () => {
+    // given
+    const visible = [
+      { label: "a", percent: 10 },
+      { label: "b", percent: 20 },
+      { label: "c", percent: 30 },
+      { label: "d", percent: 40 },
+    ] as const
+    const withoutHiddenReset: PanelUsageSnapshot = { claude: { updatedAt: NOW, windows: visible } }
+    const withHiddenReset: PanelUsageSnapshot = {
+      claude: { updatedAt: NOW, windows: [...visible, { label: "hidden", percent: 50, resetsAt: NOW + 3 * 24 * 60 * 60 * 1_000 }] },
+    }
+
+    // when
+    const baseline = buildUsageRows(withoutHiddenReset, NOW, 44)
+    const rendered = buildUsageRows(withHiddenReset, NOW, 44)
+
+    // then
+    expect(texts(rendered)).toEqual(texts(baseline))
+  })
+
   test("#given nothing has been fetched #when built #then the section stays silent", () => {
     // given / when / then
     expect(buildUsageRows({}, NOW, 40)).toEqual([])

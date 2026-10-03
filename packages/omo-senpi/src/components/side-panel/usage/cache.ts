@@ -8,6 +8,7 @@ import {
   USAGE_PROVIDER_KEYS,
   type PanelAccountState,
   type PanelUsageCacheFile,
+  type PanelUsageClaim,
   type PanelUsageEntry,
   type PanelUsageProviderKey,
   type PanelUsageWindow,
@@ -44,8 +45,8 @@ export function providersDue(
     // freshness window allows: whichever of the two is longer wins.
     const ttl = Math.max(USAGE_TTL_MS[target.key], target.pollMs)
     if (sameAccount && typeof entry?.updatedAt === "number" && now - entry.updatedAt < ttl) continue
-    const claimedAt = cache.fetching?.[target.key]
-    if (typeof claimedAt === "number" && now - claimedAt < USAGE_CLAIM_MS) continue
+    const claim = cache.fetching?.[target.key]
+    if (claim !== undefined && claim.account === target.account && now - claim.claimedAt < USAGE_CLAIM_MS) continue
     due.push(target.key)
   }
   return due
@@ -54,12 +55,28 @@ export function providersDue(
 /** Announce the fetches, so a sibling session skips them instead of asking the same question. */
 export function claimProviders(
   cache: PanelUsageCacheFile,
-  keys: readonly PanelUsageProviderKey[],
+  targets: readonly UsagePollTarget[],
   now: number,
+  token: string,
 ): PanelUsageCacheFile {
-  const fetching: { -readonly [K in PanelUsageProviderKey]?: number } = { ...cache.fetching }
-  for (const key of keys) fetching[key] = now
+  const fetching: { -readonly [K in PanelUsageProviderKey]?: PanelUsageClaim } = { ...cache.fetching }
+  for (const target of targets) {
+    fetching[target.key] = {
+      claimedAt: now,
+      token,
+      ...(target.account === undefined ? {} : { account: target.account }),
+    }
+  }
   return { ...entriesOf(cache), fetching }
+}
+
+/** Keep only claims that still carry this session's token after the shared write. */
+export function claimedProviders(
+  cache: PanelUsageCacheFile,
+  targets: readonly UsagePollTarget[],
+  token: string,
+): readonly PanelUsageProviderKey[] {
+  return targets.filter((target) => cache.fetching?.[target.key]?.token === token).map((target) => target.key)
 }
 
 /**
@@ -73,17 +90,22 @@ export function mergeUsageResults(
   cache: PanelUsageCacheFile,
   results: readonly { readonly key: PanelUsageProviderKey; readonly entry: PanelUsageEntry }[],
   claimed: readonly PanelUsageProviderKey[],
+  claimToken: string,
 ): PanelUsageCacheFile {
   const entries = entriesOf(cache)
   for (const { key, entry } of results) {
+    if (cache.fetching?.[key]?.token !== claimToken) continue
     const previous = cache[key]
+    const sameAccount = entry.account !== undefined && previous?.account === entry.account
     entries[key] =
-      entry.error !== undefined && previous?.windows !== undefined
-        ? { ...previous, error: entry.error, ...(entry.retryAt === undefined ? {} : { retryAt: entry.retryAt }) }
+      entry.error !== undefined && previous?.windows !== undefined && sameAccount
+        ? { ...previous, ...entry }
         : entry
   }
-  const fetching: { -readonly [K in PanelUsageProviderKey]?: number } = { ...cache.fetching }
-  for (const key of claimed) delete fetching[key]
+  const fetching: { -readonly [K in PanelUsageProviderKey]?: PanelUsageClaim } = { ...cache.fetching }
+  for (const key of claimed) {
+    if (fetching[key]?.token === claimToken) delete fetching[key]
+  }
   return { ...entries, fetching }
 }
 
@@ -92,7 +114,8 @@ export function mergeUsageResults(
  * account, not to a session, and sharing it is what keeps N sessions from making N requests.
  */
 export function usageCachePath(env: NodeJS.ProcessEnv = process.env): string {
-  const base = env["XDG_CACHE_HOME"] ?? join(homedir(), ".cache")
+  const configured = env["XDG_CACHE_HOME"]
+  const base = configured === undefined || configured === "" ? join(homedir(), ".cache") : configured
   return join(base, "omo-senpi", "side-panel-usage.json")
 }
 
@@ -132,10 +155,23 @@ export function sanitizeUsageCache(value: unknown): PanelUsageCacheFile {
     if (entry !== undefined) entries[key] = entry
   }
   const fetchingRecord = asRecord(record["fetching"])
-  const fetching: { -readonly [K in PanelUsageProviderKey]?: number } = {}
+  const fetching: { -readonly [K in PanelUsageProviderKey]?: PanelUsageClaim } = {}
   for (const key of USAGE_PROVIDER_KEYS) {
-    const claimedAt = fetchingRecord?.[key]
-    if (typeof claimedAt === "number" && Number.isFinite(claimedAt)) fetching[key] = claimedAt
+    const rawClaim = fetchingRecord?.[key]
+    const legacyClaimedAt = finiteNumber(rawClaim)
+    if (legacyClaimedAt !== undefined) {
+      fetching[key] = { claimedAt: legacyClaimedAt, token: "legacy" }
+      continue
+    }
+    const claim = asRecord(rawClaim)
+    const claimedAt = finiteNumber(claim?.["claimedAt"])
+    const token = nonEmptyString(claim?.["token"])
+    if (claimedAt === undefined || token === undefined) continue
+    fetching[key] = {
+      claimedAt,
+      token,
+      ...optional("account", nonEmptyString(claim?.["account"])),
+    }
   }
   return { ...entries, fetching }
 }
@@ -144,7 +180,8 @@ function sanitizeEntry(value: unknown): PanelUsageEntry | undefined {
   const record = asRecord(value)
   if (record === undefined) return undefined
   const windows: PanelUsageWindow[] = []
-  for (const item of Array.isArray(record["windows"]) ? record["windows"] : []) {
+  const suppliedWindows = Array.isArray(record["windows"]) ? record["windows"] : []
+  for (const item of suppliedWindows) {
     const window = asRecord(item)
     const label = window?.["label"]
     const percent = window?.["percent"]
@@ -157,13 +194,14 @@ function sanitizeEntry(value: unknown): PanelUsageEntry | undefined {
       ...(window?.["scoped"] === true ? { scoped: true } : {}),
     })
   }
+  const invalidWindows = suppliedWindows.length > 0 && windows.length === 0
   return {
     ...(windows.length > 0 ? { windows } : {}),
     ...optional("plan", nonEmptyString(record["plan"])),
     ...optional("account", nonEmptyString(record["account"])),
     ...optional("pinnedAccount", nonEmptyString(record["pinnedAccount"])),
     ...(isAccountState(record["accountState"]) ? { accountState: record["accountState"] } : {}),
-    ...optional("updatedAt", finiteNumber(record["updatedAt"])),
+    ...optional("updatedAt", invalidWindows ? undefined : finiteNumber(record["updatedAt"])),
     ...optional("error", nonEmptyString(record["error"])),
     ...optional("retryAt", finiteNumber(record["retryAt"])),
   }

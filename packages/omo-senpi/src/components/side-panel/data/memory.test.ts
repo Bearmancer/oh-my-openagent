@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { join } from "node:path"
 
 import type { PanelMemoryIdentity, PanelMemorySource } from "../types"
 import { createPanelMemoryReader } from "./memory"
@@ -48,9 +49,10 @@ function fakeSource(options: FakeOptions = {}) {
   return { port, touched }
 }
 
-const wakesFile = `${identity.recallDir}/sidecars/${Buffer.from(SESSION, "utf8").toString("base64url")}/wakes.ndjson`
-const ledgerFile = `${identity.recallLedgerDir}/${SESSION}.json`
-const pendingFile = `${identity.recallPendingDir}/${SESSION}.json`
+const wakesFile = join(identity.recallDir, "sidecars", Buffer.from(SESSION, "utf8").toString("base64url"), "wakes.ndjson")
+const ledgerFile = join(identity.recallLedgerDir, `${SESSION}.json`)
+const pendingFile = join(identity.recallPendingDir, `${SESSION}.json`)
+const readMemory = (source: PanelMemorySource) => createPanelMemoryReader(source, () => Date.parse(PARKED_AT))
 
 describe("createPanelMemoryReader", () => {
   test("#given a parked identity #when read #then the column gets the park facts it draws", async () => {
@@ -146,6 +148,7 @@ describe("createPanelMemoryReader", () => {
           "20260921T091000000Z-abc123def456-1a2b3c4d.json",
           "consumed.json",
           "failures.json",
+          "claims.json",
           "cursor",
           "20260921T092000000Z-abc123def456-2a3b4c5d.json.tmp-4242",
         ],
@@ -153,7 +156,7 @@ describe("createPanelMemoryReader", () => {
     })
 
     // when / then
-    expect((await createPanelMemoryReader(source.port)(identity, SESSION))?.factsQueued).toBe(2)
+    expect((await readMemory(source.port)(identity, SESSION))?.factsQueued).toBe(2)
   })
 
   test("#given a recall ledger for this session #when read #then the surfaced paths are counted", async () => {
@@ -189,7 +192,7 @@ describe("createPanelMemoryReader", () => {
     })
 
     // when / then
-    expect((await createPanelMemoryReader(source.port)(identity, SESSION))?.recallPending).toBe(1)
+    expect((await readMemory(source.port)(identity, SESSION))?.recallPending).toBe(1)
   })
 
   test("#given a pending file owned by another session #when read #then it is not counted here", async () => {
@@ -207,7 +210,41 @@ describe("createPanelMemoryReader", () => {
     })
 
     // when / then
-    expect((await createPanelMemoryReader(source.port)(identity, SESSION))?.recallPending).toBe(0)
+    expect((await readMemory(source.port)(identity, SESSION))?.recallPending).toBe(0)
+  })
+
+  test("#given an expired pending file #when read #then stale nudges are not reported as waiting", async () => {
+    // given
+    const source = fakeSource({
+      files: {
+        [pendingFile]: {
+          version: 1,
+          sessionId: SESSION,
+          writtenAt: "2026-09-19T09:00:00.000Z",
+          nudges: [{ path: "notes/open-threads.md", hint: "stale" }],
+        },
+      },
+    })
+
+    // when / then
+    expect((await readMemory(source.port)(identity, SESSION))?.recallPending).toBe(0)
+  })
+
+  test("#given a malformed pending payload #when read #then no partial count is exposed", async () => {
+    // given
+    const source = fakeSource({
+      files: {
+        [pendingFile]: {
+          version: 1,
+          sessionId: SESSION,
+          writtenAt: PARKED_AT,
+          nudges: [{ path: "notes/open-threads.md" }],
+        },
+      },
+    })
+
+    // when / then
+    expect((await readMemory(source.port)(identity, SESSION))?.recallPending).toBe(0)
   })
 
   test("#given no session id yet #when read #then the recall files are not even looked for", async () => {

@@ -1,3 +1,4 @@
+import { sanitizeTerminalText } from "../format/sanitize"
 import { padVisible, truncateVisible } from "../format/truncate"
 import type { PanelRow, PanelTheme, PopupTui } from "../types"
 import { clampScroll, popupBudget, POPUP_CHROME_ROWS } from "./viewport"
@@ -41,9 +42,11 @@ export function createTextPopup(tui: PopupTui, theme: PanelTheme | undefined, op
       scroll = clampScroll(scroll, body.length, budget.body)
       const border = "─".repeat(Math.max(0, width - 2))
       const lines: string[] = [paint("dim", `┌${border}┐`)]
-      lines.push(frame(paint, padVisible(paint("accent", truncateVisible(options.title, inner)), inner)))
+      // Titles and rows carry file names, transcripts and diffs: the viewer's one paint point.
+      const title = truncateVisible(sanitizeTerminalText(options.title), inner)
+      lines.push(frame(paint, padVisible(paint("accent", title), inner)))
       for (const row of body.slice(scroll, scroll + budget.body)) {
-        const text = truncateVisible(row.text, inner)
+        const text = truncateVisible(sanitizeTerminalText(row.text), inner)
         lines.push(frame(paint, padVisible(paint(row.color, text), inner)))
       }
       const hint =

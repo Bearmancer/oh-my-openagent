@@ -31,14 +31,24 @@ export function createUsageFetch(): UsageFetch {
       signal: AbortSignal.timeout(USAGE_TIMEOUT_MS),
     })
     if (!response.ok) {
-      const retryAfter = Number(response.headers.get("retry-after"))
+      const retryAfterMs = parseRetryAfterMs(response.headers.get("retry-after"), Date.now())
       throw new UsageHttpError(`HTTP ${response.status}`, {
         status: response.status,
-        ...(Number.isFinite(retryAfter) && retryAfter > 0 ? { retryAfterMs: retryAfter * 1_000 } : {}),
+        ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
       })
     }
     return await response.json()
   }
+}
+
+/** `Retry-After` accepts either seconds or an absolute HTTP date. */
+export function parseRetryAfterMs(value: string | null, now: number): number | undefined {
+  if (value === null) return undefined
+  const seconds = Number(value)
+  const numericDelay = seconds * 1_000
+  if (Number.isFinite(numericDelay) && numericDelay > 0) return numericDelay
+  const delay = Date.parse(value) - now
+  return Number.isFinite(delay) && delay > 0 ? delay : undefined
 }
 
 /** Panel-sized explanation of why an endpoint said no; it has one narrow line to say it in. */

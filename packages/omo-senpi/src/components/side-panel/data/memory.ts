@@ -3,6 +3,9 @@ import { join } from "node:path"
 
 import {
   REFLECTION_PARK_PROBE_INTERVAL_MS,
+  PENDING_NUDGES_VERSION,
+  containsSecretLikeMaterial,
+  isValidHint,
   readReflectionParkFile,
   sanitizeSessionFilename,
   type ReflectionParkState,
@@ -33,6 +36,7 @@ import type {
  */
 export function createPanelMemoryReader(
   source: PanelMemorySource = nodeMemorySource,
+  now: () => number = Date.now,
 ): (identity: PanelMemoryIdentity | undefined, sessionId: string | undefined) => Promise<PanelMemory | undefined> {
   return async (identity, sessionId) => {
     // Memory can be switched off, and the identity can fail to resolve. Both mean a silent block
@@ -41,7 +45,7 @@ export function createPanelMemoryReader(
     const [park, queued, recall, kibitzer] = await Promise.all([
       source.park(identity.reflectionDir),
       source.list(identity.factsQueueDir),
-      readRecall(source, identity, sessionId),
+      readRecall(source, identity, sessionId, now()),
       readKibitzer(source, identity, sessionId),
     ])
     return {
@@ -55,7 +59,7 @@ export function createPanelMemoryReader(
 }
 
 /** The queue directory also holds its own bookkeeping; only the batch files are backlog. */
-const QUEUE_BOOKKEEPING: readonly string[] = ["consumed.json", "failures.json"]
+const QUEUE_BOOKKEEPING: readonly string[] = ["claims.json", "consumed.json", "failures.json"]
 
 function isQueuedBatch(name: string): boolean {
   return name.endsWith(".json") && !QUEUE_BOOKKEEPING.includes(name)
@@ -90,6 +94,7 @@ async function readRecall(
   source: PanelMemorySource,
   identity: PanelMemoryIdentity,
   sessionId: string | undefined,
+  now: number,
 ): Promise<{ recallSurfaced: number; recallPending: number }> {
   if (sessionId === undefined) return { recallSurfaced: 0, recallPending: 0 }
   const file = `${sanitizeSessionFilename(sessionId)}.json`
@@ -97,7 +102,7 @@ async function readRecall(
     source.readJson(join(identity.recallLedgerDir, file)),
     source.readJson(join(identity.recallPendingDir, file)),
   ])
-  return { recallSurfaced: countSurfaced(ledger), recallPending: countPending(pending, sessionId) }
+  return { recallSurfaced: countSurfaced(ledger), recallPending: countPending(pending, sessionId, now) }
 }
 
 function countSurfaced(value: unknown): number {
@@ -111,11 +116,19 @@ function countSurfaced(value: unknown): number {
  * trusts a file. Nothing here consumes: `take()` deletes, and a status column that ate the
  * session's nudges would be a bug wearing a rendering choice.
  */
-function countPending(value: unknown, sessionId: string): number {
+function countPending(value: unknown, sessionId: string, now: number): number {
   const record = asRecord(value)
-  if (record === undefined || record["sessionId"] !== sessionId) return 0
-  const nudges = record["nudges"]
-  return Array.isArray(nudges) ? nudges.length : 0
+  if (record === undefined || record["version"] !== PENDING_NUDGES_VERSION || record["sessionId"] !== sessionId) return 0
+  const writtenAt = typeof record["writtenAt"] === "string" ? Date.parse(record["writtenAt"]) : Number.NaN
+  if (!Number.isFinite(writtenAt) || now - writtenAt > 24 * 60 * 60_000) return 0
+  const nudges = asArray(record["nudges"])
+  for (const value of nudges) {
+    const nudge = asRecord(value)
+    const path = nonEmptyString(nudge?.["path"])
+    const hint = nonEmptyString(nudge?.["hint"])
+    if (path === undefined || hint === undefined || !isValidHint(hint) || containsSecretLikeMaterial(hint)) return 0
+  }
+  return nudges.length
 }
 
 /**

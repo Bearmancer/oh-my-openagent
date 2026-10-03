@@ -12,7 +12,10 @@ const OmoSidePanelSectionsShape = {
   goal: z.boolean(),
   /** Context window split: tool definitions, system prompt, skills, conversation. */
   context: z.boolean(),
-  /** Subscription usage bars for the serving account. */
+  /**
+   * Subscription usage bars for the serving account. Off by default: it is the only section that
+   * reads OAuth credentials and leaves the machine (the providers' usage endpoints).
+   */
   usage: z.boolean(),
   /** Delegated children with live status and timers. */
   agents: z.boolean(),
@@ -30,7 +33,7 @@ export const OmoSidePanelSectionsSchema = OmoSidePanelSectionsLayerSchema.extend
   session: z.boolean().default(true),
   goal: z.boolean().default(true),
   context: z.boolean().default(true),
-  usage: z.boolean().default(true),
+  usage: z.boolean().default(false),
   agents: z.boolean().default(true),
   tools: z.boolean().default(true),
   files: z.boolean().default(true),
@@ -48,7 +51,7 @@ const OmoSidePanelSettingsShape = {
   clickable: z.boolean(),
   /** Subscription usage refresh interval in seconds; the cache is shared across sessions (default: 150). */
   usage_poll_seconds: z.number().int().min(60).max(3600),
-  /** Per-section switches. Every section is on while the panel is on. */
+  /** Per-section switches. Every section except `usage` is on while the panel is on. */
   sections: OmoSidePanelSectionsLayerSchema,
 }
 
@@ -64,7 +67,7 @@ export const OmoSidePanelSettingsSchema = OmoSidePanelSettingsLayerSchema.extend
     session: true,
     goal: true,
     context: true,
-    usage: true,
+    usage: false,
     agents: true,
     tools: true,
     files: true,
@@ -77,7 +80,7 @@ export type OmoSidePanelSettingsLayer = z.infer<typeof OmoSidePanelSettingsLayer
 export type OmoSidePanelSections = z.infer<typeof OmoSidePanelSectionsSchema>
 
 export interface OmoSidePanelConfigView {
-  readonly side_panel?: OmoSidePanelSettings
+  readonly side_panel?: OmoSidePanelSettingsLayer
 }
 
 type SidePanelSettingKey = keyof OmoSidePanelSettings
@@ -92,7 +95,11 @@ export const SIDE_PANEL_HARNESS_SUPPORT: Record<SidePanelSettingPath, readonly O
   "side_panel.sections": ["native"],
 } as const
 
-/** Resolve the effective side-panel settings, applying defaults when the section is absent. */
+/**
+ * Resolve the effective side-panel settings. The block is parsed through the full schema even when
+ * present, because a caller may hand over a partial layer (`{ enabled: true }`) rather than the
+ * loader's defaulted view; parsing an already-defaulted block is a no-op.
+ */
 export function resolveOmoSidePanelSettings(config: OmoSidePanelConfigView): OmoSidePanelSettings {
-  return config.side_panel ?? OmoSidePanelSettingsSchema.parse({})
+  return OmoSidePanelSettingsSchema.parse(config.side_panel ?? {})
 }

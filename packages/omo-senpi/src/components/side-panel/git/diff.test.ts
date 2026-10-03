@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import { colorizeDiff, gitDiffArgs, readGitDiff } from "./diff"
+import { colorizeDiff, gitDiffArgs, readGitDiff, UNTRACKED_DIRECTORY_FILE_CAP } from "./diff"
 import type { PanelExec } from "./read"
 
 describe("gitDiffArgs", () => {
@@ -12,7 +12,7 @@ describe("gitDiffArgs", () => {
     const args = gitDiffArgs(file)
 
     // then
-    expect(args).toEqual(["diff", "HEAD", "-M", "--", "tracked.txt"])
+    expect(args).toEqual(["--literal-pathspecs", "diff", "HEAD", "-M", "--", "tracked.txt"])
   })
 
   test("#given a rename #when built #then both paths are in the pathspec", () => {
@@ -23,7 +23,7 @@ describe("gitDiffArgs", () => {
     const args = gitDiffArgs(file)
 
     // then
-    expect(args).toEqual(["diff", "HEAD", "-M", "--", "renamed.txt", "renamed-new.txt"])
+    expect(args).toEqual(["--literal-pathspecs", "diff", "HEAD", "-M", "--", "renamed.txt", "renamed-new.txt"])
   })
 
   test("#given an untracked file #when built #then it is diffed against /dev/null", () => {
@@ -34,7 +34,18 @@ describe("gitDiffArgs", () => {
     const args = gitDiffArgs(file)
 
     // then
-    expect(args).toEqual(["diff", "--no-index", "--", "/dev/null", "brand-new.txt"])
+    expect(args).toEqual(["--literal-pathspecs", "diff", "--no-index", "--", "/dev/null", "brand-new.txt"])
+  })
+
+  test("#given a wildcard in a path #when built #then git treats it literally", () => {
+    // given
+    const file = { xy: " M", path: "match*.txt" }
+
+    // when
+    const args = gitDiffArgs(file)
+
+    // then
+    expect(args[0]).toBe("--literal-pathspecs")
   })
 })
 
@@ -141,5 +152,66 @@ describe("readGitDiff", () => {
 
     // then
     expect(rows[0]?.color).toBe("error")
+  })
+
+  test("#given a staged addition before the first commit #when HEAD is absent #then the file is diffed against null", async () => {
+    // given
+    const calls: string[][] = []
+    const runner: PanelExec = async (_command, args) => {
+      calls.push([...args])
+      return calls.length === 1
+        ? { stdout: "", code: 128 }
+        : { stdout: "+++ b/new.txt\n+hello", code: 1 }
+    }
+
+    // when
+    const rows = await readGitDiff(runner, "/repo", { xy: "A ", path: "new.txt" })
+
+    // then
+    expect(calls[1]).toEqual(["--literal-pathspecs", "diff", "--no-index", "--", "/dev/null", "new.txt"])
+    expect(rows.map((row) => row.text)).toEqual(["+++ b/new.txt", "+hello"])
+  })
+
+  test("#given an untracked directory #when read #then every file inside is diffed", async () => {
+    // given
+    const calls: string[][] = []
+    const runner: PanelExec = async (_command, args) => {
+      calls.push([...args])
+      if (args.includes("ls-files")) return { stdout: "build/a.txt\u0000build/nested/b.txt\u0000", code: 0 }
+      const path = args.at(-1)
+      return { stdout: `+++ b/${path}\n+content`, code: 1 }
+    }
+
+    // when
+    const rows = await readGitDiff(runner, "/repo", { xy: "??", path: "build/" })
+
+    // then
+    expect(calls).toHaveLength(3)
+    expect(rows.map((row) => row.text)).toEqual([
+      "+++ b/build/a.txt",
+      "+content",
+      "+++ b/build/nested/b.txt",
+      "+content",
+    ])
+  })
+})
+
+describe("readGitDiff untracked directory cap", () => {
+  test("#given an untracked directory with more files than the cap #when opened #then only the cap is diffed and the rest is counted", async () => {
+    // given
+    const listed = Array.from({ length: UNTRACKED_DIRECTORY_FILE_CAP + 7 }, (_, index) => `build/f${index}.txt`)
+    let diffs = 0
+    const exec: PanelExec = async (_command, args) => {
+      if (args.includes("ls-files")) return { stdout: `${listed.join("\0")}\0`, stderr: "", code: 0, killed: false }
+      diffs += 1
+      return { stdout: "+x\n", stderr: "", code: 1, killed: false }
+    }
+
+    // when
+    const rows = await readGitDiff(exec, "/repo", { xy: "??", path: "build/" })
+
+    // then
+    expect(diffs).toBe(UNTRACKED_DIRECTORY_FILE_CAP)
+    expect(rows.at(-1)?.text).toBe("... 7 more files in build/")
   })
 })

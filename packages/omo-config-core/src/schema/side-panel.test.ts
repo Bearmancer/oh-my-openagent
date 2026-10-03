@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test"
 import { OmoConfigLayerSchema, OmoConfigSchema, resolveOmoSidePanelSettings } from "../index"
 
 describe("omo config side_panel section", () => {
-  test("#given an empty side_panel section #when parsed #then the panel is off with every section enabled", () => {
+  test("#given an empty side_panel section #when parsed #then the panel is off and every section but usage is on", () => {
     // given
     const config = { side_panel: {} }
 
@@ -21,7 +21,7 @@ describe("omo config side_panel section", () => {
       session: true,
       goal: true,
       context: true,
-      usage: true,
+      usage: false,
       agents: true,
       tools: true,
       files: true,
@@ -113,6 +113,35 @@ describe("omo config side_panel section", () => {
     expect(results.map((result) => result.success)).toEqual([false, false, false])
   })
 
+  test("#given width boundaries #when parsed #then every edge keeps its documented unit semantics", () => {
+    // given
+    const values = ["10%", "50%", "9%", "51%", 24, 160, 23, 161]
+
+    // when
+    const accepted = values.map((width) => OmoConfigSchema.safeParse({ side_panel: { width } }).success)
+
+    // then
+    expect(accepted).toEqual([true, true, false, false, true, true, false, false])
+  })
+
+  test("#given numeric setting boundaries #when parsed #then inclusive maxima and minima are pinned", () => {
+    // given
+    const configs = [
+      { side_panel: { min_columns: 60 } },
+      { side_panel: { min_columns: 400 } },
+      { side_panel: { min_columns: 59 } },
+      { side_panel: { min_columns: 401 } },
+      { side_panel: { usage_poll_seconds: 3600 } },
+      { side_panel: { usage_poll_seconds: 3601 } },
+    ]
+
+    // when
+    const accepted = configs.map((config) => OmoConfigSchema.safeParse(config).success)
+
+    // then
+    expect(accepted).toEqual([true, true, false, false, true, false])
+  })
+
   test("#given a usage poll interval below the floor #when parsed #then the config is rejected", () => {
     // given
     const config = { side_panel: { usage_poll_seconds: 30 } }
@@ -134,5 +163,21 @@ describe("omo config side_panel section", () => {
     // then
     expect(settings.enabled).toBe(false)
     expect(settings.sections.files).toBe(true)
+  })
+
+  test("#given a partial side_panel layer #when resolved #then every missing field takes its default", () => {
+    // given: the documented opt-in, as a profile or harness layer hands it over before defaults apply
+    const config = { side_panel: { enabled: true, sections: { files: false } } }
+
+    // when
+    const settings = resolveOmoSidePanelSettings(config)
+
+    // then
+    expect(settings.enabled).toBe(true)
+    expect(settings.width).toBe("26%")
+    expect(settings.min_columns).toBe(120)
+    expect(settings.sections.files).toBe(false)
+    expect(settings.sections.session).toBe(true)
+    expect(settings.sections.usage).toBe(false)
   })
 })

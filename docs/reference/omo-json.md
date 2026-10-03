@@ -198,11 +198,15 @@ default** because it rearranges the whole screen.
 | `min_columns` | integer | `120` | Terminals narrower than this keep the classic single-column layout; the panel hides itself rather than squeezing the transcript. |
 | `clickable` | boolean | `true` | Paint file and subagent rows as OSC 8 links, so a mouse click opens the same viewer a command would. Set it to `false` on a terminal that mangles hyperlinks. |
 | `usage_poll_seconds` | integer | `150` | Subscription usage refresh interval, and a floor rather than a ceiling: each provider keeps its own freshness window (five minutes for Anthropic, two and a half for Codex), so a smaller value does not poll faster than that. The cache is shared across sessions on one machine, so this is per machine, not per session. Minimum `60`. |
-| `sections` | object | all `true` | Per-section switches: `session`, `goal`, `context`, `usage`, `agents`, `tools`, `files`, `memory`. |
+| `sections` | object | all `true` except `usage` | Per-section switches: `session`, `goal`, `context`, `usage`, `agents`, `tools`, `files`, `memory`. `usage` is `false` by default: it is the one section that reads credentials and contacts a vendor, so it is its own opt-in (see below). |
 
 Rows are clickable because the fullscreen renderer already captures the mouse and activates OSC 8
 hyperlinks; the panel paints its rows as links to a private scheme and claims the renderer's URL
 callback while it is mounted, handing every other URL straight back. Clicking a file opens its diff;
+clicking a subagent opens its card followed by everything that child recorded, rendered by the task
+engine itself - the same text `task_output` would give you. `/side-panel-diff` reaches the file
+viewer by name; it is registered only when the panel is enabled for the run.
+
 A child the engine is holding rather than running - a host session whose daemon went away, one
 caught by a draining host, or simply one the engine detached when its session ended - is counted
 and drawn as `parked` rather than as running or done, and its card names the reason, because a
@@ -211,10 +215,6 @@ at all and shows up only as a residency that is no longer resident, so the colum
 child whose record still says `running` while nothing holds it would otherwise sit there with its
 timer climbing. The card also names the lane a child runs in - a session of the shared daemon, a
 child process, or the parent's own process - because those three fail in different ways.
-
-clicking a subagent opens its card followed by everything that child recorded, rendered by the task
-engine itself - the same text `task_output` would give you. `/side-panel-diff` reaches the file
-viewer by name.
 
 The viewer scrolls with the wheel as well as with the arrow keys, and while it is open the wheel
 belongs to it: the host routes a wheel event to whatever sits under the pointer in its layout, and
@@ -248,11 +248,14 @@ block is read on a five-second floor rather than a watcher, because a park takes
 reflection runs and the queue drains per reflection - nothing here can change between two tool
 calls of one turn.
 
-The `usage` section is the only part of omo that reaches the network on its own: it reads the
-subscription windows your plan publishes (`api.anthropic.com/api/oauth/usage` for a Claude
-subscription, `chatgpt.com/backend-api/wham/usage` for Codex) with the same account the session
-is serving from, and nothing else is sent. Set `sections.usage` to `false` to keep the panel
-entirely offline; the poller is never created when it is off. The answers land in one cache file
+The `usage` section is **off by default** and is the only part of the panel that reaches the
+network. Turning it on (`"sections": { "usage": true }`) makes the panel read, from the agent
+directory, `auth.json` (the OAuth access token of the subscription the session is serving from) and
+`credential-pool-state.json` (which pooled account is pinned or rotated in), and send that token as a
+bearer to the vendor's own usage endpoint: `api.anthropic.com/api/oauth/usage` for a Claude
+subscription, `chatgpt.com/backend-api/wham/usage` for Codex. Nothing else is read or sent, and no
+API key is ever used. While it is off the poller is never created: no credential read, no timer,
+no request. The answers land in one cache file
 per machine (`$XDG_CACHE_HOME/omo-senpi/side-panel-usage.json`), so parallel sessions share both
 the numbers and the backoff instead of each asking on its own.
 
@@ -261,7 +264,7 @@ the numbers and the backoff instead of each asking on its own.
   "side_panel": {
     "enabled": true,
     "width": "24%",
-    "sections": { "usage": false }
+    "sections": { "usage": true }
   }
 }
 ```
@@ -280,7 +283,7 @@ Clicking a row opens that file's diff in a scrollable read-only viewer, and `/si
 reaches the same viewer by name - for keyboards, and for a host that hands out no URL hook. No
 keyboard chord is registered by default.
 
-The block may live at the shared top level, in `[senpi]`, or in profile layers, and follows the
+The block may live at the shared top level, in `[native]`, or in profile layers, and follows the
 normal resolution order.
 
 ### `models` (shared catalog)

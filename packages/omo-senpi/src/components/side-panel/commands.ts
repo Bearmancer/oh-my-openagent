@@ -1,7 +1,7 @@
-import type { SenpiExtensionAPI } from "../../extension/types"
 import { readGitDiff } from "./git/diff"
 import type { PanelGitEntry } from "./git/parse"
 import type { PanelExec } from "./git/read"
+import { DIFF_VIEWER_ROW_CAP } from "./constants"
 import { openPanelViewer } from "./popups/open"
 import type { PanelGitStatus } from "./sections/files"
 import type { PanelOverlayUi } from "./types"
@@ -16,7 +16,7 @@ import type { PanelOverlayUi } from "./types"
  */
 
 /** Structural slice of senpi's ExtensionCommandContext these commands read. */
-interface PanelCommandContext {
+export interface PanelCommandContext {
   readonly mode?: string
   readonly ui?: PanelCommandUi
 }
@@ -28,15 +28,8 @@ interface PanelCommandUi extends PanelOverlayUi {
 export interface PanelCommandDeps {
   readonly status: () => PanelGitStatus | undefined
   readonly exec: PanelExec | undefined
-}
-
-export const SIDE_PANEL_DIFF_COMMAND = "side-panel-diff"
-
-export function registerPanelCommands(pi: SenpiExtensionAPI, deps: PanelCommandDeps): void {
-  pi.registerCommand(SIDE_PANEL_DIFF_COMMAND, {
-    description: "Open the diff of a file the side panel lists as changed.",
-    handler: (_args: string, ctx: PanelCommandContext) => runDiffCommand(deps, ctx),
-  })
+  /** Whether the column is mounted in this session; the command is registered before that is known. */
+  readonly mounted: () => boolean
 }
 
 function fileOptionLabel(file: PanelGitEntry): string {
@@ -44,9 +37,14 @@ function fileOptionLabel(file: PanelGitEntry): string {
   return `${file.xy} ${file.path}${delta}`
 }
 
-async function runDiffCommand(deps: PanelCommandDeps, ctx: PanelCommandContext): Promise<void> {
+/** `/side-panel-diff`: pick a changed file, then show its diff. Registered by `index.ts`. */
+export async function runDiffCommand(deps: PanelCommandDeps, ctx: PanelCommandContext): Promise<void> {
   const ui = ctx.ui
   if (ui === undefined) return
+  if (!deps.mounted()) {
+    ui.notify("The side panel is off in this session.", "info")
+    return
+  }
   const status = deps.status()
   if (status === undefined || status.files.length === 0) {
     ui.notify("No changes in the working copy.", "info")
@@ -72,5 +70,10 @@ export async function openFileDiff(
   file: PanelGitEntry,
 ): Promise<void> {
   const rows = await readGitDiff(exec, status.root, file)
-  await openPanelViewer(ui, `${file.path}  (diff, read-only)`, rows)
+  // A generated or vendored file can diff to hundreds of thousands of lines; the viewer is for reading.
+  const shown =
+    rows.length > DIFF_VIEWER_ROW_CAP
+      ? [...rows.slice(0, DIFF_VIEWER_ROW_CAP), { text: `... ${rows.length - DIFF_VIEWER_ROW_CAP} more lines`, color: "dim" as const }]
+      : rows
+  await openPanelViewer(ui, `${file.path}  (diff, read-only)`, shown)
 }

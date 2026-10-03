@@ -5,13 +5,13 @@ import { compactCost, compactTokens, duration } from "./units"
 describe("compactTokens", () => {
   test("#given values across magnitudes #when formatted #then the unit follows the size", () => {
     // given
-    const values = [0, 999, 1_000, 1_234, 12_345, 999_999, 1_000_000, 1_250_000]
+    const values = [0, 999, 1_000, 1_234, 12_345, 999_999, 1_000_000, 1_250_000, 999_950_000, 1_234_600_000]
 
     // when
     const rendered = values.map(compactTokens)
 
     // then
-    expect(rendered).toEqual(["0", "999", "1K", "1.2K", "12.3K", "1M", "1M", "1.3M"])
+    expect(rendered).toEqual(["0", "999", "1K", "1.2K", "12.3K", "1M", "1M", "1.3M", "1B", "1.2B"])
   })
 
   test("#given a negative or broken number #when formatted #then it reads as zero", () => {
@@ -25,7 +25,6 @@ describe("compactTokens", () => {
     expect(rendered).toEqual(["0", "0", "0"])
   })
 })
-
 
 describe("duration", () => {
   test("#given elapsed spans #when formatted #then each magnitude keeps a fixed shape", () => {

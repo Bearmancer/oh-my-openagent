@@ -16,6 +16,11 @@ describe("visibleWidth", () => {
     // then
     expect(width).toBe(5)
   })
+
+  test("#given wide and surrogate-pair glyphs #when measured #then terminal cells are counted", () => {
+    // given / when / then
+    expect(visibleWidth("A界🙂")).toBe(5)
+  })
 })
 
 describe("padVisible", () => {
@@ -89,6 +94,18 @@ describe("truncateVisible", () => {
     expect(visibleWidth(cut)).toBe(1)
     expect(cut).toBe("a")
   })
+
+  test("#given wide glyphs #when truncated #then no glyph is split or allowed to overflow", () => {
+    // given
+    const text = "ab界🙂cd"
+
+    // when
+    const cut = truncateVisible(text, 5)
+
+    // then
+    expect(cut).toBe("ab界…")
+    expect(visibleWidth(cut)).toBe(5)
+  })
 })
 
 describe("truncateVisibleStart", () => {
@@ -115,6 +132,15 @@ describe("truncateVisibleStart", () => {
     expect(cut).toBe("…d/e/f")
     expect(visibleWidth(cut)).toBeLessThanOrEqual(6)
   })
+
+  test("#given a wide tail #when truncated from the start #then complete glyphs fill the budget", () => {
+    // given / when
+    const cut = truncateVisibleStart("prefix界🙂", 5)
+
+    // then
+    expect(cut).toBe("…界🙂")
+    expect(visibleWidth(cut)).toBe(5)
+  })
 })
 
 describe("wrapVisible", () => {
@@ -129,8 +155,19 @@ describe("wrapVisible", () => {
 
     // then
     expect(rows.length).toBeGreaterThan(1)
-    expect(rows.every((row) => row.length <= 20)).toBe(true)
+    expect(rows.every((row) => visibleWidth(row) <= 20)).toBe(true)
     expect(rows.join(" ")).toBe("Extend the side panel with the subsystems omo gained since beta 53")
+  })
+
+  test("#given a single separator at the wrap point #when wrapped #then joining rows does not duplicate it", () => {
+    // given
+    const text = "Extend the side panel with the subsystems omo gained since beta.53"
+
+    // when
+    const rows = wrapVisible(text, 44)
+
+    // then
+    expect(rows.join(" ")).toBe(text)
   })
 
   test("#given text that already has newlines #when wrapped #then they survive as rows", () => {
@@ -138,13 +175,33 @@ describe("wrapVisible", () => {
     expect(wrapVisible("first\nsecond", 40)).toEqual(["first", "second"])
   })
 
+  test("#given indentation and repeated spaces #when wrapped #then every whitespace character survives", () => {
+    // given
+    const text = "  first  second\n   \n    indented"
+
+    // when
+    const rows = wrapVisible(text, 40)
+
+    // then
+    expect(rows.join("\n")).toBe(text)
+    expect(rows.every((row) => visibleWidth(row) <= 40)).toBe(true)
+  })
+
   test("#given a word wider than the column #when wrapped #then it is split rather than overflowing", () => {
     // given a path or a token can exceed the column on its own
     const rows = wrapVisible("/very/long/path/that/never/fits/in/the/column", 12)
 
     // then
-    expect(rows.every((row) => row.length <= 12)).toBe(true)
+    expect(rows.every((row) => visibleWidth(row) <= 12)).toBe(true)
     expect(rows.join("")).toBe("/very/long/path/that/never/fits/in/the/column")
+  })
+
+  test("#given wide text #when wrapped #then every row fits in terminal cells", () => {
+    // given / when
+    const rows = wrapVisible("界界界", 4)
+
+    // then
+    expect(rows).toEqual(["界界", "界"])
   })
 
   test("#given no room at all #when wrapped #then nothing is produced", () => {

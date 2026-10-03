@@ -37,6 +37,18 @@ describe("section layout", () => {
     expect(columns).toEqual([LABEL_WIDTH, LABEL_WIDTH])
   })
 
+  test("#given a label wider than the gutter #when a field is built #then it is truncated before the value", () => {
+    // given
+    const label = "Claude Opus 4.5"
+
+    // when
+    const row = field(label, "62%")
+
+    // then
+    expect(row.text.slice(0, LABEL_WIDTH)).toBe("Claude …")
+    expect(row.text.indexOf("62%")).toBe(LABEL_WIDTH)
+  })
+
   test("#given a narrow column #when a bar width is asked #then it never goes negative", () => {
     // given
     const width = 4

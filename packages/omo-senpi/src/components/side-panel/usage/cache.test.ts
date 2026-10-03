@@ -1,10 +1,20 @@
 import { describe, expect, test } from "bun:test"
+import { homedir } from "node:os"
+import { join } from "node:path"
 
-import { claimProviders, mergeUsageResults, providersDue, sanitizeUsageCache } from "./cache"
+import {
+  claimedProviders,
+  claimProviders,
+  mergeUsageResults,
+  providersDue,
+  sanitizeUsageCache,
+  usageCachePath,
+} from "./cache"
 import type { PanelUsageCacheFile } from "./types"
 
 const NOW = 1_700_000_000_000
 const POLL_MS = 150_000
+const CLAIM_TOKEN = "claim-a"
 const target = { key: "claude", account: "work", pollMs: POLL_MS } as const
 
 describe("providersDue", () => {
@@ -34,15 +44,32 @@ describe("providersDue", () => {
 
   test("#given a sibling session announced the same fetch #when asked #then it does not stampede", () => {
     // given
-    const cache: PanelUsageCacheFile = { claude: { account: "work", updatedAt: NOW - 10 * POLL_MS }, fetching: { claude: NOW - 5_000 } }
+    const cache: PanelUsageCacheFile = {
+      claude: { account: "work", updatedAt: NOW - 10 * POLL_MS },
+      fetching: { claude: { claimedAt: NOW - 5_000, account: "work", token: "sibling" } },
+    }
 
     // when / then
     expect(providersDue(cache, [target], NOW)).toEqual([])
   })
 
+  test("#given another account is being fetched #when asked #then the serving account refetches immediately", () => {
+    // given
+    const cache: PanelUsageCacheFile = {
+      claude: { account: "personal", updatedAt: NOW - 10 * POLL_MS },
+      fetching: { claude: { claimedAt: NOW - 5_000, account: "personal", token: "sibling" } },
+    }
+
+    // when / then
+    expect(providersDue(cache, [target], NOW)).toEqual(["claude"])
+  })
+
   test("#given the announcement is older than the claim window #when asked #then the fetch is retried", () => {
     // given a session that died mid-fetch must not silence the others forever
-    const cache: PanelUsageCacheFile = { claude: { account: "work", updatedAt: NOW - 10 * POLL_MS }, fetching: { claude: NOW - 120_000 } }
+    const cache: PanelUsageCacheFile = {
+      claude: { account: "work", updatedAt: NOW - 10 * POLL_MS },
+      fetching: { claude: { claimedAt: NOW - 120_000, account: "work", token: "sibling" } },
+    }
 
     // when / then
     expect(providersDue(cache, [target], NOW)).toEqual(["claude"])
@@ -55,11 +82,21 @@ describe("claimProviders", () => {
     const cache: PanelUsageCacheFile = { claude: { account: "work", updatedAt: NOW - POLL_MS } }
 
     // when
-    const next = claimProviders(cache, ["claude"], NOW)
+    const next = claimProviders(cache, [target], NOW, CLAIM_TOKEN)
 
     // then
-    expect(next.fetching?.claude).toBe(NOW)
+    expect(next.fetching?.claude).toEqual({ claimedAt: NOW, account: "work", token: CLAIM_TOKEN })
     expect(next.claude?.updatedAt).toBe(NOW - POLL_MS)
+  })
+
+  test("#given a sibling overwrites our claim #when ownership is checked #then no provider is fetched", () => {
+    // given
+    const cache: PanelUsageCacheFile = {
+      fetching: { claude: { claimedAt: NOW, account: "work", token: "sibling" } },
+    }
+
+    // when / then
+    expect(claimedProviders(cache, [target], CLAIM_TOKEN)).toEqual([])
   })
 })
 
@@ -68,11 +105,16 @@ describe("mergeUsageResults", () => {
     // given
     const cache: PanelUsageCacheFile = {
       claude: { account: "work", updatedAt: NOW - POLL_MS, windows: [{ label: "5h", percent: 40 }] },
-      fetching: { claude: NOW },
+      fetching: { claude: { claimedAt: NOW, account: "work", token: CLAIM_TOKEN } },
     }
 
     // when
-    const next = mergeUsageResults(cache, [{ key: "claude", entry: { error: "rate limited", retryAt: NOW + 60_000 } }], ["claude"])
+    const next = mergeUsageResults(
+      cache,
+      [{ key: "claude", entry: { account: "work", error: "rate limited", retryAt: NOW + 60_000 } }],
+      ["claude"],
+      CLAIM_TOKEN,
+    )
 
     // then
     expect(next.claude?.windows).toEqual([{ label: "5h", percent: 40 }])
@@ -83,10 +125,12 @@ describe("mergeUsageResults", () => {
 
   test("#given a failure with nothing cached #when merged #then the error stands alone", () => {
     // given
-    const cache: PanelUsageCacheFile = { fetching: { codex: NOW } }
+    const cache: PanelUsageCacheFile = {
+      fetching: { codex: { claimedAt: NOW, token: CLAIM_TOKEN } },
+    }
 
     // when
-    const next = mergeUsageResults(cache, [{ key: "codex", entry: { error: "timed out" } }], ["codex"])
+    const next = mergeUsageResults(cache, [{ key: "codex", entry: { error: "timed out" } }], ["codex"], CLAIM_TOKEN)
 
     // then
     expect(next.codex).toEqual({ error: "timed out" })
@@ -98,10 +142,56 @@ describe("mergeUsageResults", () => {
     const entry = { account: "work", updatedAt: NOW, windows: [{ label: "5h", percent: 41 }] }
 
     // when
-    const next = mergeUsageResults(cache, [{ key: "claude", entry }], ["claude"])
+    const next = mergeUsageResults(
+      { ...cache, fetching: { claude: { claimedAt: NOW, account: "work", token: CLAIM_TOKEN } } },
+      [{ key: "claude", entry }],
+      ["claude"],
+      CLAIM_TOKEN,
+    )
 
     // then
     expect(next.claude).toEqual(entry)
+  })
+
+  test("#given a failure belongs to a different account #when merged #then old quota bars are dropped", () => {
+    // given
+    const cache: PanelUsageCacheFile = {
+      claude: { account: "work", updatedAt: NOW, windows: [{ label: "5h", percent: 42 }] },
+      fetching: { claude: { claimedAt: NOW, account: "personal", token: CLAIM_TOKEN } },
+    }
+    const entry = {
+      account: "personal",
+      pinnedAccount: "work",
+      accountState: "ok",
+      error: "HTTP 503",
+      retryAt: NOW + 60_000,
+    } as const
+
+    // when
+    const next = mergeUsageResults(cache, [{ key: "claude", entry }], ["claude"], CLAIM_TOKEN)
+
+    // then
+    expect(next.claude).toEqual(entry)
+  })
+
+  test("#given our claim was replaced #when results return #then the sibling claim and cache survive", () => {
+    // given
+    const cache: PanelUsageCacheFile = {
+      claude: { account: "work", updatedAt: NOW, windows: [{ label: "5h", percent: 42 }] },
+      fetching: { claude: { claimedAt: NOW, account: "work", token: "sibling" } },
+    }
+
+    // when
+    const next = mergeUsageResults(
+      cache,
+      [{ key: "claude", entry: { account: "work", updatedAt: NOW - 1, windows: [{ label: "5h", percent: 41 }] } }],
+      ["claude"],
+      CLAIM_TOKEN,
+    )
+
+    // then
+    expect(next.claude?.windows?.[0]?.percent).toBe(42)
+    expect(next.fetching?.claude?.token).toBe("sibling")
   })
 })
 
@@ -132,5 +222,30 @@ describe("sanitizeUsageCache", () => {
   test("#given anything that is not an object #when read #then the cache is empty", () => {
     // given / when / then
     expect(sanitizeUsageCache("[]")).toEqual({})
+  })
+
+  test("#given every supplied window is invalid #when read #then freshness is dropped for an immediate refetch", () => {
+    // given
+    const parsed = {
+      claude: {
+        account: "work",
+        updatedAt: NOW,
+        windows: [{ label: "broken" }],
+      },
+    }
+
+    // when
+    const cache = sanitizeUsageCache(parsed)
+
+    // then
+    expect(cache.claude?.windows).toBeUndefined()
+    expect(cache.claude?.updatedAt).toBeUndefined()
+  })
+})
+
+describe("usageCachePath", () => {
+  test("#given an empty XDG cache home #when resolved #then the home cache fallback is used", () => {
+    // given / when / then
+    expect(usageCachePath({ XDG_CACHE_HOME: "" })).toBe(join(homedir(), ".cache", "omo-senpi", "side-panel-usage.json"))
   })
 })

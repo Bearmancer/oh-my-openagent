@@ -11,8 +11,17 @@ export const SIDE_PANEL_PARKED_URL_HOOK = Symbol.for("oh-my-openagent/side-panel
 export const PI_TUI_LAYOUT_NODE = Symbol.for("@earendil-works/pi-tui/layout-node")
 export const PI_TUI_VIEWPORT = Symbol.for("@earendil-works/pi-tui/viewport")
 
-/** CLI flag: `--omo-side-panel` / `--no-omo-side-panel` overrides the omo.json setting. */
+/** CLI flag: `--omo-side-panel` forces the panel on for one run; there is no `--no-` form, omo.json switches it off. */
 export const SIDE_PANEL_FLAG = "omo-side-panel"
+
+/** The named route to the file viewer, registered only when the panel can be on. */
+export const SIDE_PANEL_DIFF_COMMAND = "side-panel-diff"
+
+/**
+ * The panel's implementation bundle, built beside `omo.js` from `runtime.ts` and imported on the
+ * first session that has the panel on, so the entry bundle carries only the registration shell.
+ */
+export const SIDE_PANEL_RUNTIME_FILE = "omo-side-panel.js"
 
 /** Zero-height widget used only to obtain the live renderer from the host. */
 export const SIDE_PANEL_ANCHOR_WIDGET_KEY = "omo-side-panel-anchor"
@@ -43,6 +52,9 @@ export const TOOL_ROW_CAP = 24
  * defeat the click that opened it.
  */
 export const GOAL_OBJECTIVE_COLUMNS = 48
+
+/** Diff lines the viewer holds; the rest is counted in one closing row. */
+export const DIFF_VIEWER_ROW_CAP = 5_000
 
 /** Tool rows the column shows before it starts counting the rest as "earlier". */
 export const TOOL_VISIBLE_ROWS = 6

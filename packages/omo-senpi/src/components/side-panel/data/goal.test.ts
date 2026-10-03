@@ -105,6 +105,28 @@ describe("createPanelGoalReader", () => {
     expect(createPanelGoalReader(source.port)(PATH)).toBeUndefined()
   })
 
+  test("#given a torn read with unchanged metadata #when retried #then the completed record is parsed", () => {
+    // given the replacement can keep the same mtime and size on coarse filesystems
+    const body = record()
+    let reads = 0
+    const source: PanelGoalSource = {
+      stat: () => ({ mtimeMs: 1_000, size: body.length }),
+      read: () => {
+        reads += 1
+        return reads === 1 ? "x".repeat(body.length) : body
+      },
+    }
+    const read = createPanelGoalReader(source)
+
+    // when
+    expect(read(PATH)).toBeUndefined()
+    const goal = read(PATH)
+
+    // then
+    expect(goal?.status).toBe("active")
+    expect(reads).toBe(2)
+  })
+
   test("#given a status senpi does not write #when read #then it is not shown raw", () => {
     // given
     const source = fakeSource(record({ status: "sideways" }))
@@ -162,10 +184,10 @@ describe("createPanelGoalReader", () => {
   })
 })
 
-describe("goal statuses the store actually writes", () => {
-  // `pi-goal/src/goal/store.ts` writes five: active, paused, blocked, budgetLimited, complete. A
-  // goal that is paused or out of budget still exists, so refusing those two would blank the block
-  // exactly when the goal stopped moving - the moment it is worth reading.
+describe("current and legacy goal statuses", () => {
+  // Senpi's installed `core/extensions/builtin/goal/types.d.ts` exports active, paused, blocked,
+  // and complete. budgetLimited remains readable for persisted records from the earlier goal
+  // extension, so an upgrade does not blank the block before that record is rewritten.
   for (const status of ["active", "paused", "blocked", "budgetLimited", "complete"] as const) {
     test(`#given a ${status} goal #when read #then the record reaches the column`, () => {
       // given

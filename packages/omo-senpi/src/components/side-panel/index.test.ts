@@ -19,6 +19,8 @@ import {
 } from "./constants"
 import { createSidePanelComponent } from "./index"
 import type { PanelMemory, PanelMemoryIdentity, PanelTimers } from "./types"
+import { SIDE_PANEL_DIFF_COMMAND } from "./constants"
+import type { PanelTaskRecord } from "./data/task-records"
 
 interface WidgetCall {
   readonly key: string
@@ -249,6 +251,8 @@ function mounted(
     timers,
     now: () => clock,
     readTaskRecords: () => [],
+    // Memory resolves a real identity from the developer's omo.json; only memory tests opt in.
+    resolveMemory: () => undefined,
     ...overrides,
   })
   component.register(pi, componentContext(pi))
@@ -282,7 +286,8 @@ function mounted(
       clock += ms
     },
     attach: (): void => {
-      const factory = widgets.find((call) => call.key === SIDE_PANEL_ANCHOR_WIDGET_KEY)?.content
+      // The latest anchor: a remount registers a fresh one, and an earlier one is stale by design.
+      const factory = [...widgets].reverse().find((call) => call.key === SIDE_PANEL_ANCHOR_WIDGET_KEY)?.content
       if (typeof factory !== "function") throw new Error("anchor factory missing")
       ;(factory as (tui: unknown, theme: unknown) => unknown)(tui, undefined)
     },
@@ -842,5 +847,115 @@ describe("side panel memory wiring", () => {
     const delivered = harness.notices.join("\n").replace(/\n/g, " ")
     expect(delivered).toContain(DETAIL)
     expect(delivered).toContain("notwork-09334074")
+  })
+})
+
+describe("side panel session boundaries and section gates", () => {
+  test("#given a child from the previous session #when the session switches #then the next session shows none of it", async () => {
+    // given
+    let records: PanelTaskRecord[] = [
+        {
+          task_id: "t1",
+          status: "running",
+          created_at: new Date(40_000).toISOString(),
+          parent_session_id: "session-1",
+          task_summary: "map the seams",
+        },
+    ]
+    const harness = mounted({ readTaskRecords: () => records })
+    await harness.pi.dispatch("session_start", {}, harness.host)
+    harness.attach()
+    expect(columnRows(harness.tui).some((row) => row.startsWith("AGENTS"))).toBe(true)
+
+    // when
+    await harness.pi.dispatch("session_before_switch", {}, harness.host)
+    records = []
+    await harness.pi.dispatch("session_start", {}, harness.host)
+    harness.attach()
+
+    // then
+    expect(columnRows(harness.tui).some((row) => row.startsWith("AGENTS"))).toBe(false)
+  })
+
+  test("#given the files section is off #when the panel mounts and refreshes #then git is never run", async () => {
+    // given
+    const calls: string[][] = []
+    const sections = { ...OmoSidePanelSettingsSchema.parse({}).sections, files: false }
+    const harness = mounted({
+      loadSettings: () => settings({ enabled: true, sections }),
+      findGitRoot: () => "/repo",
+      readGitBranch: () => "main",
+      exec: async (command, args) => {
+        calls.push([command, ...args])
+        return { stdout: "", stderr: "", code: 0, killed: false }
+      },
+    })
+
+    // when
+    await harness.pi.dispatch("session_start", {}, harness.host)
+    await harness.pi.dispatch("tool_execution_end", {}, harness.host)
+
+    // then
+    expect(calls).toEqual([])
+  })
+
+  test("#given the panel is off at load #when the component registers #then no diff command is offered", () => {
+    // given / when
+    const harness = mounted({ loadSettings: () => settings({ enabled: false }) })
+
+    // then
+    expect(harness.pi.commands.some((command) => command.name === SIDE_PANEL_DIFF_COMMAND)).toBe(false)
+  })
+
+  test("#given a mounted column #when the host rebuilds its renderer for a TUI mode switch #then the column is attached again", async () => {
+    // given
+    const harness = mounted()
+    await harness.pi.dispatch("session_start", {}, harness.host)
+    harness.attach()
+    expect(columnRows(harness.tui).length).toBeGreaterThan(0)
+    const anchorsBefore = harness.widgets.filter((call) => call.key === SIDE_PANEL_ANCHOR_WIDGET_KEY && call.content !== undefined).length
+
+    // when: the host clears the old root and mounts a fresh one, as switchTuiMode does
+    harness.tui.setLayoutRoot({ render: () => ["transcript"], invalidate: () => {} })
+    await harness.pi.dispatch("turn_end", {}, harness.host)
+    harness.attach()
+
+    // then: the host never calls a mounted factory again, so the panel must register a fresh anchor
+    expect(harness.widgets.filter((call) => call.key === SIDE_PANEL_ANCHOR_WIDGET_KEY && call.content !== undefined).length).toBe(anchorsBefore + 1)
+    expect(columnRows(harness.tui).some((row) => row.startsWith("SESSION"))).toBe(true)
+  })
+
+  test("#given a widget block because the renderer had no root yet #when a root appears #then the column replaces the block", async () => {
+    // given: a fullscreen renderer that builds its root lazily, or the regular half of a mode switch
+    const harness = mounted()
+    harness.tui.setLayoutRoot(undefined)
+    await harness.pi.dispatch("session_start", {}, harness.host)
+    harness.attach()
+    expect(() => columnRows(harness.tui)).toThrow()
+    const anchorsBefore = harness.widgets.filter((call) => call.key === SIDE_PANEL_ANCHOR_WIDGET_KEY && call.content !== undefined).length
+
+    // when
+    harness.tui.setLayoutRoot({ render: () => ["transcript"], invalidate: () => {} })
+    await harness.pi.dispatch("turn_end", {}, harness.host)
+    harness.attach()
+
+    // then: the host never calls a mounted factory again, so the panel must register a fresh anchor
+    expect(harness.widgets.filter((call) => call.key === SIDE_PANEL_ANCHOR_WIDGET_KEY && call.content !== undefined).length).toBe(anchorsBefore + 1)
+    expect(columnRows(harness.tui).some((row) => row.startsWith("SESSION"))).toBe(true)
+  })
+
+  test("#given the session ends before the deferred attach runs #when it finally runs #then nothing is installed", async () => {
+    // given
+    const queued: Array<() => void> = []
+    const harness = mounted({ defer: (callback) => queued.push(callback) })
+    await harness.pi.dispatch("session_start", {}, harness.host)
+    harness.attach()
+
+    // when
+    await harness.pi.dispatch("session_shutdown", {}, harness.host)
+    for (const callback of queued) callback()
+
+    // then
+    expect(() => columnRows(harness.tui)).toThrow()
   })
 })

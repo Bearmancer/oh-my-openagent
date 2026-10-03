@@ -5,17 +5,18 @@ import { parsePanelWheelEvent } from "./wheel"
 describe("parsePanelWheelEvent", () => {
   test("#given a wheel-up report #when parsed #then it scrolls towards the top", () => {
     // given button 64 is the wheel with direction bits clear
-    expect(parsePanelWheelEvent("\u001b[<64;10;5M")).toEqual({ direction: -1, press: true })
+    expect(parsePanelWheelEvent("\u001b[<64;10;5M")).toEqual({ direction: -1 })
   })
 
   test("#given a wheel-down report #when parsed #then it scrolls towards the bottom", () => {
     // given / when / then
-    expect(parsePanelWheelEvent("\u001b[<65;10;5M")).toEqual({ direction: 1, press: true })
+    expect(parsePanelWheelEvent("\u001b[<65;10;5M")).toEqual({ direction: 1 })
   })
 
-  test("#given the release form #when parsed #then it is recognised but not a notch", () => {
-    // given a stray release must still be claimed rather than reaching the surface below
-    expect(parsePanelWheelEvent("\u001b[<64;10;5m")).toEqual({ direction: -1, press: false })
+  test("#given the release form #when parsed #then it is left for the host", () => {
+    // given SGR uses `m` for button releases; wheel notches are emitted only as `M`
+    expect(parsePanelWheelEvent("\u001b[<64;10;5m")).toBeUndefined()
+    expect(parsePanelWheelEvent("\u001b[<65;10;5m")).toBeUndefined()
   })
 
   test("#given a plain click #when parsed #then it is not a wheel event", () => {

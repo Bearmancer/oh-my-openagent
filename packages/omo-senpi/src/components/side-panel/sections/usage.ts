@@ -31,7 +31,9 @@ export function buildUsageRows(usage: PanelUsageSnapshot, now: number, width: nu
   // One tail for the whole section, so every bar is the same length and the percentages form a
   // column. Sizing each row on its own reset label made the right edge ragged.
   const resetWidth = present.reduce((widest, key) => {
-    const labels = (usage[key]?.windows ?? []).map((window) => resetLabel(window.resetsAt, now)?.length ?? 0)
+    const labels = (usage[key]?.windows ?? [])
+      .slice(0, WINDOW_ROWS)
+      .map((window) => resetLabel(window.resetsAt, now)?.length ?? 0)
     return Math.max(widest, ...labels)
   }, 0)
   const tail = PERCENT_WIDTH + 1 + (resetWidth === 0 ? 0 : resetWidth + 2)

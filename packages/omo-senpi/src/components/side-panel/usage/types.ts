@@ -50,7 +50,14 @@ export interface PanelUsageEntry {
 
 export type PanelUsageSnapshot = { readonly [K in PanelUsageProviderKey]?: PanelUsageEntry }
 
+/** One session's short-lived fetch claim in the shared cache. */
+export interface PanelUsageClaim {
+  readonly claimedAt: number
+  readonly account?: string
+  readonly token: string
+}
+
 /** The on-disk shape: the snapshot plus in-flight announcements that stop a stampede. */
 export interface PanelUsageCacheFile extends PanelUsageSnapshot {
-  readonly fetching?: { readonly [K in PanelUsageProviderKey]?: number }
+  readonly fetching?: { readonly [K in PanelUsageProviderKey]?: PanelUsageClaim }
 }

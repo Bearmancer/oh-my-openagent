@@ -182,3 +182,45 @@ describe("panel store tools", () => {
     expect(snapshot.tools).toHaveLength(1)
   })
 })
+
+describe("panel store parked children and session boundaries", () => {
+  test("#given a parked child #when it resumes #then its card no longer carries the parked reason", () => {
+    // given
+    const store = createPanelStore(clock())
+    store.upsertChild({ id: "a", status: "suspended", parkedReason: "host draining" })
+
+    // when
+    const changed = store.upsertChild({ id: "a", status: "running" })
+
+    // then
+    expect(changed).toBe(true)
+    expect(store.state().children[0]?.parkedReason).toBeUndefined()
+  })
+
+  test("#given a parked child #when only its reason changes #then the change is reported and kept", () => {
+    // given
+    const store = createPanelStore(clock())
+    store.upsertChild({ id: "a", status: "suspended", parkedReason: "detached" })
+
+    // when
+    const changed = store.upsertChild({ id: "a", status: "suspended", parkedReason: "daemon gone" })
+
+    // then
+    expect(changed).toBe(true)
+    expect(store.state().children[0]?.parkedReason).toBe("daemon gone")
+  })
+
+  test("#given children, tools and spend #when reset #then the next session starts empty", () => {
+    // given
+    const store = createPanelStore(clock())
+    store.upsertChild({ id: "a", status: "running", cost: 0.5 })
+    store.upsertChild({ id: "a", status: "finished" })
+    store.recordTool({ name: "read", at: 1 })
+
+    // when
+    store.reset()
+
+    // then
+    expect(store.state()).toEqual({ children: [], tools: [], childSpend: 0 })
+  })
+})

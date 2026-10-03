@@ -39,6 +39,8 @@ export function createPanelHostSurface(deps: PanelHostSurfaceDeps): PanelHostSur
   let installed: InstalledColumn | undefined
   let widgetMounted = false
   let renderer: PanelHostTui | undefined
+  // Bumped by every mount and dispose, so an attach deferred by one mount cannot land after it.
+  let generation = 0
 
   interface InstalledColumn {
     readonly tui: PanelHostTui
@@ -52,6 +54,8 @@ export function createPanelHostSurface(deps: PanelHostSurfaceDeps): PanelHostSur
   }
 
   let urlHook: InstalledUrlHook | undefined
+  // The renderer a widget block fell back on, so a later layout seam on it can still be taken.
+  let widgetHost: unknown
 
   /**
    * Claim the host's URL activation callback, which is the only path a mouse click has into an
@@ -81,9 +85,10 @@ export function createPanelHostSurface(deps: PanelHostSurfaceDeps): PanelHostSur
     }
   }
 
-  const mountWidget = (): PanelSurfaceKind => {
+  const mountWidget = (candidate: unknown): PanelSurfaceKind => {
     deps.context.ui.setWidget(SIDE_PANEL_WIDGET_KEY, () => body, { placement: "aboveEditor" })
     widgetMounted = true
+    widgetHost = candidate
     kind = "widget"
     return kind
   }
@@ -95,7 +100,7 @@ export function createPanelHostSurface(deps: PanelHostSurfaceDeps): PanelHostSur
     installUrlHook(candidate)
     if (!isHostTui(candidate)) {
       deps.logger.debug?.("side-panel: renderer does not expose the layout seam, using a widget block")
-      mountWidget()
+      mountWidget(candidate)
       return
     }
     renderer = candidate
@@ -103,7 +108,7 @@ export function createPanelHostSurface(deps: PanelHostSurfaceDeps): PanelHostSur
     if (!isPanelComponent(originalRoot)) {
       // Fullscreen renderers build their root lazily; a widget block still shows the rows.
       deps.logger.debug?.("side-panel: no layout root to wrap yet, using a widget block")
-      mountWidget()
+      mountWidget(candidate)
       return
     }
     // The original root is installed by identity: it is itself a layout component,
@@ -115,6 +120,59 @@ export function createPanelHostSurface(deps: PanelHostSurfaceDeps): PanelHostSur
     candidate.requestRender(true)
   }
 
+  /**
+   * The widget factory is the sanctioned way to reach the live renderer. Mutating the layout
+   * inside a render pass is unsafe, so the attach is deferred one tick.
+   */
+  const mountAnchor = (): void => {
+    const mountedGeneration = ++generation
+    deps.context.ui.setWidget(SIDE_PANEL_ANCHOR_WIDGET_KEY, (tui, hostTheme) => {
+      theme = panelThemeFrom(hostTheme)
+      // A dispose between the render and this tick would otherwise reinstall the column, the
+      // widget and the url hook into whatever session comes next.
+      defer(() => {
+        if (mountedGeneration === generation) attach(tui)
+      })
+      return { render: () => [], invalidate: () => {} }
+    })
+  }
+
+  /**
+   * A TUI mode switch (`/settings`) stops the renderer, clears its layout root and moves the same
+   * widget instances onto a new one without calling their factories again, so the column would
+   * silently vanish. A root that is no longer ours is that signal: drop what belonged to the old
+   * renderer without touching it, and ask the host for the current one through the anchor again.
+   */
+  const reattachIfRebuilt = (): boolean => {
+    if (installed === undefined) return upgradeWidgetIfSeamAppeared()
+    if (installed.tui.layoutRoot === installed.root) return false
+    deps.logger.debug?.("side-panel: the host rebuilt its renderer, attaching to the new one")
+    installed = undefined
+    urlHook = undefined
+    renderer = undefined
+    kind = "dark"
+    mountAnchor()
+    return true
+  }
+
+  /**
+   * The widget block is a fallback for a renderer without a layout root to wrap: regular mode, a
+   * fullscreen root not built yet, or the regular half of a mode switch. The renderer handed to an
+   * extension reads the live one, so once it carries the seam and a root, the block steps aside
+   * and the anchor attaches the column.
+   */
+  const upgradeWidgetIfSeamAppeared = (): boolean => {
+    if (kind !== "widget" || !isHostTui(widgetHost) || !isPanelComponent(widgetHost.layoutRoot)) return false
+    deps.logger.debug?.("side-panel: the renderer now has a layout root, moving from the widget block to the column")
+    deps.context.ui.setWidget(SIDE_PANEL_WIDGET_KEY, undefined)
+    widgetMounted = false
+    widgetHost = undefined
+    urlHook = undefined
+    kind = "dark"
+    mountAnchor()
+    return true
+  }
+
   return {
     mount(): PanelSurfaceKind {
       if (!deps.context.hasUI || deps.context.mode !== "tui") {
@@ -122,22 +180,18 @@ export function createPanelHostSurface(deps: PanelHostSurfaceDeps): PanelHostSur
         kind = "dark"
         return kind
       }
-      // The widget factory is the sanctioned way to reach the live renderer. Mutating
-      // the layout inside a render pass is unsafe, so the attach is deferred one tick.
-      deps.context.ui.setWidget(SIDE_PANEL_ANCHOR_WIDGET_KEY, (tui, hostTheme) => {
-        theme = panelThemeFrom(hostTheme)
-        defer(() => attach(tui))
-        return { render: () => [], invalidate: () => {} }
-      })
+      mountAnchor()
       return kind
     },
     kind(): PanelSurfaceKind {
       return kind
     },
     requestRender(): void {
+      if (reattachIfRebuilt()) return
       renderer?.requestRender(false)
     },
     dispose(): void {
+      generation += 1
       if (urlHook !== undefined) {
         const { host, previous } = urlHook
         urlHook = undefined
@@ -163,6 +217,7 @@ export function createPanelHostSurface(deps: PanelHostSurfaceDeps): PanelHostSur
         deps.context.ui.setWidget(SIDE_PANEL_WIDGET_KEY, undefined)
         widgetMounted = false
       }
+      widgetHost = undefined
       deps.context.ui.setWidget(SIDE_PANEL_ANCHOR_WIDGET_KEY, undefined)
       renderer = undefined
       kind = "dark"

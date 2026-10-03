@@ -57,6 +57,8 @@ export interface PanelStore {
   recordTool(call: PanelToolCall): void
   /** Tools are per-exchange context; the next user turn starts a fresh list. */
   clearTools(): void
+  /** Drop everything: children, tools and spend belong to the session that recorded them. */
+  reset(): void
 }
 
 const TERMINAL: ReadonlySet<PanelChildStatus> = new Set<PanelChildStatus>(["finished", "failed", "cancelled"])
@@ -89,13 +91,17 @@ export function createPanelStore(now: () => number = Date.now): PanelStore {
 
     upsertChild(update): boolean {
       const previous = children.get(update.id)
+      const status = update.status ?? previous?.status ?? "queued"
+      // A reason only describes a parked child: once it runs or ends, the old reason is history.
+      const parkedReason = status === "suspended" ? (update.parkedReason ?? previous?.parkedReason) : undefined
+      const host = update.host ?? previous?.host
       const merged: PanelChild = {
         id: update.id,
         name: update.name ?? previous?.name ?? update.id,
         category: update.category ?? previous?.category,
-        status: update.status ?? previous?.status ?? "queued",
-        ...(update.parkedReason === undefined ? {} : { parkedReason: update.parkedReason }),
-        ...(update.host === undefined ? {} : { host: update.host }),
+        status,
+        ...(parkedReason === undefined ? {} : { parkedReason }),
+        ...(host === undefined ? {} : { host }),
         startedAt: update.startedAt ?? previous?.startedAt ?? now(),
         finishedAt: update.finishedAt ?? previous?.finishedAt,
         activity: update.activity ?? previous?.activity,
@@ -120,6 +126,12 @@ export function createPanelStore(now: () => number = Date.now): PanelStore {
     clearTools(): void {
       tools = []
     },
+
+    reset(): void {
+      children.clear()
+      tools = []
+      childSpend = 0
+    },
   }
 }
 
@@ -128,6 +140,8 @@ function sameChild(left: PanelChild, right: PanelChild): boolean {
     left.name === right.name &&
     left.category === right.category &&
     left.status === right.status &&
+    left.parkedReason === right.parkedReason &&
+    left.host === right.host &&
     left.startedAt === right.startedAt &&
     left.finishedAt === right.finishedAt &&
     left.activity === right.activity &&

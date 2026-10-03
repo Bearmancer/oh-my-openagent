@@ -39,6 +39,17 @@ describe("parsePorcelainZ", () => {
     expect(paths).not.toContain("renamed.txt")
   })
 
+  test("#given a worktree rename #when parsed #then the origin path is retained", () => {
+    // given
+    const output = " R renamed-new.txt\u0000renamed.txt\u0000"
+
+    // when
+    const entries = parsePorcelainZ(output)
+
+    // then
+    expect(entries).toEqual([{ xy: " R", path: "renamed-new.txt", from: "renamed.txt" }])
+  })
+
   test("#given empty output #when parsed #then no entries are produced", () => {
     // given
     const output = ""
@@ -85,6 +96,17 @@ describe("parseNumstatZ", () => {
 
     // then
     expect(deltas.get("with space.txt")).toEqual({ added: 1, removed: 0 })
+  })
+
+  test("#given a path containing tabs #when parsed #then the whole path survives intact", () => {
+    // given
+    const output = "3\t2\twith\ttabs.txt\u0000"
+
+    // when
+    const deltas = parseNumstatZ(output)
+
+    // then
+    expect(deltas.get("with\ttabs.txt")).toEqual({ added: 3, removed: 2 })
   })
 
   test("#given a binary file #when parsed #then its dashes read as zero rather than NaN", () => {

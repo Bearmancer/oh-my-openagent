@@ -20,8 +20,8 @@ export interface PopupBudget {
 export function popupBudget(terminalRows: number, ratio: number): PopupBudget {
   const rows = Number.isFinite(terminalRows) && terminalRows > 0 ? Math.floor(terminalRows) : 24
   const share = Number.isFinite(ratio) && ratio > 0 ? Math.min(ratio, 1) : 0.72
-  const total = Math.max(POPUP_CHROME_ROWS + 1, Math.min(rows, Math.floor(rows * share)))
-  return { total, body: total - POPUP_CHROME_ROWS }
+  const total = Math.min(rows, Math.max(POPUP_CHROME_ROWS + 1, Math.floor(rows * share)))
+  return { total, body: Math.max(0, total - POPUP_CHROME_ROWS) }
 }
 
 /** Clamp a scroll offset to the last full screen of content. */

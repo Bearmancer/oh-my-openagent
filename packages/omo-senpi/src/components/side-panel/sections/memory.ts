@@ -85,7 +85,7 @@ function recallValue(memory: PanelMemory): string | undefined {
  * reads while deciding whether to run `/reflect`, not a glance.
  */
 export function buildMemoryDetailRows(memory: PanelMemory, now: number): readonly PanelRow[] {
-  const rows: PanelRow[] = [detail("id", memory.identity)]
+  const rows: PanelRow[] = [...wrappedDetail("id", memory.identity)]
   const reflection = memory.reflection
   if (reflection !== undefined) {
     rows.push(detail("streak", `${reflection.streak} failed`))
@@ -119,4 +119,11 @@ export function buildMemoryDetailRows(memory: PanelMemory, now: number): readonl
 
 function detail(label: string, value: string): PanelRow {
   return { text: `${label.padEnd(LABEL_WIDTH)}${truncateVisible(value, MEMORY_DETAIL_COLUMNS - LABEL_WIDTH)}` }
+}
+
+function wrappedDetail(label: string, value: string): readonly PanelRow[] {
+  const indent = " ".repeat(LABEL_WIDTH)
+  return wrapVisible(value, MEMORY_DETAIL_COLUMNS - LABEL_WIDTH).map((line, index) => ({
+    text: `${index === 0 ? label.padEnd(LABEL_WIDTH) : indent}${line}`,
+  }))
 }

@@ -37,15 +37,12 @@ export async function openPanelViewer(ui: PanelOverlayUi, title: string, rows: r
 function listenForWheel(
   ui: PanelOverlayUi,
   popup: PopupComponent,
-  tui: { requestRender(force?: boolean): void },
+  _tui: { requestRender(force?: boolean): void },
 ): (() => void) | undefined {
   return ui.onTerminalInput?.((data) => {
     const wheel = parsePanelWheelEvent(data)
     if (wheel === undefined) return undefined
-    if (wheel.press) {
-      popup.scrollBy(wheel.direction * WHEEL_ROWS)
-      tui.requestRender()
-    }
+    popup.scrollBy(wheel.direction * WHEEL_ROWS)
     return { consume: true }
   })
 }

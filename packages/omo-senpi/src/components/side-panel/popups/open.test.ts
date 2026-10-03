@@ -87,6 +87,18 @@ describe("openPanelViewer", () => {
     await opened
   })
 
+  test("#given an SGR button release #when it arrives #then it is passed through for host click completion", async () => {
+    // given
+    const ui = fakeUi()
+    const opened = openPanelViewer(ui, "title", body(60))
+
+    // when / then
+    expect(ui.listeners[0]?.("\u001b[<64;10;5m")).toBeUndefined()
+
+    ui.close()
+    await opened
+  })
+
   test("#given the viewer is closed #when it resolves #then the wheel listener is released", async () => {
     // given
     const ui = fakeUi()

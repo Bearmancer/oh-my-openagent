@@ -293,7 +293,7 @@ describe("side panel host surface", () => {
     // then
     expect(before).toBe(50)
     expect(after).toBe(40)
-    expect(seen).toEqual([50 * 4, 160])
+    expect(seen).toEqual([200, 160])
   })
 })
 

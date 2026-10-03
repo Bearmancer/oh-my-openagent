@@ -179,6 +179,17 @@ describe("buildMemoryDetailRows", () => {
     // given the frame is reachable while nothing is wrong
     expect(texts(buildMemoryDetailRows(memory(), NOW)).join("\n")).toContain("notwork-09334074")
   })
+
+  test("#given a maximum-length identity #when the frame is opened #then its distinguishing tail is preserved", () => {
+    // given
+    const identity = "a-very-long-explicit-memory-identity-name-0badc0de"
+
+    // when
+    const rows = buildMemoryDetailRows(memory({ identity }), NOW)
+
+    // then
+    expect(rows.slice(0, 2).map((entry) => entry.text.slice(8)).join("")).toBe(identity)
+  })
 })
 
 describe("the kibitzer row", () => {
@@ -237,7 +248,7 @@ describe("the kibitzer row", () => {
       .join("\n")
 
     // then
-    expect(text).toContain("4")
+    expect(text).toContain("4 wakes")
     expect(text).toContain("3 nudged")
     expect(text).toContain("20.4K")
   })

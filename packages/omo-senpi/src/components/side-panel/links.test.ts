@@ -21,6 +21,17 @@ describe("panel action urls", () => {
     expect(parsePanelActionUrl(panelActionUrl(action))).toEqual(action)
   })
 
+  test("#given goal and memory actions #when round-tripped #then their current-session literal survives", () => {
+    // given
+    const actions: readonly PanelAction[] = [{ kind: "goal" }, { kind: "memory" }]
+
+    // when
+    const parsed = actions.map((action) => parsePanelActionUrl(panelActionUrl(action)))
+
+    // then
+    expect(parsed).toEqual([...actions])
+  })
+
   test("#given a value carrying escape bytes #when encoded #then the sequence cannot be ended early", () => {
     // given a raw BEL or ESC would terminate the hyperlink and spill the rest over the row
     const path = "a\u0007b\u001bc"
@@ -41,7 +52,7 @@ describe("panel action urls", () => {
 
   test("#given an unknown action kind #when parsed #then nothing is claimed", () => {
     // given a future scheme member must not be guessed at
-    expect(parsePanelActionUrl("omo-panel:memory/x")).toBeUndefined()
+    expect(parsePanelActionUrl("omo-panel:ssh/x")).toBeUndefined()
   })
 
   test("#given a truncated url #when parsed #then nothing is claimed", () => {

@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test"
 
-import { FakeExtensionAPI } from "../../../test-support/fake-extension-api"
-import { registerPanelCommands, SIDE_PANEL_DIFF_COMMAND } from "./commands"
+import { runDiffCommand, type PanelCommandContext } from "./commands"
 import type { PanelExec } from "./git/read"
 import type { PanelGitStatus } from "./sections/files"
+import type { PanelPopupFactory } from "./types"
 
 const DIFF = "diff --git a/tracked.txt b/tracked.txt\n@@ -1 +1 @@\n-old\n+new"
 
@@ -29,14 +29,18 @@ function harness(options: {
   choose?: (options: string[]) => string | undefined
   withCustom?: boolean
   noExec?: boolean
+  mounted?: boolean
 } = {}): Harness {
-  const pi = new FakeExtensionAPI()
   const notices: Array<{ message: string; type: string | undefined }> = []
   const selected: string[] = []
   const popupRows: string[][] = []
   const closes: number[] = []
   const exec: PanelExec = options.exec ?? (async () => ({ stdout: DIFF, code: 0 }))
-  registerPanelCommands(pi, { status: options.status ?? status, exec: options.noExec === true ? undefined : exec })
+  const deps = {
+    status: options.status ?? status,
+    exec: options.noExec === true ? undefined : exec,
+    mounted: () => options.mounted ?? true,
+  }
   const ui = {
     notify(message: string, type?: string) {
       notices.push({ message, type })
@@ -48,9 +52,7 @@ function harness(options: {
     ...(options.withCustom === false
       ? {}
       : {
-          async custom(
-            factory: (tui: unknown, theme: unknown, keybindings: unknown, done: (value?: unknown) => void) => unknown,
-          ) {
+          async custom(factory: PanelPopupFactory) {
             const tui = { terminal: { rows: 50 }, requestRender: () => {} }
             const component = factory(tui, undefined, undefined, () => closes.push(1)) as {
               render(width: number): string[]
@@ -68,8 +70,7 @@ function harness(options: {
     popupRows,
     closes,
     run: async () => {
-      const handler = pi.commands.find((command) => command.name === SIDE_PANEL_DIFF_COMMAND)?.options["handler"]
-      if (typeof handler !== "function") throw new Error("command not registered")
+      const handler = (_args: string, ctx: PanelCommandContext): Promise<void> => runDiffCommand(deps, ctx)
       await handler("", { mode: "tui", ui })
     },
   }
@@ -122,6 +123,18 @@ describe("side panel diff command", () => {
 
     // then
     expect(test.notices).toEqual([{ message: "No changes in the working copy.", type: "info" }])
+    expect(test.popupRows).toEqual([])
+  })
+
+  test("#given the panel is not mounted in this session #when run #then it says the panel is off", async () => {
+    // given
+    const test = harness({ mounted: false })
+
+    // when
+    await test.run()
+
+    // then
+    expect(test.notices).toEqual([{ message: "The side panel is off in this session.", type: "info" }])
     expect(test.popupRows).toEqual([])
   })
 

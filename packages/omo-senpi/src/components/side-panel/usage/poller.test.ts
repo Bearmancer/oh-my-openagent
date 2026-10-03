@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -116,6 +116,49 @@ describe("createUsagePoller", () => {
     expect(readUsageCache(base.cachePath).fetching?.claude).toBeUndefined()
   })
 
+  test("#given failover serves a failed request #when polled #then its account state stays visible", async () => {
+    // given
+    const base = harness()
+    const poller = createUsagePoller({
+      fetch: () => Promise.reject(new UsageHttpError("HTTP 503", { status: 503 })),
+      readCredentials: () =>
+        credentials({
+          auth: {
+            "claude-sdk-oauth": {
+              accounts: [
+                { name: "work", access: ACCESS },
+                { name: "personal", access: `${ACCESS}-personal` },
+              ],
+              pinned: "work",
+            },
+          },
+          pool: {
+            providers: {
+              "claude-sdk-oauth": {
+                lanes: { stored: { slots: { work: { cooldownUntil: NOW + 60_000 } } } },
+              },
+            },
+          },
+        }),
+      cachePath: base.cachePath,
+      pollMs: POLL_MS,
+      now: () => NOW,
+      timers,
+      onChange: () => undefined,
+    })
+
+    // when
+    await poller.pollOnce()
+
+    // then
+    expect(poller.snapshot().claude).toMatchObject({
+      account: "personal",
+      pinnedAccount: "work",
+      accountState: "ok",
+      error: "HTTP 503",
+    })
+  })
+
   test("#given a configured provider with no usable token #when polled #then it says so without a request", async () => {
     // given the credential carries only the host's short internal marker
     const base = harness()
@@ -206,6 +249,14 @@ describe("createUsagePoller", () => {
 
     // then the second pass finds the same numbers and asks for no repaint
     expect(renders).toBe(1)
-    expect(JSON.parse(readFileSync(base.cachePath, "utf8"))).toBeTruthy()
+    const cache = readUsageCache(base.cachePath)
+    expect(cache.claude).toMatchObject({
+      account: "work",
+      accountState: "ok",
+      updatedAt: NOW,
+      windows: [{ label: "5h", percent: 38 }],
+    })
+    expect(cache.claude?.error).toBeUndefined()
+    expect(cache.fetching?.claude).toBeUndefined()
   })
 })

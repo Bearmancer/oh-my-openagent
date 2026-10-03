@@ -7,6 +7,9 @@ import type { UsageCredentialSource } from "./poller"
 /**
  * Reads the engine's own credential files.
  *
+ * This component runs only inside Senpi, so OpenCode's data directory and `OPENCODE_AUTH_PATH`
+ * do not apply here. The subscription credentials belong to Senpi's resolved agent directory.
+ *
  * The host's generic key resolver normalises a credential and drops the per-account slots, and
  * those slots are exactly what decides which account is serving - so the files are the reliable
  * source here. They are re-read every poll rather than cached: tokens refresh and the pool fails

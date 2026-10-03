@@ -39,8 +39,8 @@ export function buildAgentRows(children: readonly PanelChild[], now: number, wid
     .join(" · ")
   const rows: PanelRow[] = [heading("AGENTS", summary)]
   for (const child of children) {
-    const elapsed = duration((child.finishedAt ?? now) - child.startedAt)
-    const head = `${GLYPH[child.status]} ${child.name}  ${elapsed}`
+    const elapsed = child.status === "suspended" ? undefined : duration((child.finishedAt ?? now) - child.startedAt)
+    const head = elapsed === undefined ? `${GLYPH[child.status]} ${child.name}` : `${GLYPH[child.status]} ${child.name}  ${elapsed}`
     const activity = child.status === "running" ? child.activity : undefined
     const text = activity === undefined ? head : `${head}  ${activity}`
     rows.push({
@@ -57,10 +57,8 @@ export function buildAgentRows(children: readonly PanelChild[], now: number, wid
  * narrow width; this is where the parts that did not fit go.
  */
 export function buildAgentCardRows(child: PanelChild, now: number): readonly PanelRow[] {
-  const rows: PanelRow[] = [
-    field("status", `${GLYPH[child.status]} ${child.status}`, COLOR[child.status]),
-    field("elapsed", duration((child.finishedAt ?? now) - child.startedAt)),
-  ]
+  const rows: PanelRow[] = [field("status", `${GLYPH[child.status]} ${child.status}`, COLOR[child.status])]
+  if (child.status !== "suspended") rows.push(field("elapsed", duration((child.finishedAt ?? now) - child.startedAt)))
   if (child.parkedReason !== undefined) rows.push(field("parked", child.parkedReason, "warning"))
   if (child.category !== undefined) rows.push(field("category", child.category))
   if (child.host !== undefined) rows.push(field("runs", child.host, "muted"))

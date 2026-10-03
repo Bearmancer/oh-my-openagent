@@ -91,6 +91,24 @@ describe("panelFactsFrom", () => {
     expect(facts.totals).toBeUndefined()
   })
 
+  test("#given non-finite usage totals #when read #then invalid values never reach the panel", () => {
+    // given
+    const invalidTokens = {
+      sessionManager: { getUsageTotals: () => ({ input: Number.NaN, output: Number.POSITIVE_INFINITY }) },
+    }
+    const invalidHitRate = {
+      sessionManager: { getUsageTotals: () => ({ input: 100, output: 20, latestCacheHitRate: Number.NaN }) },
+    }
+
+    // when
+    const tokens = panelFactsFrom(invalidTokens)
+    const hitRate = panelFactsFrom(invalidHitRate)
+
+    // then
+    expect(tokens.totals).toBeUndefined()
+    expect(hitRate.totals).toEqual({ input: 100, output: 20, cacheRead: 0, cacheWrite: 0, cost: 0 })
+  })
+
   test("#given a context that offers nothing #when read #then the facts are empty", () => {
     // given
     const ctx = { unrelated: true }

@@ -8,9 +8,10 @@ export function compactTokens(value: number): string {
   // Promote at the rounded boundary: 999,999 reads as 1M, never as 1000K.
   const thousands = trim(rounded / 1_000)
   if (Number.parseFloat(thousands) < 1_000) return `${thousands}K`
-  return `${trim(rounded / 1_000_000)}M`
+  const millions = trim(rounded / 1_000_000)
+  if (Number.parseFloat(millions) < 1_000) return `${millions}M`
+  return `${trim(rounded / 1_000_000_000)}B`
 }
-
 
 /** Elapsed time as `12s`, `4m30`, `2h05`. Fixed width per magnitude so rows stay aligned. */
 export function duration(milliseconds: number): string {

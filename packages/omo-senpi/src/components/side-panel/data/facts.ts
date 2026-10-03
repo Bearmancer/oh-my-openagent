@@ -59,17 +59,17 @@ function contextUsage(value: unknown): PanelContextUsage | undefined {
 function usageTotals(manager: unknown): PanelSessionTotals | undefined {
   const totals = call(manager, "getUsageTotals")
   if (!isRecord(totals)) return undefined
-  const input = totals["input"]
-  const output = totals["output"]
-  if (typeof input !== "number" || typeof output !== "number") return undefined
-  const hitRate = totals["latestCacheHitRate"]
+  const input = finiteNumber(totals["input"])
+  const output = finiteNumber(totals["output"])
+  if (input === undefined || output === undefined) return undefined
+  const hitRate = finiteNumber(totals["latestCacheHitRate"])
   return {
     input,
     output,
     cacheRead: finiteNumber(totals["cacheRead"]) ?? 0,
     cacheWrite: finiteNumber(totals["cacheWrite"]) ?? 0,
     cost: finiteNumber(totals["cost"]) ?? 0,
-    ...(typeof hitRate === "number" ? { latestCacheHitRate: hitRate } : {}),
+    ...(hitRate === undefined ? {} : { latestCacheHitRate: hitRate }),
   }
 }
 

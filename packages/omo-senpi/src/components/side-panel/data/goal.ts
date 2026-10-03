@@ -28,8 +28,14 @@ export function createPanelGoalReader(
     }
     const current = `${path}:${file.mtimeMs}:${file.size}`
     if (current === stamp) return goal
+    const parsed = parseGoal(source.read(path))
+    if (parsed === undefined) {
+      stamp = undefined
+      goal = undefined
+      return undefined
+    }
     stamp = current
-    goal = parseGoal(source.read(path))
+    goal = parsed
     return goal
   }
 }

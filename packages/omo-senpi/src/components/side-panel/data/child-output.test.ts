@@ -40,6 +40,14 @@ describe("childOutputRows", () => {
     expect(rows).toEqual([{ text: NO_OUTPUT_NOTICE, color: "dim" }])
   })
 
+  test("#given a transcript ending in a newline #when laid out #then no stray blank row is added", () => {
+    // given / when
+    const rows = childOutputRows("assistant: done\n", false)
+
+    // then
+    expect(rows.map((row) => row.text)).toEqual(["assistant: done"])
+  })
+
   test("#given the engine elided earlier output #when laid out #then the tail is not passed off as the end", () => {
     // given
     const rows = childOutputRows("assistant: tail", true)

@@ -1,3 +1,4 @@
+import { padVisible, truncateVisible } from "../format/truncate"
 import type { PanelRow } from "../types"
 
 /** Width of the label gutter every section shares, so values line up down the column. */
@@ -10,7 +11,8 @@ export function heading(name: string, summary?: string): PanelRow {
 
 /** A `label  value` line. The label is padded so values form a column. */
 export function field(label: string, value: string, color: PanelRow["color"] = "text"): PanelRow {
-  return { text: `${label.padEnd(LABEL_WIDTH)}${value}`, color }
+  const gutter = padVisible(truncateVisible(label, LABEL_WIDTH), LABEL_WIDTH)
+  return { text: `${gutter}${value}`, color }
 }
 
 /** A blank separator, used between sections rather than inside them. */

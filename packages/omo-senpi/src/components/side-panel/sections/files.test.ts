@@ -91,6 +91,17 @@ describe("buildFileRows", () => {
     // then
     expect(rows[1]).toBe(" M index.ts")
   })
+
+  test("#given an untracked directory #when built #then its trailing slash remains visible", () => {
+    // given
+    const git = { root: "/repo", files: [{ xy: "??", path: "build/" }] }
+
+    // when
+    const rows = texts(buildFileRows(git, 40, 8))
+
+    // then
+    expect(rows[1]).toBe("?? build/")
+  })
 })
 
 describe("buildFileRows clicks", () => {

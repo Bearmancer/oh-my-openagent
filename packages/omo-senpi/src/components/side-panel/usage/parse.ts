@@ -1,5 +1,5 @@
 import { FIVE_HOUR_MS, WEEK_MS } from "../constants"
-import { asArray, asRecord, optional } from "../guards"
+import { asArray, asRecord, finiteNumber, optional } from "../guards"
 import type { PanelUsageEntry, PanelUsageWindow } from "./types"
 
 /**
@@ -13,8 +13,8 @@ export function parseClaudeUsage(payload: unknown, now: number): PanelUsageEntry
   for (const item of asArray(data?.["limits"])) {
     const limit = asRecord(item)
     if (limit === undefined) continue
-    const percent = limit["percent"]
-    if (typeof percent !== "number") continue
+    const percent = finiteNumber(limit["percent"])
+    if (percent === undefined) continue
     const kind = typeof limit["kind"] === "string" ? limit["kind"] : undefined
     const session = kind === "session"
     windows.push({
@@ -31,8 +31,8 @@ export function parseClaudeUsage(payload: unknown, now: number): PanelUsageEntry
       ["seven_day", "7d", WEEK_MS],
     ] as const) {
       const entry = asRecord(data?.[key])
-      const utilization = entry?.["utilization"]
-      if (typeof utilization !== "number") continue
+      const utilization = finiteNumber(entry?.["utilization"])
+      if (utilization === undefined) continue
       windows.push({ label, percent: utilization, windowMs, ...optional("resetsAt", parseInstant(entry?.["resets_at"])) })
     }
   }
@@ -46,15 +46,17 @@ export function parseCodexUsage(payload: unknown, now: number): PanelUsageEntry 
   const windows: PanelUsageWindow[] = []
   for (const key of ["primary_window", "secondary_window"] as const) {
     const window = asRecord(rateLimit?.[key])
-    const percent = window?.["used_percent"]
-    if (window === undefined || typeof percent !== "number") continue
-    const seconds = window["limit_window_seconds"]
-    const resetAt = window["reset_at"]
+    const percent = finiteNumber(window?.["used_percent"])
+    if (window === undefined || percent === undefined) continue
+    const seconds = finiteNumber(window["limit_window_seconds"])
+    const windowMs = seconds === undefined ? undefined : finiteNumber(seconds * 1_000)
+    const resetSeconds = finiteNumber(window["reset_at"])
+    const resetsAt = resetSeconds === undefined ? undefined : finiteNumber(resetSeconds * 1_000)
     windows.push({
-      label: codexLabel(seconds),
+      label: codexLabel(windowMs === undefined ? undefined : seconds),
       percent,
-      ...(typeof seconds === "number" ? { windowMs: seconds * 1_000 } : {}),
-      ...(typeof resetAt === "number" ? { resetsAt: resetAt * 1_000 } : {}),
+      ...optional("windowMs", windowMs),
+      ...optional("resetsAt", resetsAt),
     })
   }
   const plan = data?.["plan_type"]

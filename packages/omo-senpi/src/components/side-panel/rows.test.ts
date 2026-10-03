@@ -82,7 +82,16 @@ describe("buildPanelRows", () => {
   test("#given every section disabled #when assembled #then the location line still closes the column", () => {
     // given
     const source = input({
-      sections: allSections({ session: false, context: false, agents: false, tools: false, files: false, memory: false }),
+      sections: allSections({
+        session: false,
+        goal: false,
+        context: false,
+        usage: false,
+        agents: false,
+        tools: false,
+        files: false,
+        memory: false,
+      }),
     })
 
     // when

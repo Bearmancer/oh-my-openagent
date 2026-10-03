@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 
 import { findGitRoot, readGitBranch } from "./repo"
 
@@ -11,6 +11,16 @@ function scratch(): string {
   const root = mkdtempSync(join(tmpdir(), "omo-panel-git-"))
   roots.push(root)
   return root
+}
+
+function hasGitAncestor(path: string): boolean {
+  let current = path
+  while (true) {
+    if (existsSync(join(current, ".git"))) return true
+    const parent = dirname(current)
+    if (parent === current) return false
+    current = parent
+  }
 }
 
 afterEach(() => {
@@ -35,7 +45,9 @@ describe("findGitRoot", () => {
     expect(found).toBe(root)
   })
 
-  test("#given a directory outside any repository #when searched #then nothing is found", () => {
+  test.skipIf(hasGitAncestor(tmpdir()))(
+    "#given a directory outside any repository #when searched #then nothing is found",
+    () => {
     // given
     const root = scratch()
 
@@ -44,7 +56,8 @@ describe("findGitRoot", () => {
 
     // then
     expect(found).toBeUndefined()
-  })
+    },
+  )
 })
 
 describe("readGitBranch", () => {
