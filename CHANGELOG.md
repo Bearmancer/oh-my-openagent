@@ -7,6 +7,92 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.13] - 2026-10-03
+
+**MCP tools work again when memory is on.** Since 5.1.10, a finished memory child or delegated task shut the shared MCP servers down for the whole process, so every MCP call failed with `MCP server <name> is disabled`. This release runs on senpi 2026.10.3, which gives each session its own binding to the shared servers; it was verified with the shipped bundle. If you can't update yet, turn memory off until you do: set `"memory": { "enabled": false }` in `~/.omo/omo.json`, or start omo with `--omo-senpi-memory-disabled=true`.
+
+### Fixed
+
+**MCP calls no longer fail with `MCP server <name> is disabled` after a child session ends.** A memory child or a delegated task that finished released the MCP service for every session in the process; now it releases only its own binding, and the shared servers stay up. Thanks to @Tygb99 for the report. ([#9461](https://github.com/code-yeongyu/oh-my-openagent/issues/9461), [senpi#2524](https://github.com/code-yeongyu/senpi/pull/2524))
+
+**Codex edition (LazyCodex): a project's own registered agent roles can be spawned.** The spawn guard accepted only LazyCodex's 12 bundled roles, so a role registered in `.codex/agents` or `$CODEX_HOME/agents` was refused even though Codex offered it; it now accepts any role with a registered role file and still refuses unregistered ones. Thanks to @aconley-vultr for the report. ([lazycodex#171](https://github.com/code-yeongyu/lazycodex/issues/171), [lazycodex#164](https://github.com/code-yeongyu/lazycodex/issues/164), [#9462](https://github.com/code-yeongyu/oh-my-openagent/pull/9462))
+
+**Cancelling a delegated task while its host can't list its sessions keeps the cancel pending** instead of finishing it with the session still open; it completes once the host answers again. ([#9450](https://github.com/code-yeongyu/oh-my-openagent/issues/9450), [#9459](https://github.com/code-yeongyu/oh-my-openagent/pull/9459))
+
+**Skills are listed in a stable order**, so the tool prefix of a prompt stays the same between turns and keeps hitting the prompt cache. ([#9433](https://github.com/code-yeongyu/oh-my-openagent/pull/9433))
+
+**OpenCode edition fixes, thanks to @cynkai:** an explicitly chosen model no longer falls back through the built-in chain ([#8808](https://github.com/code-yeongyu/oh-my-openagent/pull/8808)); a plugin-load telemetry failure no longer prints into the TUI ([#8804](https://github.com/code-yeongyu/oh-my-openagent/pull/8804)); a background task whose session stopped on an error is finalized ([#8814](https://github.com/code-yeongyu/oh-my-openagent/pull/8814)) and skips fallback models no connected provider serves ([#8844](https://github.com/code-yeongyu/oh-my-openagent/pull/8844)); Sisyphus stays available when Hephaestus isn't registered ([#8841](https://github.com/code-yeongyu/oh-my-openagent/pull/8841)); and `omo.schema.json` embeds the `[opencode]` schema once and no longer marks defaulted fields as required ([#8871](https://github.com/code-yeongyu/oh-my-openagent/pull/8871), [#8873](https://github.com/code-yeongyu/oh-my-openagent/pull/8873)). Tool argument rewrites in the OpenCode edition also keep the original arguments object ([#9466](https://github.com/code-yeongyu/oh-my-openagent/pull/9466)).
+
+`omo host status --all` and `omo thread list` no longer show an older session entry as the latest activity when the final JSONL entry is large, partial or invalid. Both surfaces use the same bounded final-record policy, show `null` when freshness cannot be proved, and list known activity newest-first with unknown activity last. ([#9222](https://github.com/code-yeongyu/oh-my-openagent/pull/9222))
+
+A message to a published terminal session that the engine still reports as not answering is kept offline instead of being sent straight to its socket, so `omo thread list`, a send and a steer always agree on whether that session can be reached right now; the message is delivered once a later check lists the session live again. A bound send that names its session no longer pays the same lookup twice. ([#9222](https://github.com/code-yeongyu/oh-my-openagent/pull/9222))
+
+### Changed
+
+**omo runs on senpi 2026.10.3** (the MCP fix above, plus the Bun `-e` host-launch and WebView readiness fixes). Full list: [senpi 2026.10.3](https://github.com/code-yeongyu/senpi/releases/tag/v2026.10.3).
+
+**OpenGateway tasks run without a concurrency limit by default.** ([#9427](https://github.com/code-yeongyu/oh-my-openagent/pull/9427))
+
+### Added
+
+_The session gateway entries below are its store foundation; the thread tools become usable with 5.1.14._
+
+**Every session can reach every other one, terminal sessions included.** ([#9143](https://github.com/code-yeongyu/oh-my-openagent/issues/9143)) Messages between sessions now go through a session gateway: one small database in the agent directory, with no daemon to run and nothing to configure. A terminal session opens a private control socket, so a Desktop thread, a task child or a script can list it, read it and send to it; the thread tools list terminal sessions with their real names and times. A message never interrupts what you are doing: while you are typing, or a submission of yours is on its way, it waits, and the session shows one line saying a remote message is queued. A message to a session that is not running is kept for 24 hours and taken when the session runs again. Fixed limits stop runaway loops: a session cannot message itself or reply straight back into the chain that messaged it, a chain of messages stops after 4 hops or 64 messages, one turn reaches at most 16 sessions, and one sender gets a burst of 8 messages to a session, then one every 5 seconds.
+
+**`omo thread` talks to running sessions from scripts and chat connectors.** ([#9143](https://github.com/code-yeongyu/oh-my-openagent/issues/9143)) `omo thread list|send|read|bind|unbind|rebind|bindings|report|answer|outbox|ack` runs the thread tools' operations without an agent session, with `--json` output that is one JSON value (also on failure) and exit codes a script can branch on: 0 done, 1 refused, 2 usage, 3 nothing answering, 4 unsupported here, 5 internal error. JavaScript can import the same operations from the plugin (`runtime/thread-sdk/sdk.js`) without spawning `omo`. It never starts a host. Reference: [`docs/reference/omo-thread.md`](https://github.com/code-yeongyu/oh-my-openagent/blob/dev/docs/reference/omo-thread.md).
+
+**A session can be bound to a chat thread, and report back through it.** ([#9143](https://github.com/code-yeongyu/oh-my-openagent/issues/9143)) A binding attaches one session to one external thread (any platform; OmO ships no chat connector itself). Messages from the thread arrive with `omo thread send --binding`, admitted once per platform event. The session posts milestones, reports, questions and its completion to the binding's outbox with `thread_report`, and a connector reads them with `omo thread outbox` and acknowledges them. A question carries a reply token that only an answer through the same binding can use. A completion is written only when you ask for one, and survives a restart. At most one active binding holds a thread; unbinding and rebinding name the revision they expect, and a rebind never extends the binding's lifetime.
+
+**A chat connector can say who wrote each message, and how it should land.** ([#9143](https://github.com/code-yeongyu/oh-my-openagent/issues/9143)) `omo thread send --binding` takes `--author-id` and `--author-name` (and `--author-user-id`). The session sees the author as quoted fields in the message's provenance header, outside the text, so a message cannot pretend to come from someone else. Each author gets their own rate budget in a busy thread. `--mode follow_up` lets one message land more gently than its binding allows, and never more strongly. `answer` takes the same author flags, and the outbox records who answered a question. A connector can watch `<agent dir>/gateway/outbox.marker` to learn about new outbox rows. The reference now spells out that outbox delivery is at-least-once, and that `(binding_id, cursor)` is the key to dedupe by.
+
+**`omo host status --all` shows when each terminal session was last active.** ([#9143](https://github.com/code-yeongyu/oh-my-openagent/issues/9143)) Every terminal (`tui`) row now carries `last_activity_at`: the time of the newest entry in its session file, the same time `omo thread list` shows, or `null` when it is not known.
+
+**`omo daemon adopt` moves a session from a host into your terminal.** ([#9143](https://github.com/code-yeongyu/oh-my-openagent/issues/9143)) `omo daemon adopt <session>` asks the host holding a Desktop thread or a background session to hand it over, then resumes it in the current terminal, in the session's own directory. A session in the middle of a turn is refused unless you pass `--interrupt`, and input the interrupt took out of its queue becomes your first prompts. A session a Desktop window has open is refused unless you pass `--force`. `omo daemon status` now lists terminal sessions as `tui` rows, and `handoff` and `stop --all` leave them alone.
+
+### Removed
+
+**`omo daemon attach` and the shared-host opt-in env (`OMO_ENABLE_SHARED_HOST`) are removed; interactive sessions always run standalone.** ([#9143](https://github.com/code-yeongyu/oh-my-openagent/issues/9143)) A terminal session no longer joins an engine host; it always runs its own session in its own process, and other sessions reach it through the gateway. `OMO_ENABLE_SHARED_HOST` no longer changes anything. To continue a session that lives on a host in a terminal, use `omo daemon adopt`.
+
+## [5.1.12] - 2026-10-03
+
+**The desktop app can now see when computer use is waiting on a system permission, and a cancelled task on Windows no longer shows up as a crash.** This release runs on the senpi 2026.10.2 engine, which carries the upstream pi v1.0.0 changes.
+
+### Added
+
+**A computer-use permission request reaches the root session as an event.** When a computer-use action, an eval cell or a delegated task stops because the system has not granted a permission computer use needs (such as Screen Recording or Accessibility), omo emits `omo.computer.permission_required` on the root session, with that session's id, once per missing permission. The desktop app can show the request instead of a bare tool error, and other failures never turn into permission events. ([#9393](https://github.com/code-yeongyu/oh-my-openagent/pull/9393))
+
+### Changed
+
+**omo runs on senpi 2026.10.2.** Reloading or replacing a session while a monitor or an eval cell is running no longer kills the process, and the engine carries the upstream pi v1.0.0 changes. Full list: [senpi 2026.10.2](https://github.com/code-yeongyu/senpi/releases/tag/v2026.10.2).
+
+### Fixed
+
+**On Windows, a cancelled delegated task is recorded as cancelled, not as a crash.** A killed task child could be recorded as an error carrying Bun's child-reaper message when enough of those messages filled the end of its error output; it now counts as killed, while any real error output still marks a crash. ([#9443](https://github.com/code-yeongyu/oh-my-openagent/pull/9443))
+
+**A platform package is published only if its release binary passed the smoke.** The platform publish uploaded its npm package before the release-binary smoke ran, so a platform whose smoke failed still published its package (5.1.8 published both Windows x64 packages from a run whose smoke failed). The package is now uploaded only after that platform's smoke passes, so a failed smoke stops exactly that platform's publish while the others still publish, and the linux-arm64 smokes now finish before their packages publish. ([#9385](https://github.com/code-yeongyu/oh-my-openagent/issues/9385), [#9439](https://github.com/code-yeongyu/oh-my-openagent/pull/9439))
+
+## [5.1.11] - 2026-10-02
+
+**New tasks no longer queue forever behind a delegated task that lost its connection to the host.** Such a task used to stay suspended with its lane taken until the session restarted; now it reconnects, or ends within a bounded time and frees the lane. This release runs on the senpi 2026.10.1-3 engine.
+
+### Fixed
+
+**A delegated task that loses its connection to the host is reattached, or fails with `transport lost` within a bounded time.** Either way its lane is released and its own processes are cleaned up, so the next task starts instead of waiting. After a host restart, lanes still held by tasks that died are reclaimed. ([#9403](https://github.com/code-yeongyu/oh-my-openagent/issues/9403), [#9407](https://github.com/code-yeongyu/oh-my-openagent/pull/9407))
+
+Cancelling a delegated task finishes only once the host confirms the child closed, a stopped task whose handle was let go still ends as cancelled, and a stopped task is never continued afterwards. ([#9407](https://github.com/code-yeongyu/oh-my-openagent/pull/9407))
+
+**The OpenCode edition's skill tool lists skills and commands in a stable order, so its tool definitions stay cacheable.** Skills and commands in the same scope were listed in discovery order, which varies between processes, so the tool definition changed from session to session and each new session and subagent missed the prompt cache. They are now ordered by scope, then by name. Thanks to @kimchupa-l10n for the report. ([#9432](https://github.com/code-yeongyu/oh-my-openagent/issues/9432))
+
+## [5.1.10] - 2026-10-02
+
+**Hotfix: `omo -p` exits again after a delegated task.** Since 5.1.8, a headless or scripted run whose agent handed work to an in-process task printed its answer and then never exited, so CI jobs, cron entries and wrappers that wait on it hung until killed. Interactive sessions leaked a loopback bridge server and its socket for every such task. This release runs on the senpi 2026.10.1-3 engine.
+
+### Fixed
+
+**`omo -p` exits after an in-process task child finishes, and the child's resources are released.** Since 5.1.8 an in-process child loads the engine's builtin extensions, but its teardown disposed the session without running their `session_shutdown` handlers, so codemode's per-session bridge server stayed listening and kept the process alive. Child teardown now runs those handlers first, within the host's shutdown budget, on both the normal path and the path that discards a child whose handle never started. ([#9413](https://github.com/code-yeongyu/oh-my-openagent/issues/9413), [#9418](https://github.com/code-yeongyu/oh-my-openagent/pull/9418))
+
+A delegated task that the host recovers after a restart is reported as continued only once its continuation prompt is acknowledged; a refused or timed-out prompt is now reported as lost instead of a successful reattach. Thanks to @Dante-dan. ([#9406](https://github.com/code-yeongyu/oh-my-openagent/pull/9406))
+
 ## [5.1.9] - 2026-10-02
 
 **In the desktop app's restricted modes, the agent's own tools stop asking for approval, and a bash call from an eval cell no longer hangs.** Files that ship with the app no longer count as outside paths, the first Python cell after a cold start works on Windows x64, and delegated tasks keep your timeout settings and run at thinking levels their models accept. This release runs on the senpi 2026.10.1-3 engine.
