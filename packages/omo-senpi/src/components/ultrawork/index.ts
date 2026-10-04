@@ -1,3 +1,5 @@
+import { readSessionRole, type SessionRole } from "@oh-my-opencode/senpi-task"
+
 import type { ComponentContext, OmoSenpiComponent, SenpiExtensionAPI } from "../../extension/types"
 import { stripQuotedRegions } from "../skill-pointers/strip-quoted-regions"
 import { SENPI_ULTRAWORK_DIRECTIVE } from "./generated-directive"
@@ -37,6 +39,7 @@ export type UltraworkRoute = "none" | "direct" | "skill_args" | "skill_expansion
 export type UltraworkSuppressionReason =
   | "none"
   | "extension_source"
+  | "child_session"
   | "no_keyword"
   | "skill_name_only"
   | "skill_expansion"
@@ -155,7 +158,7 @@ export function armingSnapshot(sessionId: string | undefined): ArmingSnapshot {
 }
 
 export function classifyUltraworkInput(
-  input: { readonly text: string; readonly source: SenpiInputEvent["source"] },
+  input: { readonly text: string; readonly source: SenpiInputEvent["source"]; readonly sessionRole?: SessionRole },
   snapshot: ArmingSnapshot,
 ): UltraworkClassification {
   const visibleText = stripQuotedRegions(input.text)
@@ -174,6 +177,10 @@ export function classifyUltraworkInput(
     matchedUlw,
     matchedUltrawork,
     occurrenceCount: matches.length,
+  }
+
+  if (input.sessionRole !== undefined) {
+    return { ...base, effective: false, stage: "none", route: "none", suppressionReason: "child_session" }
   }
 
   if (input.source === "extension") {
@@ -306,7 +313,10 @@ function handleInput(
   // The input event's own ctx names the live session; the lifecycle tracker covers
   // hosts that only expose the id on session events.
   const sessionId = eventSessionId ?? arming.currentSessionId()
-  const classification = classifyUltraworkInput(payload, snapshotSessionArming(arming, sessionId))
+  const classification = classifyUltraworkInput(
+    { ...payload, sessionRole: readSessionRole(pi) },
+    snapshotSessionArming(arming, sessionId),
+  )
 
   // A pasted transcript (or an earlier injection) already carries the directive
   // block; injecting again would duplicate the same ~17KB of rules in one turn.

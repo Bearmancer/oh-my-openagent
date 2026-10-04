@@ -332,3 +332,11 @@ describe("OMO Senpi scoped skill sync", () => {
     expect(existsSync(refsDir), "frontend/references/design must exist after materialization").toBe(true)
   })
 })
+
+
+test("#given the Native execution skill #when shipped #then worker role and executor brief precede orchestration rules", () => {
+  const skill = readFileSync(join(skillsRoot, "ulw-execute", "SKILL.md"), "utf8")
+  expect(skill.indexOf("Session role boundary — root orchestrator only")).toBeLessThan(skill.indexOf("ABSOLUTE RULE:"))
+  expect(skill).toContain("may implement or run the assigned QA")
+  expect(skill).toContain("must not invoke this orchestration skill or delegate the unit again")
+})

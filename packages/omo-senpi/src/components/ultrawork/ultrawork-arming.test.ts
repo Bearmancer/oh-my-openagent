@@ -16,6 +16,51 @@ import {
 } from "./ultrawork.test-support"
 
 describe("omo-senpi ultrawork once-per-session arming", () => {
+  it("#given delegated daemon sessions #when a worker brief mentions the ledger or ultrawork #then no directive or reminder arms", async () => {
+    const pi = new FakeExtensionAPI()
+    const arming = createSessionArming()
+    await createUltraworkComponent(arming).register(pi, createTestContext(pi))
+    const sessionId = "worker-session"
+    for (const role of ["child", "dag_child", "member", "future_worker"]) {
+      Object.defineProperty(pi, "sessionContext", { value: { role }, configurable: true })
+      for (const text of [
+        "Implement the assigned unit; evidence goes in .omo/ulw-execute/ledger.jsonl",
+        "ultrawork: implement only this unit",
+        "/skill:ultrawork",
+        "ulw <ultrawork-mode>existing directive</ultrawork-mode>",
+      ]) {
+        for (const queued of [undefined, "followUp"] as const) {
+          const result = await dispatchInput(pi, text, "rpc", queued, sessionEventCtx(sessionId))
+          expect(result).toEqual({ action: "continue" })
+          expect(pi.messages).toHaveLength(0)
+          expect(arming.isArmed(sessionId)).toBe(false)
+        }
+      }
+    }
+    // The same shared host can next serve a root session. Its explicit request still arms.
+    Object.defineProperty(pi, "sessionContext", { value: {}, configurable: true })
+    const result = await dispatchInput(pi, "Implement the assigned unit; evidence goes in .omo/ulw-execute/ledger.jsonl", "rpc", undefined, sessionEventCtx("root-session"))
+    expectHiddenInjection(pi, result)
+    expect(arming.isArmed("root-session")).toBe(true)
+  })
+
+  it("#given the legacy RPC child marker #when the prompt contains ulw-execute #then arming remains suppressed", async () => {
+    const previous = process.env.OMO_SENPI_TASK_RPC_CHILD
+    process.env.OMO_SENPI_TASK_RPC_CHILD = "1"
+    try {
+      const pi = new FakeExtensionAPI()
+      const arming = createSessionArming()
+      await createUltraworkComponent(arming).register(pi, createTestContext(pi))
+      const result = await dispatchInput(pi, ".omo/ulw-execute/ledger.jsonl", "rpc", undefined, sessionEventCtx("legacy-child"))
+      expect(result).toEqual({ action: "continue" })
+      expect(pi.messages).toHaveLength(0)
+      expect(arming.isArmed("legacy-child")).toBe(false)
+    } finally {
+      if (previous === undefined) delete process.env.OMO_SENPI_TASK_RPC_CHILD
+      else process.env.OMO_SENPI_TASK_RPC_CHILD = previous
+    }
+  })
+
   it("#given quoted-only inputs #when a real request follows #then only that request arms the ledger", async () => {
     for (const text of [
       "ulwfoo",
