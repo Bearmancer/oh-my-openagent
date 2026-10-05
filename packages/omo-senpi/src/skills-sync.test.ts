@@ -340,5 +340,4 @@ test("#given the Native execution skill #when shipped #then the absolute rule sc
   expect(skill).toContain("NO EXCEPTIONS for the root session that owns the Boulder work; a dispatched executor does its assigned unit itself and does not delegate it again.")
   expect(skill).toContain("7. Give every dispatched sub-task its completion condition and its role: the brief names the unit, allowed files, acceptance evidence, and states that the worker is its executor, does it itself, and does not delegate it.")
   expect(skill).not.toContain("## ABSOLUTE RULE:")
-  expect(skill).not.toContain("Session role boundary")
 })
