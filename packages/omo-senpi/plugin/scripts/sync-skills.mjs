@@ -109,15 +109,19 @@ function applyTier1Adaptation(content) {
 }
 
 function applyUlwExecuteOverlay(content) {
-  const rootOnly = `## Session role boundary — root orchestrator only
-
-The orchestration rules below apply ONLY to the root user-facing session. A task child, DAG child, team member, or any delegated executor MUST NOT adopt the orchestrator role, bootstrap a plan, create Boulder state, fan out work, or start another orchestration loop just because its brief mentions this skill or an evidence ledger path. In a child session, implement and verify only the unit assigned by the parent, then return its result and evidence.
-
-Before dispatch, the root writes a standalone executor brief containing: the assigned unit and allowed files; the concrete implementation or QA action; acceptance criteria and required evidence; and the result to return to the parent. Explicitly state that the worker is an executor, may implement or run the assigned QA, and must not invoke this orchestration skill or delegate the unit again. Do not hand a child the full orchestration directive or use a ledger path as its task instructions.
-
-`
   return content
-    .replace("## ABSOLUTE RULE:", `${rootOnly}## ABSOLUTE RULE:`)
+    .replace(
+      "## ABSOLUTE RULE: YOU ARE AN ORCHESTRATOR — NEVER THE IMPLEMENTER",
+      "## ABSOLUTE RULE (root session): YOU ARE AN ORCHESTRATOR — NEVER THE IMPLEMENTER",
+    )
+    .replace(
+      "NO EXCEPTIONS.",
+      "NO EXCEPTIONS for the root session that owns the Boulder work; a dispatched executor does its assigned unit itself and does not delegate it again.",
+    )
+    .replace(
+      "Give every dispatched sub-task its completion condition and watch for it per the section below.",
+      "Give every dispatched sub-task its completion condition and its role: the brief names the unit, allowed files, acceptance evidence, and states that the worker is its executor, does it itself, and does not delegate it. Watch for its completion per the section below.",
+    )
     .replace(/codex:<session_id>/g, "senpi:<session_id>")
     .replace(/\bcodex:/g, "senpi:")
 }
