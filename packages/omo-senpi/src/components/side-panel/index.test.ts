@@ -245,6 +245,7 @@ function mounted(
   const widgets: WidgetCall[] = []
   const timers = manualTimers()
   let clock = 100_000
+  const pending: Promise<void>[] = []
   const component = createSidePanelComponent({
     loadSettings: () => settings({ enabled: true }),
     defer: (callback) => callback(),
@@ -253,9 +254,20 @@ function mounted(
     readTaskRecords: () => [],
     // Memory resolves a real identity from the developer's omo.json; only memory tests opt in.
     resolveMemory: () => undefined,
+    // The panel starts its refreshes without the host waiting; the harness waits for them, so every
+    // assertion after a dispatch reads what that event actually led to.
+    track: (work) => {
+      pending.push(work)
+    },
     ...overrides,
   })
   component.register(pi, componentContext(pi))
+  const rawDispatch = pi.dispatch.bind(pi)
+  pi.dispatch = async (event, payload, ctx) => {
+    const results = await rawDispatch(event, payload, ctx)
+    while (pending.length > 0) await Promise.all(pending.splice(0))
+    return results
+  }
   const tui = fakeTui()
   const notices: string[] = []
   const host = hostContext(widgets, {
@@ -277,6 +289,7 @@ function mounted(
   })
   return {
     pi,
+    rawDispatch,
     tui,
     host,
     timers,
@@ -868,7 +881,7 @@ describe("side panel session boundaries and section gates", () => {
     expect(columnRows(harness.tui).some((row) => row.startsWith("AGENTS"))).toBe(true)
 
     // when
-    await harness.pi.dispatch("session_before_switch", {}, harness.host)
+    await harness.pi.dispatch("session_shutdown", {}, harness.host)
     records = []
     await harness.pi.dispatch("session_start", {}, harness.host)
     harness.attach()
@@ -957,5 +970,320 @@ describe("side panel session boundaries and section gates", () => {
 
     // then
     expect(() => columnRows(harness.tui)).toThrow()
+  })
+})
+
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => {
+    resolve = done
+  })
+  return { promise, resolve }
+}
+
+describe("side panel lifecycle and guards", () => {
+  test("#given a mounted column #when a switch is only announced #then the column stays", async () => {
+    // given: the host can still cancel a switch after session_before_switch
+    const harness = mounted()
+    await harness.pi.dispatch("session_start", {}, harness.host)
+    harness.attach()
+
+    // when
+    await harness.pi.dispatch("session_before_switch", {}, harness.host)
+
+    // then
+    expect(columnRows(harness.tui).some((row) => row.startsWith("SESSION"))).toBe(true)
+  })
+
+  test("#given reads that never answer #when tool, message and turn events fire #then their handlers return at once", async () => {
+    // given: every tool call queues behind these handlers in the host
+    let hang = false
+    const never = new Promise<never>(() => {})
+    const harness = mounted({
+      exec: async () => (hang ? await never : { stdout: "", code: 0 }),
+      findGitRoot: () => "/repo",
+      readGitBranch: () => "main",
+      readTaskRecords: () => (hang ? never : []),
+    })
+    await harness.pi.dispatch("session_start", {}, harness.host)
+    harness.attach()
+    hang = true
+
+    // when: each dispatch races the next turn of the event loop, which runs only once microtasks drain
+    const settled: boolean[] = []
+    const events = [["tool_execution_start", { toolName: "read" }], ["tool_execution_end", {}], ["message_end", {}], ["turn_end", {}]] as const
+    for (const [event, payload] of events) {
+      harness.advance(GIT_REFRESH_FLOOR_MS + 1)
+      const idle = new Promise<boolean>((resolve) => setImmediate(() => resolve(false)))
+      settled.push(await Promise.race([harness.rawDispatch(event, payload, harness.host).then(() => true), idle]))
+    }
+
+    // then
+    expect(settled).toEqual([true, true, true, true])
+  })
+
+  test("#given the goal section is off #when mounted and refreshed #then the goal store is never read", async () => {
+    // given
+    let reads = 0
+    const harness = mounted({
+      loadSettings: () => settings({ enabled: true, sections: { ...allSections(), usage: false, goal: false } }),
+      readGoal: () => {
+        reads += 1
+        return undefined
+      },
+    })
+
+    // when
+    await harness.pi.dispatch("session_start", {}, harness.host)
+    await harness.pi.dispatch("turn_end", {}, harness.host)
+
+    // then
+    expect(reads).toBe(0)
+  })
+
+  test("#given the agents and session sections are off #when mounted and refreshed #then task records are never read", async () => {
+    // given
+    let reads = 0
+    const harness = mounted({
+      loadSettings: () => settings({ enabled: true, sections: { ...allSections(), usage: false, agents: false, session: false } }),
+      readTaskRecords: () => {
+        reads += 1
+        return []
+      },
+    })
+
+    // when
+    await harness.pi.dispatch("session_start", {}, harness.host)
+    await harness.pi.dispatch("turn_end", {}, harness.host)
+
+    // then
+    expect(reads).toBe(0)
+  })
+
+  test("#given a git read still running when its session ends #when it answers late #then the next session never shows it", async () => {
+    // given
+    const gate = deferred<void>()
+    const called = deferred<void>()
+    let phase = 1
+    const harness = mounted({
+      findGitRoot: () => "/repo",
+      readGitBranch: () => "main",
+      exec: async (_command, args) => {
+        if (phase === 2) return { stdout: "", code: 128 }
+        called.resolve()
+        await gate.promise
+        return { stdout: args[0] === "status" ? " M stale.ts\0" : "", code: 0 }
+      },
+    })
+    const first = harness.rawDispatch("session_start", {}, harness.host)
+    await called.promise
+
+    // when
+    await harness.pi.dispatch("session_shutdown", {}, harness.host)
+    phase = 2
+    gate.resolve()
+    await first
+    await harness.pi.dispatch("session_start", {}, harness.host)
+    harness.attach()
+
+    // then
+    expect(columnRows(harness.tui).some((row) => row.includes("stale.ts"))).toBe(false)
+  })
+
+  test("#given a memory read still running when its session ends #when it answers late #then the next session never shows it", async () => {
+    // given
+    const identity: PanelMemoryIdentity = {
+      id: "late-memory",
+      reflectionDir: "/mem/reflection",
+      recallDir: "/mem/recall",
+      factsQueueDir: "/mem/facts-queue",
+      recallLedgerDir: "/mem/recall/ledger",
+      recallPendingDir: "/mem/recall/pending",
+    }
+    const stale: PanelMemory = {
+      identity: identity.id,
+      reflection: { streak: 3, parkedAt: "2026-09-21T09:00:00.000Z", nextProbeAt: "2026-09-21T15:00:00.000Z", reason: "stale park", detail: "stale" },
+      factsQueued: 7,
+      recallSurfaced: 0,
+      recallPending: 0,
+    }
+    const gate = deferred<void>()
+    const called = deferred<void>()
+    let phase = 1
+    const harness = mounted({
+      resolveMemory: () => identity,
+      readMemory: async (): Promise<PanelMemory | undefined> => {
+        if (phase === 2) return undefined
+        called.resolve()
+        await gate.promise
+        return stale
+      },
+    })
+    const first = harness.rawDispatch("session_start", {}, harness.host)
+    await called.promise
+
+    // when
+    await harness.pi.dispatch("session_shutdown", {}, harness.host)
+    phase = 2
+    gate.resolve()
+    await first
+    await harness.pi.dispatch("session_start", {}, harness.host)
+    harness.attach()
+
+    // then
+    expect(columnRows(harness.tui).some((row) => row.includes("7 queued"))).toBe(false)
+  })
+
+  test("#given a task-record read still running when its session ends #when it answers late #then the next session never shows it", async () => {
+    // given
+    const gate = deferred<void>()
+    const called = deferred<void>()
+    let phase = 1
+    const harness = mounted({
+      readTaskRecords: async (): Promise<PanelTaskRecord[]> => {
+        if (phase === 2) return []
+        called.resolve()
+        await gate.promise
+        return [
+          { task_id: "t1", status: "running", created_at: new Date(40_000).toISOString(), parent_session_id: "session-1", task_summary: "late child" },
+        ]
+      },
+    })
+    const first = harness.rawDispatch("session_start", {}, harness.host)
+    await called.promise
+
+    // when
+    await harness.pi.dispatch("session_shutdown", {}, harness.host)
+    phase = 2
+    gate.resolve()
+    await first
+    await harness.pi.dispatch("session_start", {}, harness.host)
+    harness.attach()
+
+    // then
+    expect(columnRows(harness.tui).some((row) => row.startsWith("AGENTS"))).toBe(false)
+  })
+
+  test("#given the implementation is still loading when the session ends #when it loads #then nothing is mounted", async () => {
+    // given
+    const gate = deferred<void>()
+    const harness = mounted({
+      loadRuntime: async () => {
+        await gate.promise
+        const runtime = await import("./runtime")
+        return runtime.createSidePanelController
+      },
+    })
+    const first = harness.rawDispatch("session_start", {}, harness.host)
+
+    // when
+    await harness.pi.dispatch("session_shutdown", {}, harness.host)
+    gate.resolve()
+    await first
+
+    // then
+    expect(harness.widgets.some((call) => call.key === SIDE_PANEL_ANCHOR_WIDGET_KEY && call.content !== undefined)).toBe(false)
+  })
+
+  test("#given an ended session #when a tool finishes before the next one starts #then git is not run", async () => {
+    // given
+    const { exec, calls } = gitExec()
+    const harness = mounted({ exec, findGitRoot: () => "/repo", readGitBranch: () => "main" })
+    await harness.pi.dispatch("session_start", {}, harness.host)
+    await harness.pi.dispatch("session_shutdown", {}, harness.host)
+    calls.length = 0
+    harness.advance(GIT_REFRESH_FLOOR_MS + 1)
+
+    // when
+    await harness.pi.dispatch("tool_execution_end", {}, harness.host)
+
+    // then
+    expect(calls).toEqual([])
+  })
+
+  test("#given files the last session showed #when the next session cannot read git #then they are gone", async () => {
+    // given
+    let failing = false
+    const { exec: working } = gitExec()
+    const harness = mounted({
+      exec: async (command, args) => (failing ? { stdout: "", code: 128 } : await working(command, args)),
+      findGitRoot: () => "/repo",
+      readGitBranch: () => "main",
+    })
+    await harness.pi.dispatch("session_start", {}, harness.host)
+    await harness.pi.dispatch("session_shutdown", {}, harness.host)
+
+    // when
+    failing = true
+    await harness.pi.dispatch("session_start", {}, harness.host)
+    harness.attach()
+
+    // then
+    expect(columnRows(harness.tui).some((row) => row.includes("tracked.txt"))).toBe(false)
+  })
+
+  test("#given the branch the last session showed #when the next session has files off #then the branch is gone", async () => {
+    // given
+    let filesOn = true
+    const harness = mounted({
+      loadSettings: () => settings({ enabled: true, sections: { ...allSections(), usage: false, files: filesOn } }),
+      exec: gitExec().exec,
+      findGitRoot: () => "/repo",
+      readGitBranch: () => "feat-x",
+    })
+    await harness.pi.dispatch("session_start", {}, harness.host)
+    await harness.pi.dispatch("session_shutdown", {}, harness.host)
+
+    // when
+    filesOn = false
+    await harness.pi.dispatch("session_start", {}, harness.host)
+    harness.attach()
+
+    // then
+    expect(columnRows(harness.tui).some((row) => row.includes("feat-x"))).toBe(false)
+  })
+
+  test("#given a file row clicked after the file left the list #when the notice is shown #then it carries no terminal controls", async () => {
+    // given
+    const { exec } = gitExec()
+    const harness = mounted({
+      exec,
+      findGitRoot: () => "/repo",
+      readGitBranch: () => "main",
+      loadSettings: () => settings({ enabled: true, clickable: true }),
+    })
+    harness.tui.openUrl = () => undefined
+    await harness.pi.dispatch("session_start", {}, harness.host)
+    harness.attach()
+
+    // when
+    harness.tui.openUrl?.("omo-panel:file/" + encodeURIComponent("gone\x1b]8;;x\x07.txt"))
+
+    // then
+    const notice = harness.notices.join("\n")
+    expect(notice).not.toContain("\x1b")
+    expect(notice).not.toContain("\x07")
+    expect(notice).toContain("gone]8;;x.txt is no longer listed")
+  })
+
+  test("#given a default config #when the column is laid out #then it shows on a wide terminal and steps aside on a narrow one", async () => {
+    // given
+    const harness = mounted({ loadSettings: () => ({ ...OmoSidePanelSettingsSchema.parse({}), enabled: true }) })
+    await harness.pi.dispatch("session_start", {}, harness.host)
+    harness.attach()
+
+    // when
+    const accessor = (harness.tui.layoutRoot as Record<symbol, unknown>)[PI_TUI_LAYOUT_NODE]
+    if (typeof accessor !== "function") throw new Error("root is not a layout node")
+    const node = accessor() as {
+      entries: ReadonlyArray<{ basis?: number; visible?: (viewport: { width: number; height: number }) => boolean }>
+    }
+    const panel = node.entries[1]
+
+    // then: a quarter-ish column beside the transcript, and the classic layout on a small screen
+    expect(panel?.visible?.({ width: 200, height: 50 })).toBe(true)
+    expect(panel?.visible?.({ width: 100, height: 50 })).toBe(false)
+    expect(panel?.basis ?? 0).toBeGreaterThanOrEqual(32)
+    expect(panel?.basis ?? 0).toBeLessThan(100)
   })
 })

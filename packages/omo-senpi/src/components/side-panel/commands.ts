@@ -1,3 +1,4 @@
+import { sanitizeTerminalText } from "./format/sanitize"
 import { readGitDiff } from "./git/diff"
 import type { PanelGitEntry } from "./git/parse"
 import type { PanelExec } from "./git/read"
@@ -34,7 +35,8 @@ export interface PanelCommandDeps {
 
 function fileOptionLabel(file: PanelGitEntry): string {
   const delta = file.added === undefined && file.removed === undefined ? "" : `  +${file.added ?? 0}/-${file.removed ?? 0}`
-  return `${file.xy} ${file.path}${delta}`
+  // The host's select list folds newlines only, and a git path may carry any byte.
+  return sanitizeTerminalText(`${file.xy} ${file.path}${delta}`)
 }
 
 /** `/side-panel-diff`: pick a changed file, then show its diff. Registered by `index.ts`. */

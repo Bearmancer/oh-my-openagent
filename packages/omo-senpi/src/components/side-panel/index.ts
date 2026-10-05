@@ -89,6 +89,8 @@ export function createSidePanelComponent(options: SidePanelComponentOptions = {}
         return await loaded.sessionStart(settings, eventCtx)
       })
 
+      // The host awaits these handlers and every tool call queues behind them, so each one starts the
+      // panel's reads and returns at once; a read that lands after its session ended is discarded.
       pi.on("turn_end", (_payload: unknown, eventCtx: unknown) => controller?.refresh(eventCtx))
       pi.on("agent_settled", (_payload: unknown, eventCtx: unknown) => controller?.refresh(eventCtx))
       pi.on("message_end", (_payload: unknown, eventCtx: unknown) => controller?.refresh(eventCtx))
@@ -100,8 +102,10 @@ export function createSidePanelComponent(options: SidePanelComponentOptions = {}
         epoch += 1
         return controller?.teardown()
       }
+      // Only the committed end of a session: senpi fires session_shutdown on new, resume, fork and
+      // quit. session_before_switch can still be cancelled, or be followed by a step that throws, and
+      // the session would then carry on without its panel.
       pi.on("session_shutdown", teardown)
-      pi.on("session_before_switch", teardown)
     },
   }
 }

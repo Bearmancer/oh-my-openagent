@@ -133,7 +133,8 @@ export function writeUsageCache(path: string, cache: PanelUsageCacheFile): boole
   try {
     mkdirSync(dirname(path), { recursive: true })
     const temporary = `${path}.${process.pid}.tmp`
-    writeFileSync(temporary, JSON.stringify(cache))
+    // Account names only, but they are nobody else's business on a shared machine.
+    writeFileSync(temporary, JSON.stringify(cache), { mode: 0o600 })
     renameSync(temporary, path)
     return true
   } catch {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 
-import { parseRetryAfterMs } from "./http"
+import { createUsageFetch, parseRetryAfterMs } from "./http"
 
 describe("parseRetryAfterMs", () => {
   test("#given numeric seconds #when parsed #then the delay is returned in milliseconds", () => {
@@ -23,5 +23,37 @@ describe("parseRetryAfterMs", () => {
     // when / then
     expect(parseRetryAfterMs("Tue, 14 Nov 2023 21:59:00 GMT", now)).toBeUndefined()
     expect(parseRetryAfterMs("later", now)).toBeUndefined()
+  })
+})
+
+describe("createUsageFetch", () => {
+  test("#given a usage endpoint that redirects #when fetched #then the request fails and the token never follows", async () => {
+    // given: a login wall or captive portal answering with a redirect
+    const seen: string[] = []
+    const target = Bun.serve({
+      port: 0,
+      fetch: (request) => {
+        seen.push(request.headers.get("authorization") ?? "")
+        return Response.json({})
+      },
+    })
+    const origin = Bun.serve({
+      port: 0,
+      fetch: () => new Response(null, { status: 302, headers: { location: target.url.href } }),
+    })
+    try {
+      // when
+      const outcome = await createUsageFetch()(origin.url.href, { authorization: "Bearer secret" }).then(
+        () => "resolved",
+        () => "rejected",
+      )
+
+      // then
+      expect(outcome).toBe("rejected")
+      expect(seen).toEqual([])
+    } finally {
+      origin.stop(true)
+      target.stop(true)
+    }
   })
 })

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { homedir } from "node:os"
+import { mkdtempSync, statSync } from "node:fs"
+import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 
 import {
@@ -9,6 +10,7 @@ import {
   providersDue,
   sanitizeUsageCache,
   usageCachePath,
+  writeUsageCache,
 } from "./cache"
 import type { PanelUsageCacheFile } from "./types"
 
@@ -247,5 +249,19 @@ describe("usageCachePath", () => {
   test("#given an empty XDG cache home #when resolved #then the home cache fallback is used", () => {
     // given / when / then
     expect(usageCachePath({ XDG_CACHE_HOME: "" })).toBe(join(homedir(), ".cache", "omo-senpi", "side-panel-usage.json"))
+  })
+})
+
+describe("writeUsageCache permissions", () => {
+  test.skipIf(process.platform === "win32")("#given a cache write #when it lands #then only the owner can read it", () => {
+    // given
+    const path = join(mkdtempSync(join(tmpdir(), "omo-usage-")), "usage.json")
+
+    // when
+    const written = writeUsageCache(path, {})
+
+    // then
+    expect(written).toBe(true)
+    expect(statSync(path).mode & 0o777).toBe(0o600)
   })
 })

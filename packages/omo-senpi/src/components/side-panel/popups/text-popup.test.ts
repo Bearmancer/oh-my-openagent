@@ -147,3 +147,24 @@ describe("createTextPopup", () => {
     expect(handle.renders).toBe(0)
   })
 })
+
+describe("createTextPopup terminal safety", () => {
+  test("#given a title and rows carrying terminal controls #when painted #then no control byte reaches the terminal", () => {
+    // given
+    const component = createTextPopup(tui(30), undefined, {
+      title: "evil\x1b]8;;x\x07.txt",
+      rows: () => [{ text: "row\x1b[2J\u202eend" }],
+      close: () => undefined,
+    })
+
+    // when
+    const painted = component.render(60).join("\n")
+
+    // then
+    expect(painted).not.toContain("\x1b")
+    expect(painted).not.toContain("\x07")
+    expect(painted).not.toContain("\u202e")
+    expect(painted).toContain("evil]8;;x.txt")
+    expect(painted).toContain("row[2Jend")
+  })
+})

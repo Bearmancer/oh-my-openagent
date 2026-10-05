@@ -1,7 +1,5 @@
 import * as z from "zod"
 
-import type { OmoHarnessId } from "./harness"
-
 /** Either a fixed column count or a percentage of the terminal width; wider than half the screen is not a sidebar. */
 const OmoSidePanelWidthSchema = z.union([z.number().int().min(24).max(160), z.string().regex(/^(?:1\d|[2-4]\d|50)%$/)])
 
@@ -82,18 +80,6 @@ export type OmoSidePanelSections = z.infer<typeof OmoSidePanelSectionsSchema>
 export interface OmoSidePanelConfigView {
   readonly side_panel?: OmoSidePanelSettingsLayer
 }
-
-type SidePanelSettingKey = keyof OmoSidePanelSettings
-type SidePanelSettingPath = `side_panel.${SidePanelSettingKey}`
-
-export const SIDE_PANEL_HARNESS_SUPPORT: Record<SidePanelSettingPath, readonly OmoHarnessId[]> = {
-  "side_panel.enabled": ["native"],
-  "side_panel.clickable": ["native"],
-  "side_panel.width": ["native"],
-  "side_panel.min_columns": ["native"],
-  "side_panel.usage_poll_seconds": ["native"],
-  "side_panel.sections": ["native"],
-} as const
 
 /**
  * Resolve the effective side-panel settings. The block is parsed through the full schema even when

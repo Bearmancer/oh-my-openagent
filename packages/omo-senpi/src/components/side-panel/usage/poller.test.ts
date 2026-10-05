@@ -260,3 +260,27 @@ describe("createUsagePoller", () => {
     expect(cache.fetching?.claude).toBeUndefined()
   })
 })
+
+describe("createUsagePoller claims", () => {
+  test("#given a cache that cannot be written #when polled #then a claim that never reached the disk fetches nothing", async () => {
+    // given: the cache path sits under a regular file, so neither the claim nor its read-back lands
+    const base = harness()
+    const blocker = join(mkdtempSync(join(tmpdir(), "omo-usage-")), "blocker")
+    writeFileSync(blocker, "")
+    const poller = createUsagePoller({
+      fetch: recordingFetch(base, () => claudePayload),
+      readCredentials: () => credentials(),
+      cachePath: join(blocker, "usage.json"),
+      pollMs: POLL_MS,
+      now: () => NOW,
+      timers,
+      onChange: () => undefined,
+    })
+
+    // when
+    await poller.pollOnce()
+
+    // then
+    expect(base.calls).toEqual([])
+  })
+})

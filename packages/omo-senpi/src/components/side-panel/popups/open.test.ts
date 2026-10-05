@@ -137,3 +137,16 @@ describe("openPanelViewer", () => {
     expect(ui.notices).toEqual(["line 1\nline 2"])
   })
 })
+
+describe("openPanelViewer notice fallback", () => {
+  test("#given a host without the overlay seam #when rows carry terminal controls #then the notice carries none of them", async () => {
+    // given
+    const ui = fakeUi({ overlay: false })
+
+    // when
+    await openPanelViewer(ui, "title", [{ text: "a\x1b[2Jb" }, { text: "c\x07d" }])
+
+    // then: one line per row survives, the controls do not
+    expect(ui.notices).toEqual(["a[2Jb\ncd"])
+  })
+})

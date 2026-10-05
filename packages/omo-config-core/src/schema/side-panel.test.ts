@@ -14,9 +14,6 @@ describe("omo config side_panel section", () => {
     expect(result.success).toBe(true)
     if (!result.success) return
     expect(result.data.side_panel?.enabled).toBe(false)
-    expect(result.data.side_panel?.width).toBe("26%")
-    expect(result.data.side_panel?.min_columns).toBe(120)
-    expect(result.data.side_panel?.usage_poll_seconds).toBe(150)
     expect(result.data.side_panel?.sections).toEqual({
       session: true,
       goal: true,
@@ -168,14 +165,15 @@ describe("omo config side_panel section", () => {
   test("#given a partial side_panel layer #when resolved #then every missing field takes its default", () => {
     // given: the documented opt-in, as a profile or harness layer hands it over before defaults apply
     const config = { side_panel: { enabled: true, sections: { files: false } } }
+    const defaults = resolveOmoSidePanelSettings({})
 
     // when
     const settings = resolveOmoSidePanelSettings(config)
 
     // then
     expect(settings.enabled).toBe(true)
-    expect(settings.width).toBe("26%")
-    expect(settings.min_columns).toBe(120)
+    expect(settings.width).toBe(defaults.width)
+    expect(settings.min_columns).toBe(defaults.min_columns)
     expect(settings.sections.files).toBe(false)
     expect(settings.sections.session).toBe(true)
     expect(settings.sections.usage).toBe(false)

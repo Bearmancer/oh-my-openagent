@@ -1,4 +1,5 @@
 import type { PanelOverlayUi, PanelRow } from "../types"
+import { sanitizeTerminalText } from "../format/sanitize"
 import { createTextPopup, type PopupComponent } from "./text-popup"
 import { parsePanelWheelEvent, WHEEL_ROWS } from "./wheel"
 
@@ -15,7 +16,7 @@ const OVERLAY_OPTIONS: Record<string, unknown> = {
  */
 export async function openPanelViewer(ui: PanelOverlayUi, title: string, rows: readonly PanelRow[]): Promise<void> {
   if (ui.custom === undefined) {
-    ui.notify(rows.map((row) => row.text).join("\n"), "info")
+    ui.notify(rows.map((row) => sanitizeTerminalText(row.text)).join("\n"), "info")
     return
   }
   let stopWheel: (() => void) | undefined

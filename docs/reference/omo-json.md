@@ -187,8 +187,7 @@ The block may live at the shared top level, in `[native]`, or in profile layers,
 
 The optional `side_panel` block controls the omo side panel (`schema/side-panel.ts`): a right-hand
 column in the Senpi TUI carrying session, goal, context, usage, subagent, tool, git and memory
-state. The
-transcript reflows into the remaining width instead of being covered. The panel is **off by
+state. The transcript reflows into the remaining width instead of being covered. The panel is **off by
 default** because it rearranges the whole screen.
 
 | Field | Type | Default | Notes |

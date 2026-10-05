@@ -35,3 +35,9 @@ describe("sanitizeTerminalText", () => {
     expect(sanitizeTerminalText("tail\u001b[31")).toBe("tail[31")
   })
 })
+
+describe("sanitizeTerminalText bidi controls", () => {
+  test("#given bidi override, isolate and mark characters #when sanitized #then the name reads in its stored order", () => {
+    expect(sanitizeTerminalText("invoice\u202etxt.exe \u2066x\u2069 \u200fy\u061c")).toBe("invoicetxt.exe x y")
+  })
+})

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 
 import { runDiffCommand, type PanelCommandContext } from "./commands"
+import { DIFF_VIEWER_ROW_CAP } from "./constants"
 import type { PanelExec } from "./git/read"
 import type { PanelGitStatus } from "./sections/files"
 import type { PanelPopupFactory } from "./types"
@@ -171,5 +172,32 @@ describe("side panel diff command", () => {
     // then
     expect(test.notices).toEqual([{ message: "This host exposes no exec, so git cannot be run.", type: "warning" }])
     expect(test.selected).toEqual([])
+  })
+})
+
+describe("side panel diff command hardening", () => {
+  test("#given a file name carrying terminal controls #when the picker lists it #then the label carries none of them", async () => {
+    // given: the host's select list folds newlines only
+    const test = harness({ status: () => ({ root: "/repo", files: [{ xy: "??", path: "evil\x1b]8;;x\x07\u202ename.txt" }] }) })
+
+    // when
+    await test.run()
+
+    // then
+    expect(test.selected).toEqual(["?? evil]8;;xname.txt"])
+  })
+
+  test("#given a diff longer than the viewer holds #when opened #then it is cut at the cap with the rest counted", async () => {
+    // given
+    const diff = Array.from({ length: DIFF_VIEWER_ROW_CAP + 3 }, (_, index) => "+line " + index).join("\n")
+    const test = harness({ withCustom: false, exec: async () => ({ stdout: diff, code: 0 }) })
+
+    // when
+    await test.run()
+
+    // then
+    const lines = (test.notices[0]?.message ?? "").split("\n")
+    expect(lines.length).toBe(DIFF_VIEWER_ROW_CAP + 1)
+    expect(lines[lines.length - 1]).toBe("... 3 more lines")
   })
 })

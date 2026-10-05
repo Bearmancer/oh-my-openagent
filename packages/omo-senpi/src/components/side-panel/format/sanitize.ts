@@ -8,6 +8,8 @@
  * never carries colour of its own - the theme paints `row.color` after this runs - so every C0 and
  * C1 control is removed, ESC included, and a file name cannot recolour the column either. Line
  * breaks and tabs become a space, so words on either side of them do not run together.
+ * Bidi embedding, override and isolate marks go too: they make a name render in an order other
+ * than the one it has, so `invoice\u202Etxt.exe` would read as a different file.
  */
 
 const SPACING = new Set(["\t", "\n", "\v", "\f", "\r", "\u0085"])
@@ -16,6 +18,7 @@ export function sanitizeTerminalText(text: string): string {
   let out = ""
   for (const char of text) {
     const code = char.charCodeAt(0)
+    if (isBidiControl(code)) continue
     if (isControl(code)) {
       if (SPACING.has(char)) out += " "
       continue
@@ -23,6 +26,16 @@ export function sanitizeTerminalText(text: string): string {
     out += char
   }
   return out
+}
+
+function isBidiControl(code: number): boolean {
+  return (
+    code === 0x061c ||
+    code === 0x200e ||
+    code === 0x200f ||
+    (code >= 0x202a && code <= 0x202e) ||
+    (code >= 0x2066 && code <= 0x2069)
+  )
 }
 
 function isControl(code: number): boolean {

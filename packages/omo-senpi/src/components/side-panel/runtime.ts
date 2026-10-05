@@ -22,6 +22,7 @@ import { createPanelGoalReader } from "./data/goal"
 import { createPanelMemoryReader } from "./data/memory"
 import { panelChildrenFromRecords, type PanelTaskRecord } from "./data/task-records"
 import { readGitStatus, type PanelExec } from "./git/read"
+import { sanitizeTerminalText } from "./format/sanitize"
 import { wrapVisible } from "./format/truncate"
 import { findGitRoot, readGitBranch } from "./git/repo"
 import { createPanelHostSurface } from "./host-surface"
@@ -71,6 +72,8 @@ export interface SidePanelRuntimeOptions {
   readonly exec?: PanelExec
   readonly findGitRoot?: (cwd: string) => string | undefined
   readonly readGitBranch?: (root: string) => string | undefined
+  /** Sees each refresh the panel starts without the host waiting on it, so a test can wait instead. */
+  readonly track?: (work: Promise<void>) => void
   /** Ports for the one section that talks to the network, so tests never do. */
   readonly usage?: {
     readonly fetch?: UsageFetch
@@ -87,9 +90,9 @@ const globalTimers: PanelTimers = {
 /** What the registration shell in `index.ts` hands each event to, once the panel is on. */
 export interface SidePanelController {
   sessionStart(settings: OmoSidePanelSettings, eventCtx: unknown): Promise<undefined>
-  refresh(eventCtx: unknown): Promise<undefined>
-  toolStart(payload: unknown, eventCtx: unknown): Promise<undefined>
-  toolEnd(): Promise<undefined>
+  refresh(eventCtx: unknown): undefined
+  toolStart(payload: unknown, eventCtx: unknown): undefined
+  toolEnd(): undefined
   input(): undefined
   teardown(): undefined
   runDiffCommand(commandCtx: PanelCommandContext): Promise<void>
@@ -145,6 +148,22 @@ export function createSidePanelController(
   let startedAt: number | undefined
   let liveTimer: PanelTimerHandle | undefined
   const cwd = pi.cwd ?? process.cwd()
+
+  /**
+   * The host awaits extension handlers on tool, message and turn events, and every tool call queues
+   * behind them, while a refresh can wait on three git processes and the task and memory stores. So
+   * the handlers start it here and return; the epoch checks drop whatever lands after its session.
+   */
+  const background = (work: Promise<unknown>): undefined => {
+    const settled = work.then(
+      () => undefined,
+      (error: unknown) => {
+        ctx.logger.debug?.("omo-senpi side panel: refresh failed", { error: String(error) })
+      },
+    )
+    options.track?.(settled)
+    return undefined
+  }
 
   const anyChildRunning = (): boolean =>
     store.state().children.some((child) => child.status === "running" || child.status === "queued")
@@ -237,7 +256,7 @@ export function createSidePanelController(
       const file = status.files.find((entry) => entry.path === action.path)
       if (file === undefined) {
         // The column can be a moment behind the tree: a file may have been committed since.
-        ui.notify(`${action.path} is no longer listed as changed.`, "info")
+        ui.notify(sanitizeTerminalText(`${action.path} is no longer listed as changed.`), "info")
         return
       }
       await openFileDiff(ui, exec, status, file)
@@ -294,15 +313,12 @@ export function createSidePanelController(
     memory = undefined
     memoryIdentity = undefined
     memoryReadAt = 0
-    // Everything below belongs to the session being left; the next one starts from nothing.
+    // What the session being left showed must not reach the next one. Facts, start time and
+    // settings need no reset: sessionStart replaces them before anything reads them again.
     store.reset()
     git = undefined
     gitRoot = undefined
     branch = undefined
-    gitReadAt = 0
-    facts = {}
-    startedAt = undefined
-    active = undefined
     return undefined
   }
 
@@ -383,19 +399,16 @@ export function createSidePanelController(
   return {
     sessionStart,
     // Turn boundaries carry fresh usage totals and child state.
-    refresh,
+    refresh: (eventCtx: unknown): undefined => background(refresh(eventCtx)),
     // A tool start is the only signal that says what the session is doing right now.
-    async toolStart(payload: unknown, eventCtx: unknown): Promise<undefined> {
+    toolStart(payload: unknown, eventCtx: unknown): undefined {
       if (surface === undefined) return undefined
       const call = toolCallFrom(payload, now())
       if (call !== undefined) store.recordTool(call)
-      return await refresh(eventCtx)
+      return background(refresh(eventCtx))
     },
     // A tool that mutated the tree is the signal that git has something new to say.
-    async toolEnd(): Promise<undefined> {
-      await refreshGit(false)
-      return undefined
-    },
+    toolEnd: (): undefined => background(refreshGit(false)),
     // Tool activity is per-exchange context: the next user turn starts a fresh list.
     input(): undefined {
       store.clearTools()

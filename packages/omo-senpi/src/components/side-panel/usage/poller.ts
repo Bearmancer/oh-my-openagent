@@ -147,8 +147,9 @@ export function createUsagePoller(deps: UsagePollerDeps): UsagePoller {
       const claimTargets = targets.filter((target) => due.includes(target.key))
       const claimToken = randomUUID()
       writeUsageCache(deps.cachePath, claimProviders(claimBase, claimTargets, deps.now(), claimToken))
+      // Only what this session still holds after the shared write is fetched: a sibling's claim, or
+      // a claim that never reached the disk, is not ours to act on.
       const owned = claimedProviders(readUsageCache(deps.cachePath), claimTargets, claimToken)
-      if (owned.length === 0) return
       const results = await Promise.all(
         planned
           .filter((plan) => owned.includes(plan.key))
