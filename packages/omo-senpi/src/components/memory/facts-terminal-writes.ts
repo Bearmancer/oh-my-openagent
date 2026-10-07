@@ -140,9 +140,10 @@ export class FactsTerminalWrites {
       this.options.warn?.("facts receipt skipped: ledger does not name this run", { runDir })
       return undefined
     } catch (error) {
+      // The parse error message can quote the file, so only its kind is logged.
       this.options.warn?.("facts receipt skipped: ledger unreadable", {
         runDir,
-        error: error instanceof Error ? error.message : String(error),
+        errorKind: error instanceof Error ? error.name : typeof error,
       })
       return undefined
     }

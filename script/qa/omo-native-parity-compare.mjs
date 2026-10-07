@@ -8,8 +8,9 @@ export const AST_GREP_REGISTERED = "ast-grep MCP tools registered: "
 const AST_GREP_QUERY = "ast grep structural search"
 
 // Eval-cell source for the probe. It runs inside the session under test, so it can only poll.
-// The budget stays under eval's 60 s detach deadline, and the step runs with on_timeout "error", so a
-// side that never registers prints the timeout line below instead of detaching the cell.
+// The step runs with on_timeout "error", so eval never detaches the cell (an RPC session otherwise
+// detaches a cell after 30 s) and a side that never registers prints the timeout line below. The 45 s
+// budget fits inside the smoke's 240 s session budget.
 export function astGrepProbeCode({ budgetMs = 45_000, pollMs = 500 } = {}) {
   return [
     `const want = ${JSON.stringify(AST_GREP_MCP_TOOLS)}`,

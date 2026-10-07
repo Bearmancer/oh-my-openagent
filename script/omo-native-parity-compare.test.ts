@@ -56,7 +56,7 @@ describe("binary/npm parity comparison", () => {
   })
 
   test("#given a side whose ast-grep MCP tools never registered #when compared #then it is reported even when both sides agree", () => {
-    const never = "ast-grep MCP tools never registered within 60s; listed: none"
+    const never = "ast-grep MCP tools never registered within 45s; listed: none"
     const late = run()
     late.results["ast-grep"] = { isError: false, text: never }
     expect(compareRuns(run(), late)).toEqual([`ast-grep: npm "${never}"`, `ast-grep: binary ok "${REGISTERED}" vs npm ok "${never}"`])
