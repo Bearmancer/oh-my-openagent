@@ -195,6 +195,29 @@ describe("facts receipt recovery", () => {
     expect((await read(paths)).map((receipt) => receipt.event)).toEqual(["no_facts"])
   })
 
+  test("#given a finished facts run whose ledger is gone #when facts reconcile #then no receipt is guessed and the skip is logged once", async () => {
+    // given
+    const { paths, runDir } = await factsRun()
+    await writes(paths, { append: async () => { throw new Error("receipt write lost") } }).succeed(runDir, "facts-abc-1", "no_facts", { entries: [], targets: [] })
+    await rm(join(runDir, "ledger.json"))
+    const warnings: string[] = []
+
+    // when
+    await reconcileFactsRuns({
+      factsDir: paths.facts,
+      now: () => NOW,
+      finalize: async () => { throw new Error("a terminal run is never finalized again") },
+      fail: async () => { throw new Error("a terminal run is never failed again") },
+      abandon: async () => { throw new Error("a terminal run is never abandoned again") },
+      receiptsDir: paths.runtime,
+      warn: (message) => warnings.push(message),
+    })
+
+    // then
+    expect(await read(paths)).toEqual([])
+    expect(warnings).toEqual(["facts receipt backfill skipped: ledger unreadable"])
+  })
+
   test("#given a launched receipt write that fails #when a facts run dir is reserved #then the failure is reported to warn and the run dir is still claimed", async () => {
     // given
     const root = await mkdtemp(join(tmpdir(), "facts-receipts-"))

@@ -578,6 +578,25 @@ describe("doctor receipts and quarantined runs", () => {
     expect(report.level).toBe("warn")
   })
 
+  test("#given a quarantine record whose evidence name holds a credential next to a quote #when doctor runs with --json #then the report still parses and the credential is masked", async () => {
+    // given
+    const { identity, pi, ctx } = await harness({ deps: { now: () => NOW_MS } })
+    const runDir = join(identity.identityPaths.reflection, "runs", "run-quoted")
+    await mkdir(runDir, { recursive: true })
+    await writeFile(join(runDir, "quarantined.json"), JSON.stringify({
+      version: 1, runId: "run-quoted", kind: "reflection", trigger: "step-count", generation: at(3 * HOUR_MS),
+      reason: "ledger_unreadable", quarantinedAt: at(2 * HOUR_MS), evidence: ['notes/token=abc\\x"def.md', "ledger.json"],
+    }))
+
+    // when
+    const text = await invoke(pi, "doctor", "--json", ctx)
+
+    // then
+    const report = JSON.parse(text)
+    expect(report.quarantinedRuns[0].evidence).toEqual(['notes/***"def.md', "ledger.json"])
+    expect(text).not.toContain("token=abc")
+  })
+
   test("#given a receipts file ending in a partial line #when doctor runs #then the receipts check warns and counts the skipped line", async () => {
     // given
     const { identity, pi, ctx } = await harness({ deps: { now: () => NOW_MS } })

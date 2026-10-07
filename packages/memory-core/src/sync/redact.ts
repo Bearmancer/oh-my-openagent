@@ -67,17 +67,20 @@ const FORMAT_CHARACTER = /\p{Cf}/u
 function normalizeForSecretScan(text: string): { shadow: string; map: number[] } {
   let shadow = ""
   const map: number[] = []
-  for (let index = 0; index < text.length; index += 1) {
-    const code = text.charCodeAt(index)
+  for (let index = 0; index < text.length; ) {
+    // Walk by code point: a format character above U+FFFF (the tag block) is two UTF-16 units, and
+    // neither lone surrogate matches \p{Cf}, so a per-unit walk would keep it in the shadow.
+    const code = text.codePointAt(index) ?? 0
+    const width = code > 0xffff ? 2 : 1
+    const char = text.slice(index, index + width)
     if (code === 0x00a0) {
       shadow += " "
       map.push(index)
-      continue
+    } else if (!((code < 0x20 && code !== 0x0a && code !== 0x09) || FORMAT_CHARACTER.test(char))) {
+      shadow += char
+      for (let unit = 0; unit < width; unit += 1) map.push(index + unit)
     }
-    const char = text.charAt(index)
-    if ((code < 0x20 && code !== 0x0a && code !== 0x09) || FORMAT_CHARACTER.test(char)) continue
-    shadow += char
-    map.push(index)
+    index += width
   }
   return { shadow, map }
 }

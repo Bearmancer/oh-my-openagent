@@ -217,6 +217,29 @@ describe("scanSecretLikeMaterial / redactSecretLikeMaterial", () => {
     })
   })
 
+  describe("#given a format character outside the Basic Multilingual Plane inside a secret", () => {
+    // A supplementary-plane format character is two UTF-16 units; the scanner must strip it whole.
+    const OUTSIDE_BMP_FORMAT = String.fromCodePoint(0xe0020)
+    const splitAt = (value: string, index: number): string => `${value.slice(0, index)}${OUTSIDE_BMP_FORMAT}${value.slice(index)}`
+
+    it.each([
+      ["a credential key", splitAt("token=abc123456def", 3), "credential_assignment"],
+      ["a vendor token prefix", splitAt("ghp_AAAABBBBCCCCDDDD1111", 3), "vendor_token"],
+      ["an OpenAI-style key prefix", splitAt("sk-proj-AAAABBBBCCCC", 3), "openai_key"],
+    ] as const)("#then %s split by it is still detected and its original span masked", (_label, secret, expectedClass) => {
+      // given
+      const embedded = `before ${secret} after`
+
+      // when
+      const matches = scanSecretLikeMaterial(embedded)
+      const masked = redactSecretLikeMaterial(embedded)
+
+      // then
+      expect(matches.map((match) => match.class)).toEqual([expectedClass])
+      expect(masked).toBe("before *** after")
+    })
+  })
+
   describe("#given split and non-breaking-space credential keys", () => {
     it("#then they are classified as split_credential_assignment and masked", () => {
       // given
