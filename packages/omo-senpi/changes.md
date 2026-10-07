@@ -54,6 +54,34 @@ Tests:
 - `nudge-wiring.test.ts`: a resumed session's save from an earlier run still resets the count, and a save buried among 50 commits of another session is seen by the next check.
 - `memory-maintenance.test.ts`: a repo full of loose objects is packed with every commit still readable. A commit made while a pass runs survives. A second process within the interval does not run again. Ten sessions starting together pack once. A lock held by another process means a quiet skip. A session that exits before its pass runs leaves the repo untouched. A loose object no commit references yet (a writer mid-commit) survives the pass. A repo that does not exist yet is a quiet no-op.
 
+## 2026-10-06 - A delivered message tells the receiver who sent it (#9660)
+
+The gateway drain now hands the receiving session the sender and the message as written, apart from the provenance header:
+- `deliverySender` in `gateway/provenance.ts` builds the sender: `agent` with the sending session's id and its name at send time, `command_line` for `omo thread send`, or `external` with the platform and author.
+- `drain.ts` passes it with `display_text` to `admitExternalMessage`.
+- `thread_send` and `thread_handoff` give the gateway the caller's current session name (`callerName`, from `pi.getSessionName`). Without it, a live run labelled the message only "Sent by another agent", because the drain had nothing but the session id.
+
+The model still reads the `[OMO_GATEWAY v=1 ...]` header. senpi's terminal renders the sender as "Sent by another agent · <name>" or "Sent from the command line" (senpi#2819); a senpi without that support ignores the two fields.
+
+Tests (`engine.test.ts`):
+- a named and an unnamed session sender;
+- a command-line sender.
+
+Dropping the sender, or naming a session by its id, fails them.
+
+## 2026-10-06 - The thread tools switch a terminal session's model and level and interrupt its turn (#9660)
+
+`thread_set_model`, `thread_set_reasoning` and `thread_interrupt` failed with `unsupported` against every terminal session, which is most live sessions. The client refused every command outside a fixed read-mostly list, and the terminal endpoint did not take them either.
+
+**What changed**
+- `live-surface.ts` asks a terminal once for `get_protocol_info` and remembers the `commands` it lists. A command the terminal lists is sent; any other is still refused as `unsupported` before a connection opens. A terminal on an older engine lists none and keeps the old behavior. Its refusal now says the terminal runs an engine from before terminal session controls, and how to get them.
+- `thread_list` rows carry `controls`, from `endpoint-controls.ts`: what a caller can do to that thread (`send`, `read`, `rename`, `set_model`, `set_reasoning`, `interrupt`). A host takes all six; an older terminal takes the first three.
+
+**Tests** (`live-surface-tui.test.ts`, against a terminal endpoint that answers as senpi's does):
+- a model switch, a supported and an unsupported level, an unknown model, an interrupt mid-turn and one on an idle session;
+- each row's `controls`, next to an older terminal and a host;
+- reverting to the fixed command list fails the test.
+
 ## 2026-10-05 - An idle gateway store no longer keeps its worker thread alive
 
 Every session that touches the gateway store (each terminal with a control endpoint, and every sender) started one store worker thread and kept it until the session ended. A measured idle worker retains 2.94 MB: an empty Bun worker plus the bundled store code and SQLite. That put the terminal control endpoint's idle cost at about 4.1 MB against the 3 MB budget.
