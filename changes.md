@@ -1,3 +1,15 @@
+## 2026-10-07 - Suspended children retry after their parent session resumes (#9498)
+
+A resumed session now retries its own children when revival temporarily cannot
+resolve a model or session, acquire a lock, roll back a claim, obtain capacity,
+or recover ownership. Previously only unreachable or draining daemon sessions
+were retried; other children waited indefinitely for another session start.
+The existing bounded backoffs and ownership-fenced admission remain in use.
+Repeated unowned model/session/rollback/lock failures end as `lost`, with the
+deferral and retry count visible in `task_output` and the normal parent terminal
+notification. Capacity and live-owner deferrals stay suspended until the other
+side moves; daemon-hosted sessions are never marked lost by this fallback.
+
 ## 2026-10-07 - Adopt senpi 2026.10.10-6
 
 Every `@code-yeongyu/senpi` pin moves from 2026.10.10-5 to 2026.10.10-6: the root devDependency, `omo-native` and its provider map comment, the `omo-senpi` and `senpi-task` peer and dev pins (with their `senpi-tui` and `senpi-ai` aliases), the pin tests and the engine named in `senpi-task`'s coverage test. The engine carries the child-spawn fix for "Provider scope is closed" on a busy shared host (senpi#2871), senpi-owned compaction on the subscription lane (senpi#2749), the Anthropic tool-change fix, the cache-first MCP admission and the restored-binding check. The generated plugin bundles are regenerated for it on Linux.

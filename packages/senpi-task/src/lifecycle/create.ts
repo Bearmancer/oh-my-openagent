@@ -33,7 +33,7 @@ export function createTaskLifecycle(deps: LifecycleDeps): TaskLifecycle {
     admitResident: (parentSessionId: string) => admitResident(context, parentSessionId),
     reconcileOnSessionStart: async (parentSessionId?: string) => {
       const result = await reconcileOnSessionStart(context, parentSessionId)
-      retryDeferredHostSessions(context, result.outcomes)
+      retryDeferredHostSessions(context, result.outcomes, parentSessionId)
       return result
     },
     parkHostSessionOnDaemonLoss: (taskId: string, options?: HostSessionParkOptions) =>
