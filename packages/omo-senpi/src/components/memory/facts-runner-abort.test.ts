@@ -104,7 +104,7 @@ describe("facts runner shutdown abort boundary", () => {
     let signalLedgerRead: (() => void) | undefined
     const ledgerRead = new Promise<void>((resolve) => { signalLedgerRead = resolve })
     const gatedLedger: FactsFailurePort & FactsFailureReadPort = {
-      recordFailure: async () => undefined,
+      recordFailure: async () => ({ version: 1, updatedAt: "2026-08-10T12:00:00.000Z", entries: [] }),
       clearOnSuccess: async () => undefined,
       readFailures: async () => {
         signalLedgerRead?.()
