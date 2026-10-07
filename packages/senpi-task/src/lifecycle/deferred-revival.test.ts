@@ -129,7 +129,8 @@ describe("bounded resumed-child revival (omo#9498)", () => {
     try {
       await resume(h)
       await h.lost
-      const record = h.store.load(h.taskId)!
+      const record = h.store.load(h.taskId)
+      if (record === null) throw new Error("lost child record disappeared")
       expect(h.attempts()).toBe(4)
       expect(h.fixture.waits).toEqual([10, 20, 40])
       expect(record.status).toBe("lost")
@@ -157,7 +158,8 @@ describe("bounded resumed-child revival (omo#9498)", () => {
     try {
       await resume(h)
       expect(await h.exhausted).toEqual({ reason: "capacity", attempts: 3 })
-      const record = h.store.load(h.taskId)!
+      const record = h.store.load(h.taskId)
+      if (record === null) throw new Error("capacity-deferred child record disappeared")
       expect(record.status).toBe("running")
       expect(record.residency_state).toBe("persisted_only")
       expect(record.suspension_reason).toBe("revival_deferred")
