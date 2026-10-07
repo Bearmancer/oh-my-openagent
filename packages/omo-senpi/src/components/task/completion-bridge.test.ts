@@ -42,12 +42,13 @@ function pendingRunner(): ManagedRunner {
   }
 }
 
-function createHarness(options: { currentSessionId?: string } = {}): {
+function createHarness(options: { currentSessionId?: string | null } = {}): {
   readonly manager: TaskManager
   readonly messages: ParentNotifierMessage[]
   readonly complete: (taskId: string) => void
   readonly lose: (taskId: string) => void
   readonly notifyCalls: () => number
+  readonly notifiedEpoch: (taskId: string) => number | undefined
 } {
   const backing = createTaskRecordStore({ project_dir: tempProject() })
   const messages: ParentNotifierMessage[] = []
@@ -62,7 +63,7 @@ function createHarness(options: { currentSessionId?: string } = {}): {
     notifier: { ...completion, notifyTerminal: (input) => { notifyCalls += 1; return completion.notifyTerminal(input) } },
     parentState: () => ({ kind: "idle" }),
     wasBackground: (taskId) => managerRef?.wasBackground(taskId) ?? false,
-    currentSessionId: () => options.currentSessionId ?? "parent-session",
+    currentSessionId: () => (options.currentSessionId === null ? undefined : (options.currentSessionId ?? "parent-session")),
   })
   const runner = pendingRunner()
   const manager = createTaskManager({
@@ -77,6 +78,7 @@ function createHarness(options: { currentSessionId?: string } = {}): {
     manager,
     messages,
     notifyCalls: () => notifyCalls,
+    notifiedEpoch: (taskId) => backing.load(taskId)?.notification.notified_epoch,
     complete: (taskId) => {
       store.transition(taskId, {
         type: "complete",
@@ -129,6 +131,23 @@ describe("completion bridge live background promotion", () => {
     harness.lose(started.task_id)
     expect(harness.notifyCalls()).toBe(0)
     expect(harness.messages).toHaveLength(0)
+    // Still owed: the owning session's next start delivers it.
+    expect(harness.notifiedEpoch(started.task_id)).toBe(-1)
+  })
+
+  it("#given no known current session #when a reconcile marks a child lost #then nothing is notified and the notice stays owed", async () => {
+    const harness = createHarness({ currentSessionId: null })
+    const started = await harness.manager.start({
+      prompt: "work",
+      parent_session_id: "parent-session",
+      depth: 1,
+      category: "quick",
+      run_in_background: true,
+    })
+    if (started.kind !== "started") throw new Error("expected started task")
+    harness.lose(started.task_id)
+    expect(harness.notifyCalls()).toBe(0)
+    expect(harness.notifiedEpoch(started.task_id)).toBe(-1)
   })
 
   it("#given a foreground start promoted before terminal #when completion applies #then the live manager flag delivers a notification", async () => {

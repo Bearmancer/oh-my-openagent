@@ -13,7 +13,6 @@ import { createTaskLifecycle } from "./create"
 import type { ProcessSignaller, RespawnResult } from "./port"
 import { cleanupProjects, FakeRegistry, seedRecord, settings, tempStore } from "./__fixtures__/lifecycle-fakes"
 import { NO_HOST_ENDPOINT } from "./host-session"
-import { notContinuableReason } from "../steering/engine-policy"
 
 afterEach(cleanupProjects)
 
@@ -323,8 +322,7 @@ describe("reconcileOnSessionStart scoped revival", () => {
     const after = harness.store.load(record.task_id)
     if (after === null) throw new Error("record vanished")
     expect(after.suspension_reason).toBe("revival_deferred")
-    expect(notContinuableReason(after)).toContain("its session was resumed, but reviving it was deferred (model_unavailable)")
-    expect(notContinuableReason(after)).toContain("then marked lost if it still cannot be revived")
+    expect(after.revival_deferred_reason).toBe("model_unavailable")
   })
 
   test("#given retryable respawn failure and rollback lock failure #when reconciled #then the outcome loudly names the failed rollback", async () => {

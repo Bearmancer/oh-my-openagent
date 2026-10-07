@@ -4,10 +4,15 @@ import type { ManagedChildHandle } from "../manager/child-handle"
 import { notContinuableReason } from "../steering/engine-policy"
 import { runTaskOutput } from "../tools/output/output"
 import { createTaskLifecycle } from "./create"
+import { deferralOutlookFor } from "./deferred-revival-reasons"
 import { hostLifecycleDeps, hostSession, hostSessionRecordInput } from "./__fixtures__/host-session-fakes"
 import { cleanupProjects, seedRecord, tempStore } from "./__fixtures__/lifecycle-fakes"
 
 afterEach(cleanupProjects)
+
+/** Every queued microtask has run: the fakes here resolve immediately and the store is synchronous. */
+const settled = () => new Promise<void>((resolve) => setImmediate(resolve))
+
 
 function harness(options: {
   host?: boolean
@@ -25,6 +30,7 @@ function harness(options: {
   const raw = tempStore()
   const taskId = "st_94980001"
   const events = new Map<string, ReturnType<typeof Promise.withResolvers<unknown>>>()
+  const eventLog: string[] = []
   const event = (type: string) => {
     let signal = events.get(type)
     if (signal === undefined) {
@@ -48,6 +54,7 @@ function harness(options: {
       return next
     }),
     appendEvent: (id: string, input: { type: string; payload: unknown }) => {
+      eventLog.push(`${id}:${input.type}`)
       const path = raw.appendEvent(id, input)
       events.get(input.type)?.resolve(input.payload)
       return path
@@ -116,7 +123,7 @@ function harness(options: {
       : {}),
     ...(options.lock ? { reconcileAdmission: { acquireLease: async () => ({ kind: "contended" as const }) } } : {}),
   })
-  return { store, taskId, fixture, lifecycle, revived, exhausted, lost, suspended, attempts: () => attempts }
+  return { store, taskId, fixture, lifecycle, revived, exhausted, lost, suspended, eventLog, attempts: () => attempts }
 }
 
 async function resume(h: ReturnType<typeof harness>) {
@@ -252,8 +259,7 @@ describe("bounded resumed-child revival (omo#9498)", () => {
         if (stop === "shutdown") await h.lifecycle.suspendOnSessionShutdown({ parentSessionId: "parent-1", reason: "quit" })
         else h.lifecycle.dispose?.()
         gate.resolve()
-        // Every remaining wait resolves at once now; settle the retry loop deterministically.
-        for (let turn = 0; turn < 20; turn += 1) await Promise.resolve()
+        await settled()
 
         expect(h.attempts()).toBe(1)
         const record = h.store.load(h.taskId)
@@ -308,29 +314,33 @@ describe("bounded resumed-child revival (omo#9498)", () => {
       await h.lifecycle.reconcileOnSessionStart("parent-1")
       await inRespawn.promise
       await h.lifecycle.suspendOnSessionShutdown({ parentSessionId: "parent-1", reason: "quit" })
+      // A child the next engine queued for the same session while this attempt was still running.
+      seedRecord(h.store, { task_id: "st_94980077", status: "pending", parent_session_id: "parent-1", host_pid: 2222 })
       release.resolve()
       await h.revived
       // Subscribed before the attempt: the late suspend's own record event, not a timing guess.
       expect(await h.suspended).toEqual({ reason: "revived_after_shutdown" })
+      await settled()
 
       expect(h.fixture.registry.get(h.taskId)).toBeUndefined()
       expect(h.store.load(h.taskId)?.residency_state).not.toBe("resident")
       expect(h.store.load(h.taskId)?.status).toBe("running")
+      // Only the handle this retry revived is suspended; the queued sibling is left to its own engine.
+      expect(h.eventLog.filter((entry) => entry.startsWith("st_94980077:"))).toEqual([])
+      expect(h.store.load("st_94980077")?.status).toBe("pending")
     } finally {
       h.lifecycle.dispose?.()
     }
   }, 10_000)
 
-  test("the deferral text says what happens next for each reason", () => {
-    const record = (reason: string) => ({
-      task_id: "st_94980009", residency_state: "persisted_only", suspension_reason: "revival_deferred",
-      revival_deferred_reason: reason,
-    }) as unknown as Parameters<typeof notContinuableReason>[0]
-    expect(notContinuableReason(record("model_unavailable"))).toContain("retried a few times, then marked lost")
-    expect(notContinuableReason(record("lock_contended"))).toContain("retried a few times, then marked lost")
-    expect(notContinuableReason(record("capacity"))).toContain("otherwise at the session's next start")
-    expect(notContinuableReason(record("foreign_live_owner"))).toContain("stays with that session")
-    expect(notContinuableReason(record("reattach_disabled"))).toContain("is not retried")
-    expect(notContinuableReason(record("reattach_disabled"))).not.toContain("marked lost")
+  test("each deferral reason maps to what happens next", () => {
+    expect(deferralOutlookFor("model_unavailable", false)).toBe("retried_then_lost")
+    expect(deferralOutlookFor("lock_contended", false)).toBe("retried_then_lost")
+    expect(deferralOutlookFor("model_unavailable", true)).toBe("retried_not_lost")
+    expect(deferralOutlookFor("host_unreachable", true)).toBe("retried_not_lost")
+    expect(deferralOutlookFor("capacity", false)).toBe("waits_for_capacity")
+    expect(deferralOutlookFor("foreign_live_owner", false)).toBe("may_stay_with_live_owner")
+    expect(deferralOutlookFor("reattach_disabled", false)).toBe("not_retried")
+    expect(deferralOutlookFor("tools_unavailable", false)).toBe("not_retried")
   })
 })

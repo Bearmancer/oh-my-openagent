@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto"
 
 import { interactionPolicyForAgent } from "../agents"
-import { LOST_ON_EXHAUSTION } from "../lifecycle/deferred-revival-reasons"
+import { type DeferralOutlook, deferralOutlookFor } from "../lifecycle/deferred-revival-reasons"
+import { isHostSessionRecord } from "../lifecycle/host-session"
 import { nextRunEpoch, type TaskRecord } from "../state"
 import type { SendInput, SendOutcome } from "./types"
 
@@ -25,12 +26,12 @@ export function scopeDenied(record: TaskRecord, input: SendInput): SendOutcome |
   }
 }
 
-/** What happens next to a deferred revival: capacity and a live owner wait for the other side to move. */
-function deferralOutlook(reason: string): string {
-  if (reason === "capacity") return "it is retried while a running child finishes or is reclaimed, and otherwise at the session's next start."
-  if (reason === "foreign_live_owner") return "another live session holds it, and it stays with that session."
-  if (LOST_ON_EXHAUSTION.has(reason)) return "it is retried a few times, then marked lost if it still cannot be revived."
-  return "it is not retried; it stays suspended until its session starts again."
+const DEFERRAL_OUTLOOK_TEXT: Record<DeferralOutlook, string> = {
+  waits_for_capacity: "it is retried while a running child finishes or is reclaimed, and otherwise at the session's next start.",
+  may_stay_with_live_owner: "another live session holds it; it is revived here only if that session lets it go.",
+  retried_then_lost: "it is retried a few times, then marked lost if it still cannot be revived.",
+  retried_not_lost: "it is retried a few times and otherwise waits for its host; it is never marked lost for this.",
+  not_retried: "it is not retried; it stays suspended until its session starts again.",
 }
 
 export function notContinuableReason(record: TaskRecord): string {
@@ -39,7 +40,7 @@ export function notContinuableReason(record: TaskRecord): string {
   if (record.residency_state === "persisted_only" || record.residency_state === "rpc_detached") {
     if (record.suspension_reason === "revival_deferred") {
       const reason = record.revival_deferred_reason ?? "unknown"
-      return `Task ${record.task_id} is suspended: its session was resumed, but reviving it was deferred (${reason}); ${deferralOutlook(reason)} task_output shows its state and task_cancel ends it.`
+      return `Task ${record.task_id} is suspended: its session was resumed, but reviving it was deferred (${reason}); ${DEFERRAL_OUTLOOK_TEXT[deferralOutlookFor(reason, isHostSessionRecord(record))]} task_output shows its state and task_cancel ends it.`
     }
     return `Task ${record.task_id} is suspended - resumes when its session is resumed.`
   }

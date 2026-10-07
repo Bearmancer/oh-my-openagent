@@ -5,7 +5,7 @@ import { destroyResidentTask } from "./destroy"
 import { isHostSessionRecord } from "./host-session"
 import { reconcileScopedRevival } from "./reconcile-revival"
 import { newestSessionPath } from "./session-path"
-import { suspendOnSessionShutdown } from "./shutdown"
+import { suspendHandle } from "./shutdown"
 
 
 /**
@@ -84,10 +84,10 @@ export async function retryDeferredScopedChild(
     )
     if (retriesStopped(context, parentSessionId)) {
       // The session shut down (or the engine was disposed) while this attempt was reviving the child.
-      // Shutdown's sweep ran before the child had a handle, so suspend it now, as that sweep would have.
-      if (context.registry.get(taskId) !== undefined) {
-        await suspendOnSessionShutdown(context, { parentSessionId, reason: "revived_after_shutdown" })
-      }
+      // Shutdown's sweep ran before the child had a handle, so suspend that one handle now. Never the
+      // whole session sweep: its pending pass would also take children a new engine queued meanwhile.
+      const handle = context.registry.get(taskId)
+      if (handle !== undefined) await suspendHandle(context, handle, "revived_after_shutdown")
       return
     }
     const outcome = outcomes.find((entry) => entry.task_id === taskId)
@@ -96,7 +96,7 @@ export async function retryDeferredScopedChild(
     if (!SCOPED_RETRY_REASONS.has(reason)) return
     expected = context.store.load(taskId)
   }
-  if (retriesStopped(context, parentSessionId)) return
+  // No wait follows the last attempt: its own post-attempt check above already saw any stop.
   const observed = context.store.load(taskId)
   if (!canRetry(context, observed, parentSessionId)) return
   if (expected === null || observed.residency_claim !== expected.residency_claim
