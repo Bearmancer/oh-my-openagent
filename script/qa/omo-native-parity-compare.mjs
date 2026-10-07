@@ -8,13 +8,15 @@ export const AST_GREP_REGISTERED = "ast-grep MCP tools registered: "
 const AST_GREP_QUERY = "ast grep structural search"
 
 // Eval-cell source for the probe. It runs inside the session under test, so it can only poll.
-export function astGrepProbeCode({ budgetMs = 60_000, pollMs = 500 } = {}) {
+// The budget stays under eval's 60 s detach deadline, and the step runs with on_timeout "error", so a
+// side that never registers prints the timeout line below instead of detaching the cell.
+export function astGrepProbeCode({ budgetMs = 45_000, pollMs = 500 } = {}) {
   return [
     `const want = ${JSON.stringify(AST_GREP_MCP_TOOLS)}`,
     `const deadline = Date.now() + ${budgetMs}`,
     "let seen = []",
     "for (;;) {",
-    `  const r = await tool.tool_search({ query: ${JSON.stringify(AST_GREP_QUERY)} })`,
+    `  const r = await tool.tool_search({ query: ${JSON.stringify(AST_GREP_QUERY)}, source: "mcp" })`,
     "  seen = want.filter((name) => r.text.split('\\n').some((line) => line.startsWith('- ' + name + ' ')))",
     "  if (seen.length === want.length || Date.now() >= deadline) break",
     `  await new Promise((resolve) => setTimeout(resolve, ${pollMs}))`,
@@ -28,7 +30,7 @@ export const PARITY_STEPS = [
   { id: "eval-py", tool: "eval", arguments: { language: "py", code: "print(6 * 7)", summary: "parity python" } },
   { id: "grep", tool: "eval", arguments: { language: "js", code: "const r = await tool.grep({ pattern: 'omo-parity-needle', path: '.' }); print(r.text.split('\\n')[0])", summary: "parity grep" } },
   { id: "pty-bash", tool: "eval", arguments: { language: "js", code: "const r = await tool.bash({ command: 'echo parity-$((6*7))' }); print(r.text)", summary: "parity bash" } },
-  { id: "ast-grep", tool: "eval", arguments: { language: "js", code: astGrepProbeCode(), summary: "parity tool search" } },
+  { id: "ast-grep", tool: "eval", arguments: { language: "js", code: astGrepProbeCode(), summary: "parity tool search", on_timeout: "error" } },
   { id: "webfetch", tool: "webfetch", arguments: { url: "{{PAGE_URL}}", format: "markdown" } },
   { id: "read-text", tool: "read", arguments: { path: "notes.txt" } },
   { id: "read-image", tool: "read", arguments: { path: "pixel.png" } },

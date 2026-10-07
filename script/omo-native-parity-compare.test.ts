@@ -73,7 +73,7 @@ describe("binary/npm parity comparison", () => {
       await new AsyncFunction("tool", "print", astGrepProbeCode(options))(tool, (line: string) => printed.push(line))
       return { calls, printed }
     }
-    const late = await probe((call) => (call < 3 ? ["mcp__ast_grep_search_hint", AST_GREP_MCP_TOOLS[0] ?? ""] : ["lsp_find", ...AST_GREP_MCP_TOOLS]), { budgetMs: 60_000, pollMs: 0 })
+    const late = await probe((call) => (call < 3 ? [...AST_GREP_MCP_TOOLS.filter((name) => !name.endsWith("_search")), "mcp__ast_grep_search_hint"] : ["lsp_find", ...AST_GREP_MCP_TOOLS]), { budgetMs: 60_000, pollMs: 0 })
     expect(late).toEqual({ calls: 3, printed: [REGISTERED] })
     const never = await probe(() => [AST_GREP_MCP_TOOLS[0] ?? ""], { budgetMs: 0, pollMs: 0 })
     expect(never).toEqual({ calls: 1, printed: [`ast-grep MCP tools never registered within 0s; listed: ${AST_GREP_MCP_TOOLS[0]}`] })
