@@ -92,7 +92,6 @@ function normalizeForSecretScan(text: string, formatCharacters: FormatCharacterH
     }
     index += width
   }
-  if (dropped) seams.add(shadow.length)
   return { shadow, map, seams }
 }
 
@@ -117,37 +116,97 @@ function patternMatches(scan: Shadow, patternClass: SecretPatternClass, source: 
   return found
 }
 
-const containedByAny = (matches: readonly SecretMatch[], span: SecretMatch): boolean =>
-  matches.some((existing) => existing.start <= span.start && span.end <= existing.end)
+/**
+ * "Is this span fully inside an existing match?" in O(log n): existing matches sorted by start, with the
+ * running maximum end, so the check is one binary search instead of a scan of every match.
+ */
+function containmentIndex(matches: readonly SecretMatch[]): (span: SecretMatch) => boolean {
+  const sorted = [...matches].sort((a, b) => a.start - b.start)
+  const maxEnd: number[] = []
+  for (const [index, match] of sorted.entries()) maxEnd.push(Math.max(match.end, maxEnd[index - 1] ?? -1))
+  return (span) => {
+    let low = 0
+    let high = sorted.length
+    while (low < high) {
+      const middle = (low + high) >> 1
+      if (sorted[middle].start <= span.start) low = middle + 1
+      else high = middle
+    }
+    return low > 0 && maxEnd[low - 1] >= span.end
+  }
+}
+
+const keepUncovered = (matches: SecretMatch[], candidates: readonly SecretMatch[]): void => {
+  const covered = containmentIndex(matches)
+  for (const candidate of candidates) if (!covered(candidate)) matches.push(candidate)
+}
 
 const WORD = /[A-Za-z0-9_]/
 const LEADING_BOUNDARY = "\\b"
 
+/** A JS `\b` between shadow indices `end - 1` and `end`, or a seam there (a dropped character that may hide one). */
+const boundaryOrSeam = (scan: Shadow, end: number): boolean =>
+  scan.seams.has(end) || WORD.test(scan.shadow[end - 1] ?? "") !== WORD.test(scan.shadow[end] ?? "")
+
 /**
- * Boundary-anchored patterns retried at every seam of the joined shadow, with the leading `\b` replaced by
- * the seam itself. A dropped character that glued a word to a token hides that boundary, and the separated
- * scan only sees the token up to the next inner character, so neither pass alone masks the whole token.
- * A trailing `\b` must still hold, or the match must end at another seam.
+ * Boundary-anchored patterns retried around the seams of the joined shadow. A dropped character that glued a
+ * word to a token hides the token's boundary, and the separated scan only sees the token up to its next inner
+ * character, so neither pass alone masks the whole token. A match may start at a seam (its leading `\b` is the
+ * seam) or, for patterns that also end in `\b`, at a real boundary. Its end is the furthest position that is a
+ * boundary or a seam and where the whole pattern still matches, the way the regex itself would backtrack.
+ * Starts inside the previous accepted match are skipped, which keeps the pass linear.
  */
 function seamMatches(scan: Shadow): SecretMatch[] {
+  if (scan.seams.size === 0) return []
+  const seams = [...scan.seams].sort((a, b) => a - b)
   const found: SecretMatch[] = []
   for (const [patternClass, source, flags] of SECRET_PATTERN_SOURCES) {
     if (!source.startsWith(LEADING_BOUNDARY)) continue
     const trailing = source.endsWith(LEADING_BOUNDARY)
     const body = source.slice(LEADING_BOUNDARY.length, trailing ? -LEADING_BOUNDARY.length : undefined)
-    const pattern = new RegExp(body, `${flags}y`)
-    for (const seam of scan.seams) {
-      pattern.lastIndex = seam
-      const match = pattern.exec(scan.shadow)
+    const sticky = new RegExp(body, `${flags}y`)
+    const whole = new RegExp(`^(?:${body})$`, flags)
+    const starts = trailing ? mergeSorted(seams, boundaryStarts(scan, `${LEADING_BOUNDARY}${body}`, flags)) : seams
+    let acceptedEnd = -1
+    for (const start of starts) {
+      if (start < acceptedEnd) continue
+      sticky.lastIndex = start
+      const match = sticky.exec(scan.shadow)
       if (match === null) continue
-      const end = seam + match[0].length
-      const boundary = WORD.test(scan.shadow[end - 1] ?? "") !== WORD.test(scan.shadow[end] ?? "")
-      if (trailing && !boundary && !scan.seams.has(end)) continue
-      const span = originalSpan(scan, seam, end)
-      if (span !== undefined) found.push({ class: patternClass, ...span })
+      let end = start + match[0].length
+      if (trailing) {
+        while (end > start && !boundaryOrSeam(scan, end)) end -= 1
+        if (end === start || !whole.test(scan.shadow.slice(start, end))) continue
+      }
+      // A match touching no seam is one the joined pass already reports.
+      if (!scan.seams.has(start) && !scan.seams.has(end)) continue
+      const span = originalSpan(scan, start, end)
+      if (span === undefined) continue
+      found.push({ class: patternClass, ...span })
+      acceptedEnd = end
     }
   }
   return found
+}
+
+/** Start indices of the pattern's non-overlapping matches in the shadow. */
+function boundaryStarts(scan: Shadow, source: string, flags: string): number[] {
+  const starts: number[] = []
+  const pattern = new RegExp(source, `${flags}g`)
+  let match: RegExpExecArray | null
+  while ((match = pattern.exec(scan.shadow)) !== null) starts.push(match.index)
+  return starts
+}
+
+function mergeSorted(a: readonly number[], b: readonly number[]): number[] {
+  const merged: number[] = []
+  let i = 0
+  let j = 0
+  while (i < a.length || j < b.length) {
+    const next = j >= b.length || (i < a.length && a[i] <= b[j]) ? a[i++] : b[j++]
+    if (merged[merged.length - 1] !== next) merged.push(next)
+  }
+  return merged
 }
 
 export function scanSecretLikeMaterial(value: string): SecretMatch[] {
@@ -169,13 +228,9 @@ export function scanSecretLikeMaterial(value: string): SecretMatch[] {
   // match already covers all of it: one that only overlaps (a token read through the next key) would
   // otherwise leave the rest of the secret unmasked. The split pass follows the same rule. Masking merges
   // the overlapping spans.
-  for (const [patternClass, source, flags] of SECRET_PATTERN_SOURCES) {
-    for (const match of patternMatches(separated, patternClass, source, flags)) if (!containedByAny(matches, match)) matches.push(match)
-  }
-  for (const match of seamMatches(joined)) if (!containedByAny(matches, match)) matches.push(match)
-  for (const match of patternMatches(joined, "split_credential_assignment", SPLIT_CREDENTIAL_ASSIGNMENT_SOURCE, "i")) {
-    if (!containedByAny(matches, match)) matches.push(match)
-  }
+  keepUncovered(matches, SECRET_PATTERN_SOURCES.flatMap(([patternClass, source, flags]) => patternMatches(separated, patternClass, source, flags)))
+  keepUncovered(matches, seamMatches(joined))
+  keepUncovered(matches, patternMatches(joined, "split_credential_assignment", SPLIT_CREDENTIAL_ASSIGNMENT_SOURCE, "i"))
   return matches.sort((a, b) => a.start - b.start || a.end - b.end)
 }
 

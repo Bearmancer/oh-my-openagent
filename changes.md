@@ -1,6 +1,6 @@
 ## 2026-10-07 - Memory masking covers a token glued by an invisible character that also holds one inside (#9717)
 
-When a format character outside the Basic Multilingual Plane glued an ordinary word to a token, and the token itself held a zero-width or control character, memory masking hid only the token's first part (and an AWS access key id in that shape was not detected at all). The scanner now remembers where it dropped an invisible character and retries the token patterns from each such point, so the whole token is detected and masked. Control characters inside a credential key or vendor prefix are now covered by tests, and a facts warning no longer copies a parse error message that can quote the file.
+When a format character outside the Basic Multilingual Plane glued an ordinary word to a token, and the token itself held a zero-width or control character, memory masking hid only the token's first part (and an AWS access key id in that shape was not detected at all). The scanner now remembers where it dropped an invisible character and retries the token patterns around each such point (also for a token that ends in a hyphen or is glued to a word after it), so the whole token is detected and masked; the extra pass stays linear on adversarial input. Control characters inside a credential key or vendor prefix are now covered by tests, and a facts warning no longer copies a parse error message that can quote the file.
 
 ## 2026-10-07 - The parity gate's ast-grep probe waits for the MCP tools to register (#9710)
 
