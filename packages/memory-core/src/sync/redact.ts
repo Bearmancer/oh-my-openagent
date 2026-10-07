@@ -67,9 +67,11 @@ type FormatCharacterHandling = "drop" | "separate"
  * the original string index of shadow unit `i`, so a span found in the shadow maps back to the exact
  * original bytes to mask.
  */
-function normalizeForSecretScan(text: string, formatCharacters: FormatCharacterHandling): { shadow: string; map: number[] } {
+function normalizeForSecretScan(text: string, formatCharacters: FormatCharacterHandling): Shadow {
   let shadow = ""
   const map: number[] = []
+  const seams = new Set<number>()
+  let dropped = false
   for (let index = 0; index < text.length; ) {
     // Walk by code point: a format character above U+FFFF (the tag block) is two UTF-16 units, and
     // neither lone surrogate matches \p{Cf}, so a per-unit walk would keep it in the shadow.
@@ -81,15 +83,21 @@ function normalizeForSecretScan(text: string, formatCharacters: FormatCharacterH
       shadow += " "
       map.push(index)
     } else if (!control && !FORMAT_CHARACTER.test(char)) {
+      if (dropped) seams.add(shadow.length)
+      dropped = false
       shadow += char
       for (let unit = 0; unit < width; unit += 1) map.push(index + unit)
+    } else {
+      dropped = true
     }
     index += width
   }
-  return { shadow, map }
+  if (dropped) seams.add(shadow.length)
+  return { shadow, map, seams }
 }
 
-type Shadow = { readonly shadow: string; readonly map: readonly number[] }
+/** `seams` are the shadow indices where a dropped character used to sit, i.e. where a word boundary may be hidden. */
+type Shadow = { readonly shadow: string; readonly map: readonly number[]; readonly seams: ReadonlySet<number> }
 
 function originalSpan({ map }: Shadow, start: number, end: number): { start: number; end: number } | undefined {
   const originalStart = map[start]
@@ -111,6 +119,36 @@ function patternMatches(scan: Shadow, patternClass: SecretPatternClass, source: 
 
 const containedByAny = (matches: readonly SecretMatch[], span: SecretMatch): boolean =>
   matches.some((existing) => existing.start <= span.start && span.end <= existing.end)
+
+const WORD = /[A-Za-z0-9_]/
+const LEADING_BOUNDARY = "\\b"
+
+/**
+ * Boundary-anchored patterns retried at every seam of the joined shadow, with the leading `\b` replaced by
+ * the seam itself. A dropped character that glued a word to a token hides that boundary, and the separated
+ * scan only sees the token up to the next inner character, so neither pass alone masks the whole token.
+ * A trailing `\b` must still hold, or the match must end at another seam.
+ */
+function seamMatches(scan: Shadow): SecretMatch[] {
+  const found: SecretMatch[] = []
+  for (const [patternClass, source, flags] of SECRET_PATTERN_SOURCES) {
+    if (!source.startsWith(LEADING_BOUNDARY)) continue
+    const trailing = source.endsWith(LEADING_BOUNDARY)
+    const body = source.slice(LEADING_BOUNDARY.length, trailing ? -LEADING_BOUNDARY.length : undefined)
+    const pattern = new RegExp(body, `${flags}y`)
+    for (const seam of scan.seams) {
+      pattern.lastIndex = seam
+      const match = pattern.exec(scan.shadow)
+      if (match === null) continue
+      const end = seam + match[0].length
+      const boundary = WORD.test(scan.shadow[end - 1] ?? "") !== WORD.test(scan.shadow[end] ?? "")
+      if (trailing && !boundary && !scan.seams.has(end)) continue
+      const span = originalSpan(scan, seam, end)
+      if (span !== undefined) found.push({ class: patternClass, ...span })
+    }
+  }
+  return found
+}
 
 export function scanSecretLikeMaterial(value: string): SecretMatch[] {
   if (!value) return []
@@ -134,6 +172,7 @@ export function scanSecretLikeMaterial(value: string): SecretMatch[] {
   for (const [patternClass, source, flags] of SECRET_PATTERN_SOURCES) {
     for (const match of patternMatches(separated, patternClass, source, flags)) if (!containedByAny(matches, match)) matches.push(match)
   }
+  for (const match of seamMatches(joined)) if (!containedByAny(matches, match)) matches.push(match)
   for (const match of patternMatches(joined, "split_credential_assignment", SPLIT_CREDENTIAL_ASSIGNMENT_SOURCE, "i")) {
     if (!containedByAny(matches, match)) matches.push(match)
   }
