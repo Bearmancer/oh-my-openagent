@@ -57,64 +57,85 @@ const SPLIT_CREDENTIAL_ASSIGNMENT_SOURCE = `(?:a\\s*u\\s*t\\s*h\\s*o\\s*r\\s*i\\
 
 const FORMAT_CHARACTER = /\p{Cf}/u
 
+type FormatCharacterHandling = "drop" | "separate"
+
 /**
- * Build a scan shadow of `text`: Unicode format characters (zero-width
- * codepoints, bidi controls, BOM) and C0 controls other than LF/TAB are
- * dropped, and NBSP folds to a plain space. `map[i]` is the original string
- * index of shadow character `i`, so a span found in the shadow maps back to
- * the exact original bytes to mask.
+ * Build a scan shadow of `text`: NBSP folds to a plain space, and C0 controls other than LF/TAB and
+ * Unicode format characters (zero-width codepoints, bidi controls, BOM, tag characters) are either
+ * dropped, which rejoins a secret split inside a word, or turned into a space, which keeps
+ * the word boundary the patterns anchor on when one glues a word character to a secret. `map[i]` is
+ * the original string index of shadow unit `i`, so a span found in the shadow maps back to the exact
+ * original bytes to mask.
  */
-function normalizeForSecretScan(text: string): { shadow: string; map: number[] } {
+function normalizeForSecretScan(text: string, formatCharacters: FormatCharacterHandling): { shadow: string; map: number[] } {
   let shadow = ""
   const map: number[] = []
-  for (let index = 0; index < text.length; index += 1) {
-    const code = text.charCodeAt(index)
-    if (code === 0x00a0) {
+  for (let index = 0; index < text.length; ) {
+    // Walk by code point: a format character above U+FFFF (the tag block) is two UTF-16 units, and
+    // neither lone surrogate matches \p{Cf}, so a per-unit walk would keep it in the shadow.
+    const code = text.codePointAt(index) ?? 0
+    const width = code > 0xffff ? 2 : 1
+    const char = text.slice(index, index + width)
+    const control = code < 0x20 && code !== 0x0a && code !== 0x09
+    if (code === 0x00a0 || (formatCharacters === "separate" && (control || FORMAT_CHARACTER.test(char)))) {
       shadow += " "
       map.push(index)
-      continue
+    } else if (!control && !FORMAT_CHARACTER.test(char)) {
+      shadow += char
+      for (let unit = 0; unit < width; unit += 1) map.push(index + unit)
     }
-    const char = text.charAt(index)
-    if ((code < 0x20 && code !== 0x0a && code !== 0x09) || FORMAT_CHARACTER.test(char)) continue
-    shadow += char
-    map.push(index)
+    index += width
   }
   return { shadow, map }
 }
 
+type Shadow = { readonly shadow: string; readonly map: readonly number[] }
+
+function originalSpan({ map }: Shadow, start: number, end: number): { start: number; end: number } | undefined {
+  const originalStart = map[start]
+  const originalLast = map[end - 1]
+  if (originalStart === undefined || originalLast === undefined) return undefined
+  return { start: originalStart, end: originalLast + 1 }
+}
+
+function patternMatches(scan: Shadow, patternClass: SecretPatternClass, source: string, flags: string): SecretMatch[] {
+  const found: SecretMatch[] = []
+  const pattern = new RegExp(source, `${flags}g`)
+  let match: RegExpExecArray | null
+  while ((match = pattern.exec(scan.shadow)) !== null) {
+    const span = originalSpan(scan, match.index, match.index + match[0].length)
+    if (span !== undefined) found.push({ class: patternClass, ...span })
+  }
+  return found
+}
+
+const containedByAny = (matches: readonly SecretMatch[], span: SecretMatch): boolean =>
+  matches.some((existing) => existing.start <= span.start && span.end <= existing.end)
+
 export function scanSecretLikeMaterial(value: string): SecretMatch[] {
   if (!value) return []
+  const joined = normalizeForSecretScan(value, "drop")
+  const separated = normalizeForSecretScan(value, "separate")
   const matches: SecretMatch[] = []
-  const { shadow, map } = normalizeForSecretScan(value)
-  const toOriginalSpan = (start: number, end: number): { start: number; end: number } | undefined => {
-    const originalStart = map[start]
-    const originalLast = map[end - 1]
-    if (originalStart === undefined || originalLast === undefined) return undefined
-    return { start: originalStart, end: originalLast + 1 }
-  }
   let pemOffset = 0
   while (true) {
-    const block = findPemBlock(shadow, pemOffset)
+    const block = findPemBlock(joined.shadow, pemOffset)
     if (block === undefined) break
-    const span = toOriginalSpan(block.start, block.end)
+    const span = originalSpan(joined, block.start, block.end)
     if (span !== undefined) matches.push({ class: "pem_block", ...span })
     pemOffset = block.end
   }
+  for (const [patternClass, source, flags] of SECRET_PATTERN_SOURCES) matches.push(...patternMatches(joined, patternClass, source, flags))
+  // A format character between a word character and a secret hides the secret's leading or trailing
+  // \b once dropped; the separated shadow keeps that boundary. A separated match is kept unless a joined
+  // match already covers all of it: one that only overlaps (a token read through the next key) would
+  // otherwise leave the rest of the secret unmasked. The split pass follows the same rule. Masking merges
+  // the overlapping spans.
   for (const [patternClass, source, flags] of SECRET_PATTERN_SOURCES) {
-    const pattern = new RegExp(source, `${flags}g`)
-    let match: RegExpExecArray | null
-    while ((match = pattern.exec(shadow)) !== null) {
-      const span = toOriginalSpan(match.index, match.index + match[0].length)
-      if (span !== undefined) matches.push({ class: patternClass, ...span })
-    }
+    for (const match of patternMatches(separated, patternClass, source, flags)) if (!containedByAny(matches, match)) matches.push(match)
   }
-  const splitPattern = new RegExp(SPLIT_CREDENTIAL_ASSIGNMENT_SOURCE, "gi")
-  let splitMatch: RegExpExecArray | null
-  while ((splitMatch = splitPattern.exec(shadow)) !== null) {
-    const span = toOriginalSpan(splitMatch.index, splitMatch.index + splitMatch[0].length)
-    if (span === undefined) continue
-    const covered = matches.some((existing) => existing.start < span.end && span.start < existing.end)
-    if (!covered) matches.push({ class: "split_credential_assignment", ...span })
+  for (const match of patternMatches(joined, "split_credential_assignment", SPLIT_CREDENTIAL_ASSIGNMENT_SOURCE, "i")) {
+    if (!containedByAny(matches, match)) matches.push(match)
   }
   return matches.sort((a, b) => a.start - b.start || a.end - b.end)
 }
