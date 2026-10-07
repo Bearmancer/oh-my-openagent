@@ -562,7 +562,7 @@ describe("doctor receipts and quarantined runs", () => {
     await mkdir(runDir, { recursive: true })
     const record = {
       version: 1, runId: "run-quarantined", kind: "reflection", trigger: "step-count", generation: at(3 * HOUR_MS),
-      reason: "invalid_generation_timestamps", quarantinedAt: at(2 * HOUR_MS), evidence: ["final.json", "ledger.json"],
+      reason: "ledger_unreadable", quarantinedAt: at(2 * HOUR_MS), evidence: ["final.json", "ledger.json"],
     }
     await writeFile(join(runDir, "quarantined.json"), JSON.stringify(record))
 
@@ -571,9 +571,9 @@ describe("doctor receipts and quarantined runs", () => {
     const report = JSON.parse(await invoke(pi, "doctor", "--json", ctx))
 
     // then
-    expect(text).toContain(`[warn] quarantined-runs: 1 run needs manual disposal: ${runDir} (invalid_generation_timestamps)`)
+    expect(text).toContain(`[warn] quarantined-runs: 1 run needs manual disposal: ${runDir} (ledger_unreadable)`)
     expect(report.quarantinedRuns).toEqual([{
-      runId: "run-quarantined", reason: "invalid_generation_timestamps", at: record.quarantinedAt, dir: runDir, evidence: record.evidence,
+      runId: "run-quarantined", reason: "ledger_unreadable", at: record.quarantinedAt, dir: runDir, evidence: record.evidence,
     }])
     expect(report.level).toBe("warn")
   })
