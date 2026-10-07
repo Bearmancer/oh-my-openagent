@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// omo-codex-install:c86d3121f7da3a52cf5ab6a8ad73fd7cdc7cf4cca9a404ed2a60f5f1d8ea53df:9a091df8219f89108847bbe7812800b4e4d8172a9a3cd3ce9c361e230cf2dd6b
+// omo-codex-install:92535651f6a6dfde3dc8bc542b5da6cbdd2188d113f1969962425de128256995:b35d0e440778293416d5dd7f5ee0aaf369770c195168a22b9b31cb353a26629e
 var __esm = (fn, res, err) => () => {
   if (fn)
     try {
@@ -9984,7 +9984,7 @@ var package_default;
 var init_package = __esm(() => {
   package_default = {
     name: "@oh-my-opencode/omo-codex",
-    version: "5.1.20",
+    version: "5.1.21",
     type: "module",
     private: true,
     description: "Codex harness adapter for oh-my-openagent. Vendored Codex plugin namespace (omo) + TypeScript installer + telemetry.",
@@ -19549,6 +19549,14 @@ var OmoMemorySoulLayerSchema = object({
 var OmoMemoryWriteNoticeLayerSchema = object({
   enabled: boolean2().optional()
 }).strict();
+var OmoMemoryProjectionSchema = object({
+  max_entries_per_directory: number2().int().min(0).default(40),
+  max_bytes: number2().int().min(0).default(24576)
+}).strict();
+var OmoMemoryProjectionLayerSchema = object({
+  max_entries_per_directory: number2().int().min(0).optional(),
+  max_bytes: number2().int().min(0).optional()
+}).strict();
 var OmoMemoryAgentOverridesSchema = object({
   enabled: boolean2().optional(),
   agent: string2().min(1).optional(),
@@ -19562,6 +19570,7 @@ var OmoMemoryAgentOverridesSchema = object({
   sync: OmoMemorySyncLayerSchema.optional(),
   search: OmoMemorySearchLayerSchema.optional(),
   recall: OmoMemoryRecallLayerSchema.optional(),
+  projection: OmoMemoryProjectionLayerSchema.optional(),
   compile_warn_tokens: number2().int().positive().optional()
 }).strict();
 var OmoMemorySettingsSchema = object({
@@ -19600,6 +19609,7 @@ var OmoMemorySettingsSchema = object({
     tool_budget: 8,
     query_expansion: false
   }),
+  projection: OmoMemoryProjectionSchema.default({ max_entries_per_directory: 40, max_bytes: 24576 }),
   compile_warn_tokens: number2().int().positive().default(30000),
   agents: record(string2(), OmoMemoryAgentOverridesSchema).default({})
 }).strict();
@@ -19616,6 +19626,7 @@ var OmoMemorySettingsLayerSchema = object({
   sync: OmoMemorySyncLayerSchema.optional(),
   search: OmoMemorySearchLayerSchema.optional(),
   recall: OmoMemoryRecallLayerSchema.optional(),
+  projection: OmoMemoryProjectionLayerSchema.optional(),
   compile_warn_tokens: number2().int().positive().optional(),
   agents: record(string2(), OmoMemoryAgentOverridesSchema).optional()
 }).strict();
