@@ -1,18 +1,12 @@
 import { markRecordLostForReconciliation, type TaskRecord } from "../state"
 import { nowIso, TERMINAL_STATUSES, type LifecycleContext } from "./context"
+import { LOST_ON_EXHAUSTION, SCOPED_RETRY_REASONS } from "./deferred-revival-reasons"
 import { destroyResidentTask } from "./destroy"
 import { isHostSessionRecord } from "./host-session"
 import { reconcileScopedRevival } from "./reconcile-revival"
 import { newestSessionPath } from "./session-path"
+import { suspendOnSessionShutdown } from "./shutdown"
 
-export const SCOPED_RETRY_REASONS: ReadonlySet<string> = new Set([
-  "capacity", "lock_contended", "model_unavailable", "session_unavailable",
-  "rollback_failed", "foreign_live_owner",
-])
-
-const LOST_ON_EXHAUSTION: ReadonlySet<string> = new Set([
-  "model_unavailable", "session_unavailable", "rollback_failed", "lock_contended",
-])
 
 /**
  * Sessions whose scoped retries must stop: the engine shut that session down or was disposed. A retry
@@ -88,6 +82,14 @@ export async function retryDeferredScopedChild(
       [fresh],
       (id) => newestSessionPath(context, id),
     )
+    if (retriesStopped(context, parentSessionId)) {
+      // The session shut down (or the engine was disposed) while this attempt was reviving the child.
+      // Shutdown's sweep ran before the child had a handle, so suspend it now, as that sweep would have.
+      if (context.registry.get(taskId) !== undefined) {
+        await suspendOnSessionShutdown(context, { parentSessionId, reason: "revived_after_shutdown" })
+      }
+      return
+    }
     const outcome = outcomes.find((entry) => entry.task_id === taskId)
     if (outcome?.kind !== "deferred" || outcome.reason === undefined) return
     reason = outcome.reason

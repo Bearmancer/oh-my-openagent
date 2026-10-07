@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 
 import { interactionPolicyForAgent } from "../agents"
+import { LOST_ON_EXHAUSTION } from "../lifecycle/deferred-revival-reasons"
 import { nextRunEpoch, type TaskRecord } from "../state"
 import type { SendInput, SendOutcome } from "./types"
 
@@ -26,9 +27,10 @@ export function scopeDenied(record: TaskRecord, input: SendInput): SendOutcome |
 
 /** What happens next to a deferred revival: capacity and a live owner wait for the other side to move. */
 function deferralOutlook(reason: string): string {
-  if (reason === "capacity") return "it is revived when a running child finishes or is reclaimed."
+  if (reason === "capacity") return "it is retried while a running child finishes or is reclaimed, and otherwise at the session's next start."
   if (reason === "foreign_live_owner") return "another live session holds it, and it stays with that session."
-  return "it is retried a few times, then marked lost if it still cannot be revived."
+  if (LOST_ON_EXHAUSTION.has(reason)) return "it is retried a few times, then marked lost if it still cannot be revived."
+  return "it is not retried; it stays suspended until its session starts again."
 }
 
 export function notContinuableReason(record: TaskRecord): string {

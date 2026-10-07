@@ -7,7 +7,8 @@ import { parkedReason, reachRecordedHost, type HostParkedReason, type RecordedHo
 import { markSuspensionReason, parkHostSessionRecord } from "./host-session-record"
 import { deferred, reviveClaimed } from "./reconcile-reclamation"
 import { claimResidencySlot } from "./residency"
-import { retryDeferredScopedChild, SCOPED_RETRY_REASONS } from "./deferred-revival"
+import { retryDeferredScopedChild } from "./deferred-revival"
+import { SCOPED_RETRY_REASONS } from "./deferred-revival-reasons"
 import type { ReconcileOutcome } from "./types"
 
 /**

@@ -18,6 +18,9 @@ function harness(options: {
   rollback?: boolean
   foreign?: boolean
   gateWait?: (ms: number) => Promise<void>
+  respawnGate?: (attempt: number) => Promise<void>
+  /** Reattach registers the live handle, as the manager's residency view does in production. */
+  attachOnReattach?: boolean
 } = {}) {
   const raw = tempStore()
   const taskId = "st_94980001"
@@ -34,6 +37,7 @@ function harness(options: {
   const revived = event("reconcile_reattached")
   const exhausted = event("revival_retry_exhausted")
   const lost = event("reconcile_lost")
+  const suspended = event("suspended")
   const store = {
     ...raw,
     mutate: (id: string, mutation: Parameters<typeof raw.mutate>[1]) => raw.mutate(id, (fresh) => {
@@ -62,6 +66,7 @@ function harness(options: {
     ...(options.gateWait ? { gateWait: options.gateWait } : {}),
     respawn: async (record) => {
       attempts += 1
+      await options.respawnGate?.(attempts)
       if (!options.succeeds || attempts === 1) {
         return { ok: false, disposition: "retryable", code: options.failure ?? "model_unavailable", reason: "temporarily unavailable" }
       }
@@ -98,9 +103,20 @@ function harness(options: {
   }
   const lifecycle = createTaskLifecycle({
     ...fixture.deps,
+    ...(options.attachOnReattach
+      ? {
+          reattach: async (record: { task_id: string }) => {
+            fixture.registry.add({
+              task_id: record.task_id, kind: "in-process", pid: undefined,
+              abort: async () => undefined, dispose: async () => undefined, terminate: async () => undefined,
+            })
+            return { ok: true as const }
+          },
+        }
+      : {}),
     ...(options.lock ? { reconcileAdmission: { acquireLease: async () => ({ kind: "contended" as const }) } } : {}),
   })
-  return { store, taskId, fixture, lifecycle, revived, exhausted, lost, attempts: () => attempts }
+  return { store, taskId, fixture, lifecycle, revived, exhausted, lost, suspended, attempts: () => attempts }
 }
 
 async function resume(h: ReturnType<typeof harness>) {
@@ -274,4 +290,47 @@ describe("bounded resumed-child revival (omo#9498)", () => {
       gate.resolve()
     }
   }, 10_000)
+
+  // Review round 2 of omo#9714 (MEDIUM-1): shutdown lands while a retry is inside its revival attempt.
+  test("a retry whose revival completes after its session shut down leaves the child suspended, not resident", async () => {
+    const inRespawn = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const h = harness({
+      succeeds: true,
+      attachOnReattach: true,
+      respawnGate: (attempt) => {
+        if (attempt !== 2) return Promise.resolve()
+        inRespawn.resolve()
+        return release.promise
+      },
+    })
+    try {
+      await h.lifecycle.reconcileOnSessionStart("parent-1")
+      await inRespawn.promise
+      await h.lifecycle.suspendOnSessionShutdown({ parentSessionId: "parent-1", reason: "quit" })
+      release.resolve()
+      await h.revived
+      // Subscribed before the attempt: the late suspend's own record event, not a timing guess.
+      expect(await h.suspended).toEqual({ reason: "revived_after_shutdown" })
+
+      expect(h.fixture.registry.get(h.taskId)).toBeUndefined()
+      expect(h.store.load(h.taskId)?.residency_state).not.toBe("resident")
+      expect(h.store.load(h.taskId)?.status).toBe("running")
+    } finally {
+      h.lifecycle.dispose?.()
+    }
+  }, 10_000)
+
+  test("the deferral text says what happens next for each reason", () => {
+    const record = (reason: string) => ({
+      task_id: "st_94980009", residency_state: "persisted_only", suspension_reason: "revival_deferred",
+      revival_deferred_reason: reason,
+    }) as unknown as Parameters<typeof notContinuableReason>[0]
+    expect(notContinuableReason(record("model_unavailable"))).toContain("retried a few times, then marked lost")
+    expect(notContinuableReason(record("lock_contended"))).toContain("retried a few times, then marked lost")
+    expect(notContinuableReason(record("capacity"))).toContain("otherwise at the session's next start")
+    expect(notContinuableReason(record("foreign_live_owner"))).toContain("stays with that session")
+    expect(notContinuableReason(record("reattach_disabled"))).toContain("is not retried")
+    expect(notContinuableReason(record("reattach_disabled"))).not.toContain("marked lost")
+  })
 })
