@@ -1,9 +1,9 @@
-import { afterEach, describe, expect, setDefaultTimeout, test } from "bun:test"
+import { afterEach, describe, expect, setDefaultTimeout, spyOn, test } from "bun:test"
 import { mkdir, writeFile } from "node:fs/promises"
 import { hostname } from "node:os"
 import { join } from "node:path"
 
-import { FactsFailureStore, memoryWriterLockPath } from "@oh-my-opencode/memory-core"
+import { FactsFailureStore, GitMemoryRepo, memoryWriterLockPath } from "@oh-my-opencode/memory-core"
 
 import { MemoryFakeExtensionAPI, memorySettings } from "../memory.test-support"
 import {
@@ -410,6 +410,19 @@ describe("/doctor", () => {
 
     // then
     expect(text).toMatch(/^\[ok\] projection: \d+ entries shown, 0 omitted, \d+ bytes \(limits 40\/dir, 24576 bytes\)$/m)
+  })
+
+  test("#given commit times that cannot be read #when doctor runs #then the projection check warns that names fell back to name order", async () => {
+    // given
+    const { identity, pi, ctx } = await harness({ seeded: false })
+    await seededRepo(identity, [...SEEDS, { relativePath: "reference/a.md", content: "---\ndescription: A\n---\na\n" }])
+    const commitTimes = spyOn(GitMemoryRepo.prototype, "pathCommitTimes").mockRejectedValue(new Error("git log timed out"))
+
+    // when
+    const text = await invoke(pi, "doctor", "", ctx).finally(() => commitTimes.mockRestore())
+
+    // then
+    expect(text).toMatch(/^\[warn\] projection: 1 entries shown, 0 omitted, \d+ bytes \(limits 40\/dir, 24576 bytes\); commit times unreadable, names listed in name order$/m)
   })
 
   test("#given more names than the per-directory limit #when doctor runs #then the omitted count is a warning", async () => {
