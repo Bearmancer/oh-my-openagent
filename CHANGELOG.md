@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.24] - 2026-10-07
+
 **A task child that fails to start now says why.** Instead of only "Child prompt failed to start.", the task record, the event log and the tool result name the cause in one line: the host took too long to answer, the host refused the prompt (with its error code), the connection was lost, or the child exited first (with its exit code or signal). Raw error text still never reaches any of them. ([#9703](https://github.com/code-yeongyu/oh-my-openagent/issues/9703), [#9704](https://github.com/code-yeongyu/oh-my-openagent/pull/9704))
 
 ### Fixed
