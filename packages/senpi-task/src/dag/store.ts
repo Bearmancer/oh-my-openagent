@@ -5,7 +5,7 @@ import { basename, dirname, join } from "node:path"
 
 import { defaultSignaller } from "../lifecycle/context"
 import { resolveStateDir } from "../store/state-dir"
-import { DAG_SETTINGS_DEFAULTS, type DagEventLane, type DagRunEvent, type DagRunId, type DagRunStatus, type DagSettings } from "./types"
+import { DAG_SETTINGS_DEFAULTS, type DagEventLane, type DagRunEvent, type DagRunId, type DagRunStatus, type DagSettings, isTerminalDagRunStatus } from "./types"
 import type { DagRunEventType } from "./events"
 
 const SCHEMA_VERSION = 1
@@ -343,6 +343,7 @@ function writeCheckpointWithinSessionLimit(
       writeJsonAtomic(path, checkpoint, platform, fsyncWrites)
       return
     }
+    // Only runs that can still hold a scheduler count: a finished run waits for retention, not a slot.
     let runCount = 0
     for (const entry of readDagDirectory(paths.runs)) {
       if (!entry.isFile() || !entry.name.endsWith(".json")) continue
@@ -351,11 +352,15 @@ function writeCheckpointWithinSessionLimit(
       const existing = readJsonFile(existingPath, existingRunId, now)
       if (existing === null) continue
       assertSupportedSchema(existing, existingPath, existingRunId, now)
-      if (readOptionalString(existing, "parentSessionId") === parentSessionId) runCount += 1
+      if (readOptionalString(existing, "parentSessionId") !== parentSessionId) continue
+      if (isTerminalDagRunStatus(readOptionalString(existing, "status"))) continue
+      runCount += 1
     }
     if (runCount >= maxRunsPerSession) {
       fs.rmSync(join(paths.root, "skills", `${runId}.json`), { force: true })
-      throw new Error(`DAG session run limit reached: ${maxRunsPerSession}`)
+      throw new Error(
+        `DAG session run limit reached: ${maxRunsPerSession} runs are still active in this session; wait for one to finish or raise task.dag.max_runs_per_session`,
+      )
     }
     writeJsonAtomic(path, checkpoint, platform, fsyncWrites)
   }, isProcessAlive, now, fsyncWrites)
