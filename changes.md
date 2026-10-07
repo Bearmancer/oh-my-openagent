@@ -2,6 +2,22 @@
 
 A task child whose first prompt was rejected reported only "Child prompt failed to start." in the task record, the event log and the tool result, so a host timeout, a host refusal, a lost connection and a child that crashed before taking its prompt all looked the same. The start failure now names the cause in one sanitized line: the request that got no answer in time (`request_timeout`), the host's refusal with its error code when the code is a plain identifier (`host_refused`), a lost connection (`transport_lost`), or the child's exit (kind plus code or signal). The event log also carries `cause_class`, `timed_out_command` and `cause_code`. Raw error text, which can carry a stderr tail, still never reaches a record, an event or the tool result, and an unrecognized cause keeps the previous message.
 
+## 2026-10-07 - Memory maintenance runs write receipts, unrecoverable runs are quarantined, and recovery is kill-tested (#9689)
+
+Reflection, dream and facts runs now leave an append-only record of what they did:
+`receipts.jsonl` in the identity's runtime directory, one JSON line per event (`launched`,
+`recovered`, `merged`, `no_changes`, `failed`, `abandoned`, `quarantined`, and for facts
+`committed`, `no_facts`, `failed`, `parked`). A receipt is written after the run's own
+terminal file, and the next startup rebuilds a lost one from that file, so each outcome is
+recorded exactly once. Startup reconciliation no longer throws on invalid timestamps or keeps a
+reservation forever behind an unreadable ledger. Under a launcher proven dead, such a run is
+quarantined: its files stay, `quarantined.json` names the reason, and the reservation is
+released so later runs proceed. A supervisor that dies after its child committed a valid result
+no longer loses it: startup validates and merges the tip. A launch interrupted before its run
+started is recorded as `abandoned` instead of being deleted. `/doctor` shows the newest
+receipt per kind and lists quarantined runs. A crash test kills a real process at each of seven
+points and checks that recovery settles every run once with its evidence intact.
+
 ## 2026-10-07 - Adopt senpi 2026.10.10-5
 
 Every `@code-yeongyu/senpi` pin moves from 2026.10.10-4 to 2026.10.10-5: the root devDependency, `omo-native` and its provider map comment, the `omo-senpi` and `senpi-task` peer and dev pins (with their `senpi-tui` and `senpi-ai` aliases), the pin tests and the engine named in `senpi-task`'s coverage test. The engine carries the attach permission-preset fix (senpi#2823), the streaming scroll fix (senpi#2836), the codemode stop/require/name-shadowing and live-row fixes, and the `show_html_page` tool. The generated plugin bundles are regenerated for it on Linux.
