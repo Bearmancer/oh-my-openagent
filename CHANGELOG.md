@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.22] - 2026-10-07
+
 **An agent or the command line can now steer a terminal session you have open.** Thread tools switch a terminal session's model and thinking level and interrupt its turn, applied exactly as the pane's own `/model`, level selector or Esc would; a terminal on an older engine keeps refusing them. A message delivered by another session or the command line shows up in the receiving terminal under one line naming its sender, with the message as written. ([#9660](https://github.com/code-yeongyu/oh-my-openagent/issues/9660), [#9662](https://github.com/code-yeongyu/oh-my-openagent/pull/9662), [#9664](https://github.com/code-yeongyu/oh-my-openagent/pull/9664))
 
 ### Added
