@@ -246,6 +246,8 @@ Defaults                   (Zod schema defaults)
 
 Schema autocomplete: `"$schema": "https://raw.githubusercontent.com/code-yeongyu/oh-my-openagent/dev/assets/omo.schema.json"`
 
+**Reserved in `~/.omo`:** `desktop/` and `desktop.init-*` belong to the OmO desktop app (its data home: a live SQLite database and worktrees; `OMO_DESKTOP_HOME` is the desktop's variable, code-yeongyu/omo-desktop-app#1829). No omo code may create, reset, archive, flatten, migrate, prune, copy or sync those entries; any code that walks `~/.omo` top-level entries must skip them (#9727).
+
 ## THREE-TIER MCP SYSTEM
 
 | Tier | Source | Loader | Mechanism |
