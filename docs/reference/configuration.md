@@ -750,8 +750,9 @@ line is one lifecycle event: `launched`, `recovered`, `merged`, `no_changes`,
 `committed`, `no_facts`, `failed` and `parked` for facts batches. A receipt is
 written after the run's own terminal file, and a lost reflection or dream
 receipt is rebuilt from that file at the next startup, so each run outcome is
-recorded exactly once. The
-check warns when the file ends in a partial line.
+recorded exactly once. A lost facts receipt is rebuilt from the batch's
+`final.json` or `abandoned.json` with its event and sha only; a lost `parked`
+receipt is not rebuilt. The check warns when the file ends in a partial line.
 
 `quarantined-runs` lists unfinished runs that startup reconciliation could
 neither finish nor release: an unreadable ledger, a run directory that never

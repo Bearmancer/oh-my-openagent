@@ -1,7 +1,7 @@
 // Crash-recovery driver: every path that can reach a kill point runs here, in a child the e2e test
 // starts with an explicit environment, never in the test process.
 //
-//   --root <dir> --run [--dream] [--child commit|noop|commit-fail|commit-hang] [--deadline-ms <n>] [--kill-self-after-supervisor-exit]
+//   --root <dir> --run [--dream] [--child commit|noop|commit-fail|commit-hang|commit-late-ok] [--deadline-ms <n>] [--kill-self-after-supervisor-exit]
 //   --root <dir> --reconcile [--fail-receipt <event>] [--now-offset-ms <n>]
 
 import { join } from "node:path"
@@ -31,7 +31,7 @@ if (root === undefined) throw new Error("--root is required")
 const report = (line: string) => { process.stdout.write(`${line}\n`) }
 const childMode = (mode: string | undefined) => {
   if (mode === undefined) return "commit" as const
-  if (mode === "noop" || mode === "commit-fail" || mode === "commit-hang") return mode
+  if (mode === "noop" || mode === "commit-fail" || mode === "commit-hang" || mode === "commit-late-ok") return mode
   throw new Error(`unknown --child mode ${mode}`)
 }
 

@@ -91,17 +91,22 @@ export async function recoverUnpublishedWorktreeTip(
 }
 
 async function readCleanChildExit(runDir: string, ledger: ReservationRunLedger): Promise<RunChildExit | undefined> {
-  let exit: RunChildExit
+  let exit: unknown
   try {
-    exit = await readRunJson<RunChildExit>(join(runDir, CHILD_EXIT_FILENAME))
+    exit = await readRunJson<unknown>(join(runDir, CHILD_EXIT_FILENAME))
   } catch {
     return undefined
   }
-  const finishedAt = Date.parse(exit.finishedAt)
-  const clean = exit.runId === ledger.runId && exit.attempt === ledger.attempt
-    && exit.code === 0 && exit.signal === null && exit.timedOut === false
-    && Number.isFinite(finishedAt) && finishedAt < ledger.hardDeadlineAt
-  return clean ? exit : undefined
+  if (typeof exit !== "object" || exit === null) return undefined
+  const record = exit as Partial<RunChildExit>
+  if (typeof record.finishedAt !== "string") return undefined
+  const finishedAt = Date.parse(record.finishedAt)
+  const startedAt = Date.parse(ledger.startedAt)
+  const clean = record.runId === ledger.runId && record.attempt === ledger.attempt
+    && record.code === 0 && record.signal === null && record.timedOut === false
+    && Number.isFinite(finishedAt) && Number.isFinite(startedAt)
+    && finishedAt >= startedAt && finishedAt < ledger.hardDeadlineAt
+  return clean ? record as RunChildExit : undefined
 }
 
 async function emitRecovered(context: RunFinalizationContext, ledger: ReservationRunLedger): Promise<void> {

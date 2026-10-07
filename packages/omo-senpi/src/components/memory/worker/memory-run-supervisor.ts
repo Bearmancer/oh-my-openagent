@@ -64,11 +64,14 @@ async function runChildBootstrap(runDir: string): Promise<void> {
   }
   process.on("SIGTERM", cascadeGraceful)
   process.on("SIGINT", cascadeGraceful)
+  let deadlineFired = false
   const cancelTerm = scheduleSupervisorDeadline(manifest.hardDeadlineAt, () => {
+    deadlineFired = true
     if (platform === "win32") terminateSupervisorChildGracefully(platform, child)
     else signalSupervisorProcessGroup(process.pid, "SIGTERM")
   })
   const cancelKill = scheduleSupervisorDeadline(manifest.hardDeadlineAt + manifest.terminationGraceMs, () => {
+    deadlineFired = true
     terminateSupervisorChildHard(platform, process.pid)
   })
   const status = await new Promise<SupervisorChildExit>((resolve) => {
@@ -96,9 +99,14 @@ async function runChildBootstrap(runDir: string): Promise<void> {
     code: status.code,
     signal: status.signal,
     finishedAt: new Date().toISOString(),
-    timedOut: readSupervisorClockNow() >= manifest.hardDeadlineAt,
+    timedOut: deadlineFired || reachedDeadline(readSupervisorClockNow(), manifest.hardDeadlineAt),
   } satisfies RunChildExit)
   writeBootstrapStatus(status)
+}
+
+/** A clock the bootstrap cannot read counts as past the deadline, so recovery stays closed. */
+function reachedDeadline(now: number, hardDeadlineAt: number): boolean {
+  return !Number.isFinite(now) || now >= hardDeadlineAt
 }
 
 async function runSupervisor(runDir: string): Promise<void> {
