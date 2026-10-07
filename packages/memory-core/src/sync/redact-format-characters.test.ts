@@ -203,6 +203,48 @@ describe("scanSecretLikeMaterial / redactSecretLikeMaterial with format and cont
       // then
       expect(masked).toBe(embedded)
     })
+
+    it("#then a glued uppercase run whose only seam falls inside it is not masked as an AWS access key id", () => {
+      // given
+      const embedded = `before x${glue}AKIA012345\u200b6789ABCDEFGHIJKL after`
+
+      // when
+      const masked = redactSecretLikeMaterial(embedded)
+
+      // then
+      expect(masked).toBe(embedded)
+    })
+  })
+
+  describe("#given a second secret glued after one already matched, with an inner character in the second", () => {
+    const glue = String.fromCodePoint(0xe0020)
+    const inner = [["a zero-width space", "\u200b"], ["a NUL", "\u0000"], ["an ESC", "\u001b"]] as const
+
+    it.each(inner)("#then a credential assignment glued after another one is masked whole with %s", (_label, mid) => {
+      // given
+      const embedded = `note x${glue}token=abc123def456${glue}password: hunt${mid}er2xyz after`
+
+      // when
+      const masked = redactSecretLikeMaterial(embedded)
+
+      // then
+      expect(masked).not.toContain("hunt")
+      expect(masked).not.toContain("er2xyz")
+      expect(masked.endsWith(" after")).toBe(true)
+    })
+
+    it.each(inner)("#then an AWS access key id after two glued AKIA words is masked whole with %s", (_label, mid) => {
+      // given
+      const embedded = `note AKIA${glue}AKIA${glue}AKIAQWERTYUI${mid}OPASDFGH after`
+
+      // when
+      const masked = redactSecretLikeMaterial(embedded)
+
+      // then
+      expect(masked).not.toContain("QWERTYUI")
+      expect(masked).not.toContain("OPASDFGH")
+      expect(masked.endsWith(" after")).toBe(true)
+    })
   })
 
   describe("#given a control character inside a credential key or a vendor prefix", () => {

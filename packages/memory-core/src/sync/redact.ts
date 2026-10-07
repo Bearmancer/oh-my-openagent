@@ -154,7 +154,9 @@ const boundaryOrSeam = (scan: Shadow, end: number): boolean =>
  * character, so neither pass alone masks the whole token. A match may start at a seam (its leading `\b` is the
  * seam) or, for patterns that also end in `\b`, at a real boundary. Its end is the furthest position that is a
  * boundary or a seam and where the whole pattern still matches, the way the regex itself would backtrack.
- * Starts inside the previous accepted match are skipped, which keeps the pass linear.
+ * For a pattern ending in an unbounded run (`]+`), a start inside the previous accepted match reaches the same
+ * run end, so it is skipped; that keeps the pass linear on long runs. A bounded tail (a fixed length, or a value
+ * capped at 256 characters) can end past the accepted match from a later start, so those starts are still tried.
  */
 function seamMatches(scan: Shadow): SecretMatch[] {
   if (scan.seams.size === 0) return []
@@ -167,9 +169,10 @@ function seamMatches(scan: Shadow): SecretMatch[] {
     const sticky = new RegExp(body, `${flags}y`)
     const whole = new RegExp(`^(?:${body})$`, flags)
     const starts = trailing ? mergeSorted(seams, boundaryStarts(scan, `${LEADING_BOUNDARY}${body}`, flags)) : seams
+    const unboundedTail = body.endsWith("]+")
     let acceptedEnd = -1
     for (const start of starts) {
-      if (start < acceptedEnd) continue
+      if (unboundedTail && start < acceptedEnd) continue
       sticky.lastIndex = start
       const match = sticky.exec(scan.shadow)
       if (match === null) continue
