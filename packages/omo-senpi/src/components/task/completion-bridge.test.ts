@@ -8,6 +8,7 @@ import {
   createCompletionNotifier,
   createTaskManager,
   createTaskRecordStore,
+  markRecordLostForReconciliation,
   type ManagedChildHandle,
   type ManagedRunner,
   type ParentNotifierMessage,
@@ -45,6 +46,7 @@ function createHarness(): {
   readonly manager: TaskManager
   readonly messages: ParentNotifierMessage[]
   readonly complete: (taskId: string) => void
+  readonly lose: (taskId: string) => void
 } {
   const backing = createTaskRecordStore({ project_dir: tempProject() })
   const messages: ParentNotifierMessage[] = []
@@ -77,6 +79,12 @@ function createHarness(): {
         final_response: "completed after conversion",
       })
     },
+    lose: (taskId) => {
+      store.mutate(taskId, (record) => markRecordLostForReconciliation(record, {
+        timestamp: "2026-07-28T00:00:01.000Z",
+        error_message: "revival deferred: model_unavailable; exhausted 3 retry attempts",
+      }).record)
+    },
   }
 }
 
@@ -85,6 +93,23 @@ afterEach(() => {
 })
 
 describe("completion bridge live background promotion", () => {
+  it("#given a background child #when bounded revival marks it lost through mutate #then its parent is notified exactly once without another session start (omo#9498)", async () => {
+    const harness = createHarness()
+    const started = await harness.manager.start({
+      prompt: "work",
+      parent_session_id: "parent-session",
+      depth: 1,
+      category: "quick",
+      run_in_background: true,
+    })
+    if (started.kind !== "started") throw new Error("expected started task")
+    harness.lose(started.task_id)
+    harness.lose(started.task_id)
+    expect(harness.messages).toHaveLength(1)
+    expect(harness.messages[0]?.details[0]?.task_id).toBe(started.task_id)
+    expect(harness.messages[0]?.details[0]?.status).toBe("lost")
+  })
+
   it("#given a foreground start promoted before terminal #when completion applies #then the live manager flag delivers a notification", async () => {
     // given
     const harness = createHarness()
