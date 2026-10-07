@@ -67,9 +67,11 @@ type FormatCharacterHandling = "drop" | "separate"
  * the original string index of shadow unit `i`, so a span found in the shadow maps back to the exact
  * original bytes to mask.
  */
-function normalizeForSecretScan(text: string, formatCharacters: FormatCharacterHandling): { shadow: string; map: number[] } {
+function normalizeForSecretScan(text: string, formatCharacters: FormatCharacterHandling): Shadow {
   let shadow = ""
   const map: number[] = []
+  const seams = new Set<number>()
+  let dropped = false
   for (let index = 0; index < text.length; ) {
     // Walk by code point: a format character above U+FFFF (the tag block) is two UTF-16 units, and
     // neither lone surrogate matches \p{Cf}, so a per-unit walk would keep it in the shadow.
@@ -81,15 +83,20 @@ function normalizeForSecretScan(text: string, formatCharacters: FormatCharacterH
       shadow += " "
       map.push(index)
     } else if (!control && !FORMAT_CHARACTER.test(char)) {
+      if (dropped) seams.add(shadow.length)
+      dropped = false
       shadow += char
       for (let unit = 0; unit < width; unit += 1) map.push(index + unit)
+    } else {
+      dropped = true
     }
     index += width
   }
-  return { shadow, map }
+  return { shadow, map, seams }
 }
 
-type Shadow = { readonly shadow: string; readonly map: readonly number[] }
+/** `seams` are the shadow indices where a dropped character used to sit, i.e. where a word boundary may be hidden. */
+type Shadow = { readonly shadow: string; readonly map: readonly number[]; readonly seams: ReadonlySet<number> }
 
 function originalSpan({ map }: Shadow, start: number, end: number): { start: number; end: number } | undefined {
   const originalStart = map[start]
@@ -109,8 +116,101 @@ function patternMatches(scan: Shadow, patternClass: SecretPatternClass, source: 
   return found
 }
 
-const containedByAny = (matches: readonly SecretMatch[], span: SecretMatch): boolean =>
-  matches.some((existing) => existing.start <= span.start && span.end <= existing.end)
+/**
+ * "Is this span fully inside an existing match?" in O(log n): existing matches sorted by start, with the
+ * running maximum end, so the check is one binary search instead of a scan of every match.
+ */
+function containmentIndex(matches: readonly SecretMatch[]): (span: SecretMatch) => boolean {
+  const sorted = [...matches].sort((a, b) => a.start - b.start)
+  const maxEnd: number[] = []
+  for (const [index, match] of sorted.entries()) maxEnd.push(Math.max(match.end, maxEnd[index - 1] ?? -1))
+  return (span) => {
+    let low = 0
+    let high = sorted.length
+    while (low < high) {
+      const middle = (low + high) >> 1
+      if (sorted[middle].start <= span.start) low = middle + 1
+      else high = middle
+    }
+    return low > 0 && maxEnd[low - 1] >= span.end
+  }
+}
+
+const keepUncovered = (matches: SecretMatch[], candidates: readonly SecretMatch[]): void => {
+  const covered = containmentIndex(matches)
+  for (const candidate of candidates) if (!covered(candidate)) matches.push(candidate)
+}
+
+const WORD = /[A-Za-z0-9_]/
+const LEADING_BOUNDARY = "\\b"
+
+/** A JS `\b` between shadow indices `end - 1` and `end`, or a seam there (a dropped character that may hide one). */
+const boundaryOrSeam = (scan: Shadow, end: number): boolean =>
+  scan.seams.has(end) || WORD.test(scan.shadow[end - 1] ?? "") !== WORD.test(scan.shadow[end] ?? "")
+
+/**
+ * Boundary-anchored patterns retried around the seams of the joined shadow. A dropped character that glued a
+ * word to a token hides the token's boundary, and the separated scan only sees the token up to its next inner
+ * character, so neither pass alone masks the whole token. A match may start at a seam (its leading `\b` is the
+ * seam) or, for patterns that also end in `\b`, at a real boundary. Its end is the furthest position that is a
+ * boundary or a seam and where the whole pattern still matches, the way the regex itself would backtrack.
+ * For a pattern ending in an unbounded run (`]+`), a start inside the previous accepted match reaches the same
+ * run end, so it is skipped; that keeps the pass linear on long runs. A bounded tail (a fixed length, or a value
+ * capped at 256 characters) can end past the accepted match from a later start, so those starts are still tried.
+ */
+function seamMatches(scan: Shadow): SecretMatch[] {
+  if (scan.seams.size === 0) return []
+  const seams = [...scan.seams].sort((a, b) => a - b)
+  const found: SecretMatch[] = []
+  for (const [patternClass, source, flags] of SECRET_PATTERN_SOURCES) {
+    if (!source.startsWith(LEADING_BOUNDARY)) continue
+    const trailing = source.endsWith(LEADING_BOUNDARY)
+    const body = source.slice(LEADING_BOUNDARY.length, trailing ? -LEADING_BOUNDARY.length : undefined)
+    const sticky = new RegExp(body, `${flags}y`)
+    const whole = new RegExp(`^(?:${body})$`, flags)
+    const starts = trailing ? mergeSorted(seams, boundaryStarts(scan, `${LEADING_BOUNDARY}${body}`, flags)) : seams
+    const unboundedTail = body.endsWith("]+")
+    let acceptedEnd = -1
+    for (const start of starts) {
+      if (unboundedTail && start < acceptedEnd) continue
+      sticky.lastIndex = start
+      const match = sticky.exec(scan.shadow)
+      if (match === null) continue
+      let end = start + match[0].length
+      if (trailing) {
+        while (end > start && !boundaryOrSeam(scan, end)) end -= 1
+        if (end === start || !whole.test(scan.shadow.slice(start, end))) continue
+      }
+      // A match touching no seam is one the joined pass already reports.
+      if (!scan.seams.has(start) && !scan.seams.has(end)) continue
+      const span = originalSpan(scan, start, end)
+      if (span === undefined) continue
+      found.push({ class: patternClass, ...span })
+      acceptedEnd = end
+    }
+  }
+  return found
+}
+
+/** Start indices of the pattern's non-overlapping matches in the shadow. */
+function boundaryStarts(scan: Shadow, source: string, flags: string): number[] {
+  const starts: number[] = []
+  const pattern = new RegExp(source, `${flags}g`)
+  let match: RegExpExecArray | null
+  while ((match = pattern.exec(scan.shadow)) !== null) starts.push(match.index)
+  return starts
+}
+
+function mergeSorted(a: readonly number[], b: readonly number[]): number[] {
+  const merged: number[] = []
+  let i = 0
+  let j = 0
+  while (i < a.length || j < b.length) {
+    const next = j >= b.length || (i < a.length && a[i] <= b[j]) ? a[i++] : b[j++]
+    if (merged[merged.length - 1] !== next) merged.push(next)
+  }
+  return merged
+}
 
 export function scanSecretLikeMaterial(value: string): SecretMatch[] {
   if (!value) return []
@@ -131,12 +231,9 @@ export function scanSecretLikeMaterial(value: string): SecretMatch[] {
   // match already covers all of it: one that only overlaps (a token read through the next key) would
   // otherwise leave the rest of the secret unmasked. The split pass follows the same rule. Masking merges
   // the overlapping spans.
-  for (const [patternClass, source, flags] of SECRET_PATTERN_SOURCES) {
-    for (const match of patternMatches(separated, patternClass, source, flags)) if (!containedByAny(matches, match)) matches.push(match)
-  }
-  for (const match of patternMatches(joined, "split_credential_assignment", SPLIT_CREDENTIAL_ASSIGNMENT_SOURCE, "i")) {
-    if (!containedByAny(matches, match)) matches.push(match)
-  }
+  keepUncovered(matches, SECRET_PATTERN_SOURCES.flatMap(([patternClass, source, flags]) => patternMatches(separated, patternClass, source, flags)))
+  keepUncovered(matches, seamMatches(joined))
+  keepUncovered(matches, patternMatches(joined, "split_credential_assignment", SPLIT_CREDENTIAL_ASSIGNMENT_SOURCE, "i"))
   return matches.sort((a, b) => a.start - b.start || a.end - b.end)
 }
 

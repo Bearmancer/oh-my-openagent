@@ -119,6 +119,152 @@ describe("scanSecretLikeMaterial / redactSecretLikeMaterial with format and cont
     })
   })
 
+  describe("#given a word glued by a format character to a token that also holds an invisible or control character", () => {
+    // Dropping the glue erases the token's leading boundary in the joined scan, and the separated scan stops at
+    // the inner character, so only the token's head was masked (or, for an AWS key id, nothing matched at all).
+    const glues = [["a zero-width space", "\u200b"], ["a format character outside the BMP", String.fromCodePoint(0xe0020)], ["a NUL", "\u0000"]] as const
+    const inner = [["a zero-width space", "\u200b"], ["a NUL", "\u0000"], ["an ESC", "\u001b"], ["a format character outside the BMP", String.fromCodePoint(0xe0020)]] as const
+    const tokens = [
+      ["a vendor token", "ghp_AAAABBBB", "CCCCDDDD1111"],
+      ["a fine-grained vendor token", "github_pat_AAAABBBB", "CCCCDDDD"],
+      ["a GitLab token", "glpat-AAAABBBB", "CCCCDDDD"],
+      ["a Slack token", "xoxb-AAAABBBB", "CCCCDDDD"],
+      ["an OpenAI-style key", "sk-proj-AAAABBBB", "CCCCDDDD"],
+      ["an AWS access key id", "AKIAABCDEFGH", "IJKLMNOP"],
+    ] as const
+    const cases = tokens.flatMap(([tokenLabel, head, tail]) => glues.flatMap(([glueLabel, glue]) =>
+      inner.map(([innerLabel, mid]) => [`${tokenLabel} glued by ${glueLabel} with ${innerLabel} inside`, glue, `${head}${mid}${tail}`] as const)))
+
+    it.each(cases)("#then %s is detected and masked whole", (_label, glue, token) => {
+      // given
+      const embedded = `before x${glue}${token} after`
+
+      // when
+      const masked = redactSecretLikeMaterial(embedded)
+
+      // then
+      expect(scanSecretLikeMaterial(embedded).length).toBeGreaterThan(0)
+      expect(masked).toBe(`before x${glue}*** after`)
+    })
+  })
+
+  describe("#given a glued token with an inner character that ends in a hyphen or is glued to a word after it", () => {
+    const glue = String.fromCodePoint(0xe0020)
+    const inner = [["a zero-width space", "\u200b"], ["a NUL", "\u0000"], ["an ESC", "\u001b"]] as const
+
+    it.each([
+      ["a vendor token", "ghp_AAAABBBB", "CCCCDDDD1111-"],
+      ["an OpenAI-style key", "sk-proj-AAAABBBB", "CCCCDDDD-"],
+    ] as const)("#then %s ending in a hyphen is masked whole", (_label, head, tail) => {
+      for (const [, mid] of inner) {
+        // given
+        const embedded = `before x${glue}${head}${mid}${tail} after`
+
+        // when
+        const masked = redactSecretLikeMaterial(embedded)
+
+        // then
+        expect(masked).not.toContain(tail.replace(/-$/, ""))
+        expect(masked.startsWith(`before x${glue}***`)).toBe(true)
+      }
+    })
+
+    it.each(inner)("#then an AWS access key id with %s inside, glued to a word after it, is detected and masked", (_label, mid) => {
+      // given
+      const embedded = `before AKIAABCDEFGH${mid}IJKLMNOP${glue}word after`
+
+      // when
+      const masked = redactSecretLikeMaterial(embedded)
+
+      // then
+      expect(scanSecretLikeMaterial(embedded).map((match) => match.class)).toContain("aws_access_key")
+      expect(masked).not.toContain("IJKLMNOP")
+      expect(masked.endsWith(`${glue}word after`)).toBe(true)
+    })
+
+    it("#then an AWS access key id glued on both sides with an inner character is masked whole", () => {
+      // given
+      const embedded = `before x${glue}AKIAABCDEFGH\u200bIJKLMNOP${glue}word after`
+
+      // when
+      const masked = redactSecretLikeMaterial(embedded)
+
+      // then
+      expect(masked).toBe(`before x${glue}***${glue}word after`)
+    })
+
+    it("#then an uppercase run one character too long for an AWS access key id is not masked", () => {
+      // given
+      const embedded = `before x${glue}AKIAABCDEFGHIJKLMNOPQ after`
+
+      // when
+      const masked = redactSecretLikeMaterial(embedded)
+
+      // then
+      expect(masked).toBe(embedded)
+    })
+
+    it("#then a glued uppercase run whose only seam falls inside it is not masked as an AWS access key id", () => {
+      // given
+      const embedded = `before x${glue}AKIA012345\u200b6789ABCDEFGHIJKL after`
+
+      // when
+      const masked = redactSecretLikeMaterial(embedded)
+
+      // then
+      expect(masked).toBe(embedded)
+    })
+  })
+
+  describe("#given a second secret glued after one already matched, with an inner character in the second", () => {
+    const glue = String.fromCodePoint(0xe0020)
+    const inner = [["a zero-width space", "\u200b"], ["a NUL", "\u0000"], ["an ESC", "\u001b"]] as const
+
+    it.each(inner)("#then a credential assignment glued after another one is masked whole with %s", (_label, mid) => {
+      // given
+      const embedded = `note x${glue}token=abc123def456${glue}password: hunt${mid}er2xyz after`
+
+      // when
+      const masked = redactSecretLikeMaterial(embedded)
+
+      // then
+      expect(masked).not.toContain("hunt")
+      expect(masked).not.toContain("er2xyz")
+      expect(masked.endsWith(" after")).toBe(true)
+    })
+
+    it.each(inner)("#then an AWS access key id after two glued AKIA words is masked whole with %s", (_label, mid) => {
+      // given
+      const embedded = `note AKIA${glue}AKIA${glue}AKIAQWERTYUI${mid}OPASDFGH after`
+
+      // when
+      const masked = redactSecretLikeMaterial(embedded)
+
+      // then
+      expect(masked).not.toContain("QWERTYUI")
+      expect(masked).not.toContain("OPASDFGH")
+      expect(masked.endsWith(" after")).toBe(true)
+    })
+  })
+
+  describe("#given a control character inside a credential key or a vendor prefix", () => {
+    it.each([
+      ["a credential key", "tok\u0000en=abc123456def", "credential_assignment"],
+      ["a vendor prefix", "gh\u0001p_AAAABBBBCCCCDDDD1111", "vendor_token"],
+      ["an OpenAI-style prefix", "sk\u0007-proj-AAAABBBBCCCC", "openai_key"],
+    ] as const)("#then %s split by it is still detected and masked", (_label, secret, expectedClass) => {
+      // given
+      const embedded = `before ${secret} after`
+
+      // when
+      const matches = scanSecretLikeMaterial(embedded)
+
+      // then
+      expect(matches.map((match) => match.class)).toEqual([expectedClass])
+      expect(redactSecretLikeMaterial(embedded)).toBe("before *** after")
+    })
+  })
+
   describe("#given a control character gluing a word character to a secret", () => {
     it("#then the secret is still detected and only the secret is masked", () => {
       // given
