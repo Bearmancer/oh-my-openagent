@@ -127,6 +127,8 @@ export type TaskRecord = TaskRecordInput & TaskStartFailureRecordFields & {
   readonly burnt_epoch?: number
   readonly start_queued?: StartQueued
   readonly suspension_reason?: SuspensionReason
+  // With `suspension_reason: "revival_deferred"`: the reconcile outcome's reason (capacity, lock_contended, ...).
+  readonly revival_deferred_reason?: string
   readonly runner_kind?: RunnerKind
   readonly host_session?: HostSessionIdentity
   readonly fallback_handoff_epoch?: number

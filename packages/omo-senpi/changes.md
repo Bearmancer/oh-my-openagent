@@ -6,6 +6,18 @@
 - The driver runs on Windows too: the process table comes from the CIM process list instead of `ps`/`pgrep`, and `senpi` resolves through PATHEXT.
 
 `task-runtime-fallback-mock-provider.ts` serves the new model. `task-runtime-fallback-e2e.windows.test.ts` runs the child-process runner through `user-fallback`, `limit-after-tool` and `limit-near-compaction` on Windows, where every task child is a process child.
+## 2026-10-07 - Lost background revival notifies the parent after session start (#9498)
+
+`components/task/completion-bridge.ts` observes the nonterminal-to-`lost` edge
+inside a store mutation, as well as normal terminal transitions. Bounded revival
+retries can exhaust after startup notification recovery has returned; the old
+transition-only bridge would persist `lost` without waking the parent until
+another session start. The normal notifier still owns epoch deduplication and
+delivery. Mutating an already-lost record never sends another notification.
+
+`completion-bridge.test.ts` starts a background child and applies the real
+reconciliation loss reducer twice through the observing store. The parent gets
+exactly one lost notification; the pre-fix bridge sends none.
 
 ## 2026-10-07 - Memory maintenance runs write receipts, unrecoverable runs are quarantined, and recovery is kill-tested (#9689)
 
