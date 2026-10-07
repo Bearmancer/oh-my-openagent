@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { existsSync } from "node:fs"
-import { mkdir, mkdtemp, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -216,6 +216,27 @@ describe("facts receipt recovery", () => {
     // then
     expect(await read(paths)).toEqual([])
     expect(warnings).toEqual(["facts receipt backfill skipped: ledger unreadable"])
+  })
+
+  test("#given a batch whose ledger is unparseable text #when it succeeds #then the warning carries no part of the file", async () => {
+    // given
+    const { paths, runDir } = await factsRun()
+    await writeFile(join(runDir, "ledger.json"), "ghp_AAAABBBBCCCCDDDD1111")
+    const logged: string[] = []
+    const terminal = new FactsTerminalWrites({
+      failures: new FactsFailureStore({ identityPaths: paths, now: () => NOW }),
+      now: () => NOW,
+      markConsumed: async () => undefined,
+      receiptsDir: paths.runtime,
+      warn: (message, fields) => logged.push(JSON.stringify({ message, fields })),
+    })
+
+    // when
+    await terminal.succeed(runDir, "facts-abc-1", "no_facts", { entries: [], targets: [] })
+
+    // then
+    expect(logged).toHaveLength(1)
+    expect(logged[0]).not.toContain("CCCCDDDD1111")
   })
 
   test.each([
