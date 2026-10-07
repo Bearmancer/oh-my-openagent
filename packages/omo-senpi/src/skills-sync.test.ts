@@ -35,6 +35,7 @@ const expectedSkillNames = [
   "ulw-plan",
   "ulw-research",
   "visual-qa",
+  "visualize",
 ] as const
 
 const CODEX_DERIVED_SKILL_NAMES: Record<string, true> = {}
@@ -50,6 +51,7 @@ const NATIVE_SENPI_SKILL_NAMES: Record<string, true> = {
   ultrawork: true,
   "ulw-loop": true,
   "ulw-research": true,
+  visualize: true,
 }
 const namePattern = /^[a-z0-9-]{1,64}$/
 const forbiddenTokenPattern = /\b(?:codex|multi_agent|spawn_agent|update_plan)\b/i
