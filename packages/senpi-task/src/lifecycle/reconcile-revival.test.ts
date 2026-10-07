@@ -13,6 +13,7 @@ import { createTaskLifecycle } from "./create"
 import type { ProcessSignaller, RespawnResult } from "./port"
 import { cleanupProjects, FakeRegistry, seedRecord, settings, tempStore } from "./__fixtures__/lifecycle-fakes"
 import { NO_HOST_ENDPOINT } from "./host-session"
+import { notContinuableReason } from "../steering/engine-policy"
 
 afterEach(cleanupProjects)
 
@@ -300,6 +301,30 @@ describe("reconcileOnSessionStart scoped revival", () => {
     expect(result.outcomes).toContainEqual({ task_id: record.task_id, kind: "deferred", reason: "model_unavailable" })
     expect(harness.store.load(record.task_id)?.residency_state).toBe("persisted_only")
     expect(harness.store.load(record.task_id)?.host_pid).toBeUndefined()
+  })
+
+  test("#given a resumed session whose revival deferred #when the child is refused #then the refusal names the deferral, not a resume that already happened (omo#9498)", async () => {
+    // given
+    const harness = injectedHarness({
+      onRespawn: async () => ({
+        ok: false, disposition: "retryable", code: "model_unavailable", reason: "model registry is cold",
+      }),
+    })
+    const record = withV1(harness.store, seedRecord(harness.store, {
+      task_id: "st_10000099", parent_session_id: parentSessionId, status: "running",
+      residency_state: "persisted_only", execution_mode: "in-process",
+    }))
+    persistSession(harness.store, record.task_id)
+
+    // when
+    await harness.lifecycle.reconcileOnSessionStart(parentSessionId)
+
+    // then
+    const after = harness.store.load(record.task_id)
+    if (after === null) throw new Error("record vanished")
+    expect(after.suspension_reason).toBe("revival_deferred")
+    expect(notContinuableReason(after)).not.toContain("resumes when its session is resumed")
+    expect(notContinuableReason(after)).toContain("model_unavailable")
   })
 
   test("#given retryable respawn failure and rollback lock failure #when reconciled #then the outcome loudly names the failed rollback", async () => {

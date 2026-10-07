@@ -82,6 +82,7 @@ export function parseTaskRecord(value: unknown, path: string, warnings?: string[
   const startQueued = parseOptionalStartQueued(value)
   const runnerKind = readOptionalRunnerKind(value)
   const suspensionReason = readOptionalSuspensionReason(value)
+  const revivalDeferredReason = readOptionalString(value, "revival_deferred_reason")
   const failureKind = readOptionalTaskStartFailureKind(value)
   const failureReason = readOptionalTaskStartFailureReason(value)
   const hostSession = parseOptionalHostSession(value)
@@ -145,6 +146,7 @@ export function parseTaskRecord(value: unknown, path: string, warnings?: string[
     ...(burntEpoch === undefined ? {} : { burnt_epoch: burntEpoch }),
     ...(startQueued === undefined ? {} : { start_queued: startQueued }),
     ...(suspensionReason === undefined ? {} : { suspension_reason: suspensionReason }),
+    ...(revivalDeferredReason === undefined ? {} : { revival_deferred_reason: revivalDeferredReason }),
     ...(runnerKind === undefined ? {} : { runner_kind: runnerKind }),
     ...(hostSession === undefined ? {} : { host_session: hostSession }),
     ...(fallbackHandoffEpoch === undefined ? {} : { fallback_handoff_epoch: fallbackHandoffEpoch }),

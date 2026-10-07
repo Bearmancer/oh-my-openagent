@@ -28,6 +28,10 @@ export function notContinuableReason(record: TaskRecord): string {
   // Persisted-only and non-terminal RPC children resume only with their session. Terminal RPC
   // children with a transcript are the sole suspended records eligible for lazy task_send revival.
   if (record.residency_state === "persisted_only" || record.residency_state === "rpc_detached") {
+    if (record.suspension_reason === "revival_deferred") {
+      const reason = record.revival_deferred_reason ?? "unknown"
+      return `Task ${record.task_id} is suspended: its session was resumed, but reviving it was deferred (${reason}); task_output shows its state and task_cancel ends it.`
+    }
     return `Task ${record.task_id} is suspended - resumes when its session is resumed.`
   }
   if (record.residency_state === "disposed") return `Task ${record.task_id} was disposed and can no longer be continued.`
