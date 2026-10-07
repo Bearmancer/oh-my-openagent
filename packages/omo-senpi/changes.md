@@ -1,3 +1,16 @@
+## 2026-10-07 - Lost background revival notifies the parent after session start (#9498)
+
+`components/task/completion-bridge.ts` observes the nonterminal-to-`lost` edge
+inside a store mutation, as well as normal terminal transitions. Bounded revival
+retries can exhaust after startup notification recovery has returned; the old
+transition-only bridge would persist `lost` without waking the parent until
+another session start. The normal notifier still owns epoch deduplication and
+delivery. Mutating an already-lost record never sends another notification.
+
+`completion-bridge.test.ts` starts a background child and applies the real
+reconciliation loss reducer twice through the observing store. The parent gets
+exactly one lost notification; the pre-fix bridge sends none.
+
 ## 2026-10-07 - Memory maintenance runs write receipts, unrecoverable runs are quarantined, and recovery is kill-tested (#9689)
 
 Reflection and dream runs recorded their outcome only in per-run files, and startup reconciliation had three dead ends: invalid terminal timestamps threw a `TypeError` on every pass, an unreadable ledger kept the reservation forever, and a supervisor that died after its child committed a valid tip failed the run and deleted the worktree.
