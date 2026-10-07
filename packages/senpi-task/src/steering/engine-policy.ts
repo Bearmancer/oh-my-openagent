@@ -26,12 +26,17 @@ export function scopeDenied(record: TaskRecord, input: SendInput): SendOutcome |
   }
 }
 
-const DEFERRAL_OUTLOOK_TEXT: Record<DeferralOutlook, string> = {
+const DEFERRAL_OUTLOOK_TEXT: Readonly<Record<DeferralOutlook, string>> = {
   waits_for_capacity: "it is retried while a running child finishes or is reclaimed, and otherwise at the session's next start.",
   may_stay_with_live_owner: "another live session holds it; it is revived here only if that session lets it go.",
   retried_then_lost: "it is retried a few times, then marked lost if it still cannot be revived.",
   retried_not_lost: "it is retried a few times and otherwise waits for its host; it is never marked lost for this.",
   not_retried: "it is not retried; it stays suspended until its session starts again.",
+}
+
+/** The sentence a deferral outlook is shown as; tests compare against it rather than restating the prose. */
+export function deferralOutlookText(outlook: DeferralOutlook): string {
+  return DEFERRAL_OUTLOOK_TEXT[outlook]
 }
 
 export function notContinuableReason(record: TaskRecord): string {

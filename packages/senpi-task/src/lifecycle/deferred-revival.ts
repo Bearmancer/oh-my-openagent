@@ -96,7 +96,8 @@ export async function retryDeferredScopedChild(
     if (!SCOPED_RETRY_REASONS.has(reason)) return
     expected = context.store.load(taskId)
   }
-  // No wait follows the last attempt: its own post-attempt check above already saw any stop.
+  // Any attempt that ran saw a stop in its own post-attempt check; the only other way here is a live
+  // foreign owner, which never ends lost below.
   const observed = context.store.load(taskId)
   if (!canRetry(context, observed, parentSessionId)) return
   if (expected === null || observed.residency_claim !== expected.residency_claim
