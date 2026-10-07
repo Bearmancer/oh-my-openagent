@@ -344,13 +344,12 @@ describe("createDagFileStore checkpoints and layout", () => {
     const writeNext = () => store.writeCheckpoint(otherRunId, checkpoint({ id: otherRunId }))
 
     // then
-    expect(writeNext).toThrow(
-      "DAG session run limit reached: 16 runs are still active in this session; wait for one to finish or raise task.dag.max_runs_per_session",
-    )
+    expect(writeNext).toThrow("DAG session run limit reached: 16 runs are active")
+    expect(writeNext).toThrow("task.dag.max_runs_per_session")
     expect(store.readCheckpoint(otherRunId)).toBeNull()
   })
 
-  test("#given 15 active and several finished runs #when two more runs start #then exactly one is admitted", () => {
+  test("#given 15 active and several finished runs #when two more runs are written one after the other #then only the first is admitted", () => {
     // given
     const store = createDagFileStore({ project_dir: tempProject(), task: { dag: { max_runs_per_session: 16 } } })
     for (let index = 0; index < 15; index += 1) {
