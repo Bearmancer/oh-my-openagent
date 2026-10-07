@@ -95,6 +95,30 @@ describe("scanSecretLikeMaterial / redactSecretLikeMaterial with format and cont
     })
   })
 
+  describe("#given a glued credential key whose value holds an invisible or control character", () => {
+    // The joined pass loses the keyword's boundary, the separated pass stops at the inner character, and
+    // the split pass covers the whole value: its match must survive overlapping the shorter one.
+    const glues = [["a zero-width space", "\u200b"], ["a format character outside the BMP", String.fromCodePoint(0xe0020)], ["a NUL", "\u0000"]] as const
+    const inner = [["a zero-width space", "\u200b"], ["a format character outside the BMP", String.fromCodePoint(0xe0020)], ["an ESC", "\u001b"]] as const
+    const keys = ["token=", "password:"] as const
+    const cases = glues.flatMap(([glueLabel, glue]) => inner.flatMap(([innerLabel, mid]) =>
+      keys.map((key) => [`${key} glued by ${glueLabel} with ${innerLabel} in its value`, glue, key, mid] as const)))
+
+    it.each(cases)("#then with %s no part of the value survives masking", (_label, glue, key, mid) => {
+      // given
+      const embedded = `before x${glue}${key}firsthalf${mid}secondhalf after`
+
+      // when
+      const masked = redactSecretLikeMaterial(embedded)
+
+      // then
+      expect(masked).not.toContain("firsthalf")
+      expect(masked).not.toContain("secondhalf")
+      expect(masked.startsWith("before x")).toBe(true)
+      expect(masked.endsWith(" after")).toBe(true)
+    })
+  })
+
   describe("#given a control character gluing a word character to a secret", () => {
     it("#then the secret is still detected and only the secret is masked", () => {
       // given

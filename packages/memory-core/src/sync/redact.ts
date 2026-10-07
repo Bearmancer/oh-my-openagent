@@ -109,9 +109,6 @@ function patternMatches(scan: Shadow, patternClass: SecretPatternClass, source: 
   return found
 }
 
-const overlapsAny = (matches: readonly SecretMatch[], span: SecretMatch): boolean =>
-  matches.some((existing) => existing.start < span.end && span.start < existing.end)
-
 const containedByAny = (matches: readonly SecretMatch[], span: SecretMatch): boolean =>
   matches.some((existing) => existing.start <= span.start && span.end <= existing.end)
 
@@ -132,12 +129,13 @@ export function scanSecretLikeMaterial(value: string): SecretMatch[] {
   // A format character between a word character and a secret hides the secret's leading or trailing
   // \b once dropped; the separated shadow keeps that boundary. A separated match is kept unless a joined
   // match already covers all of it: one that only overlaps (a token read through the next key) would
-  // otherwise leave the rest of the secret unmasked. Masking merges the overlapping spans.
+  // otherwise leave the rest of the secret unmasked. The split pass follows the same rule. Masking merges
+  // the overlapping spans.
   for (const [patternClass, source, flags] of SECRET_PATTERN_SOURCES) {
     for (const match of patternMatches(separated, patternClass, source, flags)) if (!containedByAny(matches, match)) matches.push(match)
   }
   for (const match of patternMatches(joined, "split_credential_assignment", SPLIT_CREDENTIAL_ASSIGNMENT_SOURCE, "i")) {
-    if (!overlapsAny(matches, match)) matches.push(match)
+    if (!containedByAny(matches, match)) matches.push(match)
   }
   return matches.sort((a, b) => a.start - b.start || a.end - b.end)
 }
