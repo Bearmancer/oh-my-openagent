@@ -7,6 +7,28 @@
 
 `task-runtime-fallback-mock-provider.ts` serves the new model. `task-runtime-fallback-e2e.windows.test.ts` runs the child-process runner through `user-fallback`, `limit-after-tool` and `limit-near-compaction` on Windows, where every task child is a process child.
 
+## 2026-10-07 - Memory maintenance runs write receipts, unrecoverable runs are quarantined, and recovery is kill-tested (#9689)
+
+Reflection and dream runs recorded their outcome only in per-run files, and startup reconciliation had three dead ends: invalid terminal timestamps threw a `TypeError` on every pass, an unreadable ledger kept the reservation forever, and a supervisor that died after its child committed a valid tip failed the run and deleted the worktree.
+
+- `packages/memory-core/src/receipts/`: `receipts.jsonl` under the identity's runtime dir, appended under its own `receipts` lock. `appendMemoryReceiptOnce` dedupes by `(kind, runId, event, generation)` or `(facts, batchId, event)`. `readMemoryReceipts` returns newest first and counts a partial trailing line. `maybeKillAt(point)` SIGKILLs the process when `OMO_MEMORY_KILL_POINT` names the point (TerminateProcess on win32); it is a test seam only.
+- `components/memory/receipts-port.ts`: `emitMemoryReceipt` writes after the durable artifact and only warns on failure. Emitters cover `launched` (first attempt), settlement (`merged`/`no_changes`/`failed`), abandonment, quarantine, recovery, and every facts terminal write. `final.json` and `abandoned.json` carry `generation`.
+- `worker/run-receipt-backfill.ts`: the reconciliation scan rebuilds a missing receipt from `final.json`, `abandoned.json` or `quarantined.json`. A sentinel's own kind, trigger, origin and generation win, so a pre-ledger sentinel needs no ledger.
+- `worker/run-reconciliation-prelaunch.ts` (moved out of `run-reconciliation.ts`): under a launcher proven dead on this host, four cases quarantine the run:
+  - invalid generation timestamps;
+  - an unreadable ledger with no terminal artifact;
+  - a run dir past the launch window with no prelaunch file;
+  - a terminal claim that cannot be read (`RunTerminalClaimUnrecoverableError`).
+
+  memory-core `reflection/quarantine.ts` writes `reservation.quarantined.json`, then `quarantined.json`. The reservation is released, and no run file is moved or deleted. A launch interrupted before its ledger keeps its run dir. Its worktree is discarded, and a pre-ledger `abandoned.json` (`launch_interrupted`, identity fields copied from the held reservation) is made durable before release; before this, the run dir was `rm`-ed.
+- `worker/run-finalization.ts` `recoverUnpublishedWorktreeTip`: when the supervisor exited without an outcome, a tip that passes `validateCompletion` is published as a success marked `recoveredFromWorktree`, followed by a `recovered` receipt, and then takes the normal merge path. The launcher (`SUPERVISOR_EXIT_PREFIX` errors only) and `reconcileDeadSupervisor` (child dead or absent) both use it. Reconciliation settling another process's matching outcome also writes `recovered` first.
+- Kill points: `runner-execution.ts` (after-reserve, after-worktree), `create-run-worktree.ts` (after-prelaunch), `memory-run-supervisor.ts` (after-child-exit), `run-finalization-git.ts` (after-validate, after-merge), `run-finalization-settlement.ts` (before-receipt).
+- `commands/doctor-receipts.ts`: the `receipts` and `quarantined-runs` checks and their `--json` fields. `abandoned-runs` skips `launch_interrupted`.
+- Tests:
+  - `run-crash-recovery.e2e.test.ts`: a driver child (`__fixtures__/crash-driver.ts`, explicit env) runs the real runner, supervisor and mock model child, is killed at each point, then reconciles in a second child. 11/11 pass, also with the kill point set in the test process's env, and 0/11 on the pre-change source.
+  - `run-quarantine.test.ts`: 9 cases, including a live-launcher control and a finished-run control.
+  - `run-receipts.test.ts`, `facts-receipts.test.ts`, the memory-core receipts tests, and the doctor cases.
+
 ## 2026-10-07 - The memory file list in the prompt is bounded by recency, count and bytes (#9687)
 
 The compiled memory block ends with `<external_projection>`, which named every memory file outside `system/` in name order with no limit. A real long-lived corpus measured 3,281 files and 157,834 bytes (about 39K tokens) on every turn, with 1,962 names on one line.
