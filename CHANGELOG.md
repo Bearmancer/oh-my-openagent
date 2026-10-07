@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**A task child that fails to start now says why.** Instead of only "Child prompt failed to start.", the task record, the event log and the tool result name the cause in one line: the host took too long to answer, the host refused the prompt (with its error code), the connection was lost, or the child exited first (with its exit code or signal). Raw error text still never reaches any of them. ([#9703](https://github.com/code-yeongyu/oh-my-openagent/issues/9703), [#9704](https://github.com/code-yeongyu/oh-my-openagent/pull/9704))
+
+### Fixed
+
+**Memory catches more disguised forms of secret-like text.** The memory secret scanner, which refuses secret-like values in memory commits and masks them wherever memory text is shown, now recognizes more obfuscated forms of those values, and `/doctor` and the maintenance receipts say when a scan had to fall back. ([#9653](https://github.com/code-yeongyu/oh-my-openagent/issues/9653), [#9689](https://github.com/code-yeongyu/oh-my-openagent/issues/9689), [#9707](https://github.com/code-yeongyu/oh-my-openagent/pull/9707), [#9717](https://github.com/code-yeongyu/oh-my-openagent/issues/9717), [#9718](https://github.com/code-yeongyu/oh-my-openagent/pull/9718))
+
+**A long session no longer runs out of background task graphs.** `task.dag.max_runs_per_session` (default 16) now counts only graphs that are still running, as the bundled `mass-ulw` guidance describes it; finished, failed and cancelled ones used to count until they were pruned a week later, so a busy session could be refused with nothing running. The refusal now says how many are active. ([#9712](https://github.com/code-yeongyu/oh-my-openagent/issues/9712), [#9713](https://github.com/code-yeongyu/oh-my-openagent/pull/9713))
+
 ## [5.1.23] - 2026-10-07
 
 ### Changed
