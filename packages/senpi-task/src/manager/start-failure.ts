@@ -53,8 +53,11 @@ export function describeStartFailure(error: unknown): StartFailureDescription {
   const reason = isTaskStartFailureReason(error.failure.reason) ? error.failure.reason : undefined
   const { rejected_while: rejectedWhile, exit, launch_spec_path: specPath } = error.failure
   const namedSpec = reason === "launch_spec_insecure" && specPath !== undefined ? homeRelative(specPath) : undefined
-  const cause = reason === undefined ? causeOf(failureKind, error.failure.cause) : undefined
-  const exited = reason === undefined && cause === undefined && rejectedWhile === "exited" ? exit : undefined
+  // A reason that is present but outside the closed enum marks the failure as untrusted: nothing
+  // beyond the stable classification is derived from it, including its cause.
+  const trusted = error.failure.reason === undefined
+  const cause = trusted ? causeOf(failureKind, error.failure.cause) : undefined
+  const exited = trusted && cause === undefined && rejectedWhile === "exited" ? exit : undefined
   const errorMessage = namedSpec !== undefined
     ? launchSpecInsecureMessage(namedSpec)
     : cause !== undefined
