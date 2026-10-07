@@ -60,9 +60,9 @@ const FORMAT_CHARACTER = /\p{Cf}/u
 type FormatCharacterHandling = "drop" | "separate"
 
 /**
- * Build a scan shadow of `text`: C0 controls other than LF/TAB are dropped, NBSP folds to a plain
- * space, and Unicode format characters (zero-width codepoints, bidi controls, BOM, tag characters)
- * are either dropped, which rejoins a secret split inside a word, or turned into a space, which keeps
+ * Build a scan shadow of `text`: NBSP folds to a plain space, and C0 controls other than LF/TAB and
+ * Unicode format characters (zero-width codepoints, bidi controls, BOM, tag characters) are either
+ * dropped, which rejoins a secret split inside a word, or turned into a space, which keeps
  * the word boundary the patterns anchor on when one glues a word character to a secret. `map[i]` is
  * the original string index of shadow unit `i`, so a span found in the shadow maps back to the exact
  * original bytes to mask.
@@ -77,7 +77,7 @@ function normalizeForSecretScan(text: string, formatCharacters: FormatCharacterH
     const width = code > 0xffff ? 2 : 1
     const char = text.slice(index, index + width)
     const control = code < 0x20 && code !== 0x0a && code !== 0x09
-    if (code === 0x00a0 || (formatCharacters === "separate" && FORMAT_CHARACTER.test(char))) {
+    if (code === 0x00a0 || (formatCharacters === "separate" && (control || FORMAT_CHARACTER.test(char)))) {
       shadow += " "
       map.push(index)
     } else if (!control && !FORMAT_CHARACTER.test(char)) {
@@ -112,6 +112,9 @@ function patternMatches(scan: Shadow, patternClass: SecretPatternClass, source: 
 const overlapsAny = (matches: readonly SecretMatch[], span: SecretMatch): boolean =>
   matches.some((existing) => existing.start < span.end && span.start < existing.end)
 
+const containedByAny = (matches: readonly SecretMatch[], span: SecretMatch): boolean =>
+  matches.some((existing) => existing.start <= span.start && span.end <= existing.end)
+
 export function scanSecretLikeMaterial(value: string): SecretMatch[] {
   if (!value) return []
   const joined = normalizeForSecretScan(value, "drop")
@@ -127,9 +130,11 @@ export function scanSecretLikeMaterial(value: string): SecretMatch[] {
   }
   for (const [patternClass, source, flags] of SECRET_PATTERN_SOURCES) matches.push(...patternMatches(joined, patternClass, source, flags))
   // A format character between a word character and a secret hides the secret's leading or trailing
-  // \b once dropped; the separated shadow keeps that boundary. Only spans the joined pass missed count.
+  // \b once dropped; the separated shadow keeps that boundary. A separated match is kept unless a joined
+  // match already covers all of it: one that only overlaps (a token read through the next key) would
+  // otherwise leave the rest of the secret unmasked. Masking merges the overlapping spans.
   for (const [patternClass, source, flags] of SECRET_PATTERN_SOURCES) {
-    for (const match of patternMatches(separated, patternClass, source, flags)) if (!overlapsAny(matches, match)) matches.push(match)
+    for (const match of patternMatches(separated, patternClass, source, flags)) if (!containedByAny(matches, match)) matches.push(match)
   }
   for (const match of patternMatches(joined, "split_credential_assignment", SPLIT_CREDENTIAL_ASSIGNMENT_SOURCE, "i")) {
     if (!overlapsAny(matches, match)) matches.push(match)
