@@ -1,3 +1,58 @@
+## 2026-10-07 - Adopt senpi 2026.10.10-5
+
+Every `@code-yeongyu/senpi` pin moves from 2026.10.10-4 to 2026.10.10-5: the root devDependency, `omo-native` and its provider map comment, the `omo-senpi` and `senpi-task` peer and dev pins (with their `senpi-tui` and `senpi-ai` aliases), the pin tests and the engine named in `senpi-task`'s coverage test. The engine carries the attach permission-preset fix (senpi#2823), the streaming scroll fix (senpi#2836), the codemode stop/require/name-shadowing and live-row fixes, and the `show_html_page` tool. The generated plugin bundles are regenerated for it on Linux.
+
+## 2026-10-07 - The memory file list in the prompt is bounded by recency, count and bytes (#9687)
+
+`<external_projection>`, the list of memory files outside `system/` at the end of the compiled
+memory block, had no limit. A long-lived corpus measured 157,834 bytes (about 39K tokens) on
+every turn. Each directory now lists its most recently committed files first, up to
+`memory.projection.max_entries_per_directory` (default 40). The whole list fits
+`memory.projection.max_bytes` (default 24576), with the largest directory giving up names first.
+Omitted names are counted with a pointer to read the directory. `0` disables a limit, and both
+at `0` reproduce the previous list byte for byte. `/doctor` reports names shown and omitted, the
+byte size, and the overflow when no listing fits the budget. Commit times per path are read incrementally and
+stored in the memory repo's git dir. After the first full read (about 9 s on a 12k-commit
+history), a new commit costs one short `git log` of the new range.
+
+## 2026-10-06 - /doctor audits corpus structure and dream repairs it (#9652)
+
+Memory doctor now reports dangling links, invalid frontmatter, duplicate bodies,
+orphaned paths, unreadable files, and system pressure. `/doctor --json` provides
+the checks, audit findings and counts, and skill repair totals, with secret-like
+string values masked before serialization. Unknown flags, including `--fix`,
+are refused. Dream receives a redacted audit of its own worktree and a structural
+repair phase; reflection does not. The repair pipeline preserves user boundaries
+and evidence, validates the child's committed edits, and merges them normally.
+
+## 2026-10-06 - Adopt senpi 2026.10.10-4
+
+Every `@code-yeongyu/senpi` pin moves from 2026.10.10-3 to 2026.10.10-4: the root devDependency, `omo-native` and its provider map comment, the `omo-senpi` and `senpi-task` peer and dev pins (with their `senpi-tui` and `senpi-ai` aliases), the pin tests and the engine named in `senpi-task`'s coverage test. `test/provider-map-registry.test.ts` passes against the 10-4 engine, so the provider registry lists are unchanged. The engine carries the terminal session controls and delivery sender labels that omo #9662 and #9664 build on, the concurrent-rebind fix (senpi#2828), the stale extension shim repair and the TUI stdout guard. The generated plugin bundles are regenerated for it on Linux.
+
+## 2026-10-06 - Memory refuses secret-like commits and masks injected memory text (#9653)
+
+Memory used to commit whatever it was given and inject it back verbatim, so a token pasted into a conversation could end up in the memory repository and in every later session's prompt. One evasion-resistant scanner now guards both directions. It covers AWS keys, credential assignments, bearer headers, OpenAI-style keys, vendor tokens, PEM blocks and whitespace-split credential keys, and it matches after stripping zero-width characters. Every commit path refuses secret-like file names or content and leaves the repository unchanged: the memory tools, facts extraction, and reflection and dream runs, whose full branch history is checked before merging. A refused facts run parks after one failure, and a refused reflection or dream run counts as non-retryable. The pre-commit hook applies the same classes to hand commits. The compiled memory block, rendered paths, recall hints and memory command output mask any match as `***`, including content committed before this change. Errors name the file and the class, never the secret.
+
+## 2026-10-06 - The release binary ships the browser skill's omowright runtime (#9661)
+
+Since the browser guidance was routed through omowright (#8729, 5.1.11), the published release binary installed the browser skill without its bundled `runtime/omowright`, so `loadOmowright()` and `browser-doctor.mjs` always failed for binary installs while the npm `omo-ai` install worked. The native staging chain (`script/build-omo-native.ts`) runs `build:senpi-plugin:native` with `OMO_SKIP_MATERIALIZE=1`, which skips `stage-omowright-runtime.mjs`, and nothing else staged the gitignored runtime before the plugin payload was copied. The runtime is now a prebuilt native input staged via `build:materialize-frontend` when missing, and `skills/browser/runtime/omowright/index.js` is a required plugin artifact, so a payload without it fails the build instead of shipping. `script/build-omo-native.test.ts` covers both the staging trigger and the required-artifact gate.
+
+## 2026-10-06 - Adopt senpi 2026.10.10-3
+
+Every `@code-yeongyu/senpi` pin moves from 2026.10.10-2 to 2026.10.10-3: the root devDependency, `omo-native` and its provider map comment, the `omo-senpi` and `senpi-task` peer and dev pins (with their `senpi-tui` and `senpi-ai` aliases), the pin tests and the engine named in `senpi-task`'s coverage test. The engine carries the retry-watchdog fix (senpi#2804) that the 5.1.21 hotfix ships, plus codemode's opt-in process-isolated JavaScript kernel. The generated plugin bundles are regenerated for it on Linux.
+
+## 2026-10-06 - The frontend skill routes tone and situation to more component catalogs, with licence gates (#9644)
+
+The frontend skill could only source motion from beui.dev and react-bits. A brief whose tone or surface fell outside them (AI-agent UI, charts, landing sections, brutalist or Tailwind-only builds) left the agent writing motion from memory, and nothing told it which other catalogs it may read or copy from. The new project-original `references/design/component-catalogs.md` maps tone and situation to the catalog to read first, lists a seven-step exploration procedure built on each catalog's published `llms.txt` and shadcn registry, records each catalog's licence, terms and robots.txt stance (measured 2026-10-06), and covers charts. Agents fetch only published agent surfaces, never paste source, take free items only, and never fetch styles.refero.design, skiper-ui.com or originkit.dev. It is routed from `SKILL.md` and from both anchors' "no matching pattern" step; component Motion lines in `DESIGN.md` now name a borrowed mechanism's source. `_INDEX.md` now credits Layer B to nexu-io/open-design, which is where the manifest materializes it from.
+
+## 2026-10-05 - Detect stale stylesheet references across web deployments (#9617)
+
+The web deployment-coherence probe retains the stylesheet references from build A's HTML, checks both unchanged-build controls, and requests the retained paths against build B. It covers English and Korean with synthetic mobile Safari and WKWebView user agents and rejects missing CSS, HTML masquerading as CSS, or a broken control. Same-origin absolute references are rebased to B so the check cannot silently fetch the old stylesheet from A and report success. Five HTTP/CLI behavior tests cover these paths.
+
+The static-asset carry-forward engine preserves the current live resource graph on first migration and the entire generated static set on subsequent deployments. It checks downloaded bytes and CSS MIME, preserves inherited deadlines, and retires resources only after the prior HTML lifetime plus deployment overlap. The deployment CLI reads the compiled Next budget, refuses an under-budget document, and blocks on missing advertised, malformed or unreadable history. Next's ISR expiry is bounded to one hour, deployments use their commit identifier, hashed static resources are immutable, and the inventory is not cached.
+
+The Worker deployment workflow now carries the inventory before uploading and uses one cross-branch concurrency group with cancellation disabled and a 30-minute deployment bound. The production CLI's current-only bootstrap passes the actual four-case retained-document A/B probe. Already-gone generations cannot be reconstructed; pre-existing older cached HTML may still lose those resources for its original lifetime, which the new expiry does not shorten retroactively. The deploy owner must adopt/coordinate the lock on older master workflows that do not yet contain it.
+
 ## 2026-10-05 - LazyCodex activates the version it just installed (#9631)
 
 The installer left previous plugin versions beside a new cache entry. Codex gives `local` priority over versioned entries, so an old local plugin could keep displaying old hook names while the installer recorded trust for the new payload. Installing now removes obsolete version directories only after the replacement payload validates and is promoted. Other plugins, plugin data, symlinks, and hidden staging directories stay in place; a failed preparation leaves the previous cache intact. Actual Codex app-server checks cover restart and reinstall stability and confirm that genuinely changed hooks still require review.

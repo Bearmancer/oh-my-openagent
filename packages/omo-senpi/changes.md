@@ -7,6 +7,53 @@
 
 `task-runtime-fallback-mock-provider.ts` serves the new model. `task-runtime-fallback-e2e.windows.test.ts` runs the child-process runner through `user-fallback`, `limit-after-tool` and `limit-near-compaction` on Windows, where every task child is a process child.
 
+## 2026-10-07 - The memory file list in the prompt is bounded by recency, count and bytes (#9687)
+
+The compiled memory block ends with `<external_projection>`, which named every memory file outside `system/` in name order with no limit. A real long-lived corpus measured 3,281 files and 157,834 bytes (about 39K tokens) on every turn, with 1,962 names on one line.
+
+- `components/memory/prompt.ts`: the handler passes the identity's projection limits into `MemoryBlockCache.compile`. `wiring-static.ts` reads them from the memory settings; `projection-limits.ts` merges a per-agent `agents.<name>.projection` over the base.
+- `commands/doctor-projection.ts`: `/doctor` gains a `projection` line with the names shown and omitted and the byte size against the limits. It is `warn` when names are omitted or no listing fits the byte budget. `doctor-runtime.ts` adds it after `tokens`.
+- Tests:
+  - `prompt.test.ts`: a per-directory limit of 1 shows one name and counts the other two.
+  - `doctor.test.ts`: the in-limits, omitted and overflow lines.
+
+## 2026-10-07 - The Windows task e2e waits for the child's completion instead of reading once (#9481)
+
+`scripts/qa/task-rpc-e2e.mjs` checked `completion_push_arrives` by reading the task records once, right after scenario A's parent session returned. On a slow Windows runner the child's completion write can land just after that read, so the check failed with "no completion recorded" while every other check passed (#9222, #9331 twice, #9529, #9655).
+
+- `scripts/qa/task-rpc-e2e-scenarios.mjs`: new `waitForProcessCompletion(stateDir, timeoutMs = 60 s)`. It waits for a process-mode record to reach `completed` through the existing `waitForRecord` (file watchers plus a 250 ms re-read, with a read after the watchers start so a write in between is not missed). Past the deadline it returns the process tasks' last statuses.
+- The driver uses it, and the FAIL reason and facts now carry the last observed status.
+- `task-rpc-e2e-scenarios.test.mjs`:
+  - a record that is still `running` when the check starts and turns `completed` right after: the old single read reports no completion, and the wait reports it;
+  - a child that never completes: the wait fails at its deadline with `lastStatuses: ["running"]`.
+
+## 2026-10-06 - The memory nudge no longer walks the whole memory history on every prompt, and the memory repo gets packed (#9667)
+
+Every prompt's `before_agent_start` asked git whether this session had saved memory yet, with `git log --grep` over the identity's entire history. Commits set `gc.auto=0`, so the repo was never packed. A long-lived identity measured 11,821 commits and 41,588 loose objects (632 MiB) next to a 3.6 MiB pack. The query took up to 2.2 s per prompt on an idle machine and passed the 30 s git timeout under memory pressure, and the timeout then escaped the extension as a raw `Extension omo.js error: git log ... timed out after 30000ms` stack in the TUI.
+
+- `components/memory/nudge-wiring.ts`: each session keeps the HEAD it last checked and the turn of its newest save. The first check reads only commits since the session began (its header, else its oldest entry, minus one hour), stops after 20 matches and has a 5 s git cap. Every later check reads only `<checked HEAD>..HEAD`. On that same repo the check takes 17-23 ms, against 0.33-2.2 s before.
+- `components/memory/prompt.ts`: a failed or timed-out notice input (the nudge count or the soul notice) gives that turn no such notice and is reported through `onNoticeInputFailed`, which `wiring-static.ts` sends to the component logger as a warning. Nothing is thrown into the extension, so nothing reaches the TUI.
+- `components/memory/memory-maintenance.ts` (new), scheduled from `afterBind` in `wiring.ts`: 30 s after a session binds, one background pass per identity. The pass holds the identity's new `memory-maintenance` lock (`memory-core` `memoryMaintenanceLockPath`), and a session that finds it held skips rather than waits, so many sessions sharing one repo produce one runner. The 12 h stamp (`omo.maintenanceAt` in the repo's own config) is read and written under that lock. The pass is also skipped below 2,000 loose objects or when the repo does not exist yet. The timer is unref'd, and session shutdown calls `dispose()`, which cancels a pending pass and stops a running git (SIGTERM through a new `signal` on the git exec, surfaced as `GitAbortedError`). Failures are logged, never raised. `gc.auto=0` stays, so no commit is held up by a repack.
+- `memory-core` `GitMemoryRepo`: `log()` takes `since` and `timeoutMs`. New `maintain()` runs git's `loose-objects` maintenance task, then `prune-packed`. Both only remove an object that a pack also holds, so concurrent commits are safe. (`incremental-repack` fails on a repo without a multi-pack-index and is not used.) On a copy of the repo above: 41,596 loose objects to 0 in 29.7 s, one 38.9 MiB pack, `git fsck --connectivity-only` clean.
+
+Tests:
+- `prompt.test.ts`: a nudge timeout leaves the turn with its memory block and no nudge, and reports the failure once. A failed soul notice keeps the nudge. Both fail before this change.
+- `nudge-wiring.test.ts`: a resumed session's save from an earlier run still resets the count, and a save buried among 50 commits of another session is seen by the next check.
+- `memory-maintenance.test.ts`: a repo full of loose objects is packed with every commit still readable. A commit made while a pass runs survives. A second process within the interval does not run again. Ten sessions starting together pack once. A lock held by another process means a quiet skip. A session that exits before its pass runs leaves the repo untouched. A loose object no commit references yet (a writer mid-commit) survives the pass. A repo that does not exist yet is a quiet no-op.
+
+## 2026-10-06 - The thread tools switch a terminal session's model and level and interrupt its turn (#9660)
+
+`thread_set_model`, `thread_set_reasoning` and `thread_interrupt` failed with `unsupported` against every terminal session, which is most live sessions. The client refused every command outside a fixed read-mostly list, and the terminal endpoint did not take them either.
+
+**What changed**
+- `live-surface.ts` asks a terminal once for `get_protocol_info` and remembers the `commands` it lists. A command the terminal lists is sent; any other is still refused as `unsupported` before a connection opens. A terminal on an older engine lists none and keeps the old behavior. Its refusal now says the terminal runs an engine from before terminal session controls, and how to get them.
+- `thread_list` rows carry `controls`, from `endpoint-controls.ts`: what a caller can do to that thread (`send`, `read`, `rename`, `set_model`, `set_reasoning`, `interrupt`). A host takes all six; an older terminal takes the first three.
+
+**Tests** (`live-surface-tui.test.ts`, against a terminal endpoint that answers as senpi's does):
+- a model switch, a supported and an unsupported level, an unknown model, an interrupt mid-turn and one on an idle session;
+- each row's `controls`, next to an older terminal and a host;
+- reverting to the fixed command list fails the test.
+
 ## 2026-10-05 - An idle gateway store no longer keeps its worker thread alive
 
 Every session that touches the gateway store (each terminal with a control endpoint, and every sender) started one store worker thread and kept it until the session ended. A measured idle worker retains 2.94 MB: an empty Bun worker plus the bundled store code and SQLite. That put the terminal control endpoint's idle cost at about 4.1 MB against the 3 MB budget.
