@@ -1,6 +1,6 @@
 ## 2026-10-07 - An eval handle's send and cancel replies come only from the post-engine check, and a rolled-back epoch is never issued again (#9562)
 
-A: `eval-handles/steer-refs.ts` now holds send and cancel, and no task record or `taskSnapshot` is in scope there. Every reply comes from `eval-handles/run-after-engine.ts`. `fenceBeforeEngine` fences the ref and returns a `PriorRun` whose record is private. Its `reread` re-reads the task after the engine returned and yields a `RunAfterEngine`, which builds the reply (`delivered`, `phase`, `stale`). A reply built from a record that skipped the check no longer compiles. `control.ts` keeps only result and output. `afterEngine` is gone from the exports, `SEND_HOST_STATUS` moved to `run-after-engine.ts` and `WATCH_HOST_STATUS` to `watch.ts`.
+A: `eval-handles/steer-refs.ts` now holds send and cancel, and no task record or `taskSnapshot` is in scope there. Every reply comes from `eval-handles/run-after-engine.ts`. `fenceBeforeEngine` fences the ref and returns a `PriorRun` whose record is private. Its `reread` re-reads the task after the engine returned and yields a `RunAfterEngine`, which builds the reply (`delivered`, `phase`, `stale`). `steer-refs.ts` imports no `taskSnapshot`, so every send and cancel reply there goes through the re-read run (review: this is a convention of the module, not a type guarantee, since `deps.tasks.get()` still returns a record). `control.ts` keeps only result and output. `afterEngine` is gone from the exports, `SEND_HOST_STATUS` moved to `run-after-engine.ts` and `WATCH_HOST_STATUS` to `watch.ts`.
 
 B: `rollbackDetachedRevival` records the epoch of a run it undid as `burnt_epoch` (persisted; `store/record-parse.ts` reads it back). `state/run-fence.ts` adds `nextRunEpoch(record)`: one above every epoch the task ever issued. Every site that issues an epoch uses it:
 - revive (`buildRevived`);
@@ -11,30 +11,7 @@ B: `rollbackDetachedRevival` records the epoch of a run it undid as `burnt_epoch
 - the concurrency lease keys;
 - workpool worker admission and reconcile.
 
-A handle minted for an undone run therefore stays stale and never names a later run. The watch's terminal revision (`epoch * 2 + 1`) cannot collide with a later run either. A rollback that undid only a claim, where no run started, burns nothing.
-
-`lifecycle/revive-rollback-epochs.test.ts` covers:
-- the next revive starting above the undone epoch;
-- a send through the undone run's handle being refused before it reaches the newer run;
-- the burnt epoch surviving a reload from disk;
-- a claim-only rollback taking the very next epoch.
-
-On the previous sources the first three fail and the fourth passes. The table row that answered a cancel `cancel_pending` with a newer run started is dropped: a pending cancel blocks revive and steer, so that state is unreachable. The rollback-watch test now also asserts `host_status`.
-
-## 2026-10-07 - An eval handle's send and cancel replies come only from the post-engine check, and a rolled-back epoch is never issued again (#9562)
-
-A: `eval-handles/steer-refs.ts` now holds send and cancel, and no task record or `taskSnapshot` is in scope there. Every reply comes from `eval-handles/run-after-engine.ts`. `fenceBeforeEngine` fences the ref and returns a `PriorRun` whose record is private. Its `reread` re-reads the task after the engine returned and yields a `RunAfterEngine`, which builds the reply (`delivered`, `phase`, `stale`). A reply built from a record that skipped the check no longer compiles. `control.ts` keeps only result and output. `afterEngine` is gone from the exports, `SEND_HOST_STATUS` moved to `run-after-engine.ts` and `WATCH_HOST_STATUS` to `watch.ts`.
-
-B: `rollbackDetachedRevival` records the epoch of a run it undid as `burnt_epoch` (persisted; `store/record-parse.ts` reads it back). `state/run-fence.ts` adds `nextRunEpoch(record)`: one above every epoch the task ever issued. Every site that issues an epoch uses it:
-- revive (`buildRevived`);
-- model fallback;
-- fallback handoff;
-- reattach;
-- a self-resumed turn;
-- the concurrency lease keys;
-- workpool worker admission and reconcile.
-
-A handle minted for an undone run therefore stays stale and never names a later run. The watch's terminal revision (`epoch * 2 + 1`) cannot collide with a later run either. A rollback that undid only a claim, where no run started, burns nothing.
+A handle minted for an undone run therefore stays stale and never names a later run. The watch's terminal revision (`epoch * 2 + 1`) cannot collide with a later run either. A rollback that undid only a claim, where no run started, burns nothing. Workpool crash recovery (`workpool/dispatcher.ts`) rebuilds a recovered turn's worker from the task's own `run_epoch` instead of `binding - 1`, so a turn bound above a burnt epoch is dispatched after a restart instead of refused (`workpool/delivery.test.ts`).
 
 `lifecycle/revive-rollback-epochs.test.ts` covers:
 - the next revive starting above the undone epoch;
