@@ -5,6 +5,28 @@ Agents can show a self-contained HTML page inline in a thread (senpi `show_html_
 - `skills/visualize/SKILL.md`: a short router. Figures come from `data-scientist` (DuckDB or Polars, every number traceable to its query, chart choice from its `references/visualization.md`) and design from `frontend`. The skill itself owns only what is particular to an inline page: no network, the host's theme tokens, fluid width, a figure that reads with scripts off, designed empty states, fallbacks for pages opened outside the app, axis labels kept out of a stretched SVG, and render-and-look in both themes at 390 px and the reply width before showing.
 - Registered as a native senpi skill: `plugin/scripts/native-skill-sources.mjs` (+ test), `skills-sync.test.ts` (expected and native names), telemetry `BUILTIN_SKILL_NAMES`, and the skills AGENTS.md tables.
 
+## 2026-10-07 - Memory maintenance runs write receipts, unrecoverable runs are quarantined, and recovery is kill-tested (#9689)
+
+Reflection and dream runs recorded their outcome only in per-run files, and startup reconciliation had three dead ends: invalid terminal timestamps threw a `TypeError` on every pass, an unreadable ledger kept the reservation forever, and a supervisor that died after its child committed a valid tip failed the run and deleted the worktree.
+
+- `packages/memory-core/src/receipts/`: `receipts.jsonl` under the identity's runtime dir, appended under its own `receipts` lock. `appendMemoryReceiptOnce` dedupes by `(kind, runId, event, generation)` or `(facts, batchId, event)`. `readMemoryReceipts` returns newest first and counts a partial trailing line. `maybeKillAt(point)` SIGKILLs the process when `OMO_MEMORY_KILL_POINT` names the point (TerminateProcess on win32); it is a test seam only.
+- `components/memory/receipts-port.ts`: `emitMemoryReceipt` writes after the durable artifact and only warns on failure. Emitters cover `launched` (first attempt), settlement (`merged`/`no_changes`/`failed`), abandonment, quarantine, recovery, and every facts terminal write. `final.json` and `abandoned.json` carry `generation`.
+- `worker/run-receipt-backfill.ts`: the reconciliation scan rebuilds a missing receipt from `final.json`, `abandoned.json` or `quarantined.json`. A sentinel's own kind, trigger, origin and generation win, so a pre-ledger sentinel needs no ledger.
+- `worker/run-reconciliation-prelaunch.ts` (moved out of `run-reconciliation.ts`): under a launcher proven dead on this host, four cases quarantine the run:
+  - invalid generation timestamps;
+  - an unreadable ledger with no terminal artifact;
+  - a run dir past the launch window with no prelaunch file;
+  - a terminal claim that cannot be read (`RunTerminalClaimUnrecoverableError`).
+
+  memory-core `reflection/quarantine.ts` writes `reservation.quarantined.json`, then `quarantined.json`. The reservation is released, and no run file is moved or deleted. A launch interrupted before its ledger keeps its run dir. Its worktree is discarded, and a pre-ledger `abandoned.json` (`launch_interrupted`, identity fields copied from the held reservation) is made durable before release; before this, the run dir was `rm`-ed.
+- `worker/run-finalization.ts` `recoverUnpublishedWorktreeTip`: when the supervisor exited without an outcome, a tip that passes `validateCompletion` is published as a success marked `recoveredFromWorktree`, followed by a `recovered` receipt, and then takes the normal merge path. The launcher (`SUPERVISOR_EXIT_PREFIX` errors only) and `reconcileDeadSupervisor` (child dead or absent) both use it. Reconciliation settling another process's matching outcome also writes `recovered` first.
+- Kill points: `runner-execution.ts` (after-reserve, after-worktree), `create-run-worktree.ts` (after-prelaunch), `memory-run-supervisor.ts` (after-child-exit), `run-finalization-git.ts` (after-validate, after-merge), `run-finalization-settlement.ts` (before-receipt).
+- `commands/doctor-receipts.ts`: the `receipts` and `quarantined-runs` checks and their `--json` fields. `abandoned-runs` skips `launch_interrupted`.
+- Tests:
+  - `run-crash-recovery.e2e.test.ts`: a driver child (`__fixtures__/crash-driver.ts`, explicit env) runs the real runner, supervisor and mock model child, is killed at each point, then reconciles in a second child. 11/11 pass, also with the kill point set in the test process's env, and 0/11 on the pre-change source.
+  - `run-quarantine.test.ts`: 9 cases, including a live-launcher control and a finished-run control.
+  - `run-receipts.test.ts`, `facts-receipts.test.ts`, the memory-core receipts tests, and the doctor cases.
+
 ## 2026-10-07 - The memory file list in the prompt is bounded by recency, count and bytes (#9687)
 
 The compiled memory block ends with `<external_projection>`, which named every memory file outside `system/` in name order with no limit. A real long-lived corpus measured 3,281 files and 157,834 bytes (about 39K tokens) on every turn, with 1,962 names on one line.
@@ -38,6 +60,34 @@ Tests:
 - `prompt.test.ts`: a nudge timeout leaves the turn with its memory block and no nudge, and reports the failure once. A failed soul notice keeps the nudge. Both fail before this change.
 - `nudge-wiring.test.ts`: a resumed session's save from an earlier run still resets the count, and a save buried among 50 commits of another session is seen by the next check.
 - `memory-maintenance.test.ts`: a repo full of loose objects is packed with every commit still readable. A commit made while a pass runs survives. A second process within the interval does not run again. Ten sessions starting together pack once. A lock held by another process means a quiet skip. A session that exits before its pass runs leaves the repo untouched. A loose object no commit references yet (a writer mid-commit) survives the pass. A repo that does not exist yet is a quiet no-op.
+
+## 2026-10-06 - A delivered message tells the receiver who sent it (#9660)
+
+The gateway drain now hands the receiving session the sender and the message as written, apart from the provenance header:
+- `deliverySender` in `gateway/provenance.ts` builds the sender: `agent` with the sending session's id and its name at send time, `command_line` for `omo thread send`, or `external` with the platform and author.
+- `drain.ts` passes it with `display_text` to `admitExternalMessage`.
+- `thread_send` and `thread_handoff` give the gateway the caller's current session name (`callerName`, from `pi.getSessionName`). Without it, a live run labelled the message only "Sent by another agent", because the drain had nothing but the session id.
+
+The model still reads the `[OMO_GATEWAY v=1 ...]` header. senpi's terminal renders the sender as "Sent by another agent · <name>" or "Sent from the command line" (senpi#2819); a senpi without that support ignores the two fields.
+
+Tests (`engine.test.ts`):
+- a named and an unnamed session sender;
+- a command-line sender.
+
+Dropping the sender, or naming a session by its id, fails them.
+
+## 2026-10-06 - The thread tools switch a terminal session's model and level and interrupt its turn (#9660)
+
+`thread_set_model`, `thread_set_reasoning` and `thread_interrupt` failed with `unsupported` against every terminal session, which is most live sessions. The client refused every command outside a fixed read-mostly list, and the terminal endpoint did not take them either.
+
+**What changed**
+- `live-surface.ts` asks a terminal once for `get_protocol_info` and remembers the `commands` it lists. A command the terminal lists is sent; any other is still refused as `unsupported` before a connection opens. A terminal on an older engine lists none and keeps the old behavior. Its refusal now says the terminal runs an engine from before terminal session controls, and how to get them.
+- `thread_list` rows carry `controls`, from `endpoint-controls.ts`: what a caller can do to that thread (`send`, `read`, `rename`, `set_model`, `set_reasoning`, `interrupt`). A host takes all six; an older terminal takes the first three.
+
+**Tests** (`live-surface-tui.test.ts`, against a terminal endpoint that answers as senpi's does):
+- a model switch, a supported and an unsupported level, an unknown model, an interrupt mid-turn and one on an idle session;
+- each row's `controls`, next to an older terminal and a host;
+- reverting to the fixed command list fails the test.
 
 ## 2026-10-05 - An idle gateway store no longer keeps its worker thread alive
 
