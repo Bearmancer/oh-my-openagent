@@ -323,8 +323,8 @@ describe("reconcileOnSessionStart scoped revival", () => {
     const after = harness.store.load(record.task_id)
     if (after === null) throw new Error("record vanished")
     expect(after.suspension_reason).toBe("revival_deferred")
-    expect(notContinuableReason(after)).not.toContain("resumes when its session is resumed")
-    expect(notContinuableReason(after)).toContain("model_unavailable")
+    expect(notContinuableReason(after)).toContain("its session was resumed, but reviving it was deferred (model_unavailable)")
+    expect(notContinuableReason(after)).toContain("then marked lost if it still cannot be revived")
   })
 
   test("#given retryable respawn failure and rollback lock failure #when reconciled #then the outcome loudly names the failed rollback", async () => {

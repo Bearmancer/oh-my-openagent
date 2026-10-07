@@ -17,6 +17,7 @@ function harness(options: {
   lock?: boolean
   rollback?: boolean
   foreign?: boolean
+  gateWait?: (ms: number) => Promise<void>
 } = {}) {
   const raw = tempStore()
   const taskId = "st_94980001"
@@ -58,6 +59,7 @@ function harness(options: {
     config: options.capacity ? { residency_max_children: 1 } : {},
     deferredRetryBackoffMs: [10, 20, 40],
     onWait: (ms) => { now += ms },
+    ...(options.gateWait ? { gateWait: options.gateWait } : {}),
     respawn: async (record) => {
       attempts += 1
       if (!options.succeeds || attempts === 1) {
@@ -219,6 +221,57 @@ describe("bounded resumed-child revival (omo#9498)", () => {
       expect(h.fixture.waits).toEqual([10, 20, 40])
     } finally {
       h.lifecycle.dispose?.()
+    }
+  }, 10_000)
+
+  // Review of omo#9714 (H1): a retry must not outlive the session that scheduled it.
+  for (const stop of ["shutdown", "dispose"] as const) {
+    test(`a pending retry stops on session ${stop}: the child is neither revived nor marked lost`, async () => {
+      const gate = Promise.withResolvers<void>()
+      const firstWait = Promise.withResolvers<void>()
+      const h = harness({ succeeds: true, gateWait: () => { firstWait.resolve(); return gate.promise } })
+      try {
+        await h.lifecycle.reconcileOnSessionStart("parent-1")
+        await firstWait.promise
+        if (stop === "shutdown") await h.lifecycle.suspendOnSessionShutdown({ parentSessionId: "parent-1", reason: "quit" })
+        else h.lifecycle.dispose?.()
+        gate.resolve()
+        // Every remaining wait resolves at once now; settle the retry loop deterministically.
+        for (let turn = 0; turn < 20; turn += 1) await Promise.resolve()
+
+        expect(h.attempts()).toBe(1)
+        const record = h.store.load(h.taskId)
+        expect(record?.residency_state).toBe("persisted_only")
+        expect(record?.status).toBe("running")
+      } finally {
+        h.lifecycle.dispose?.()
+      }
+    }, 10_000)
+  }
+
+  test("a session resumed again after shutdown retries its children again", async () => {
+    const h = harness({ succeeds: true })
+    try {
+      await h.lifecycle.suspendOnSessionShutdown({ parentSessionId: "parent-1", reason: "quit" })
+      await resume(h)
+      await h.revived
+      expect(h.store.load(h.taskId)?.residency_state).toBe("resident")
+    } finally {
+      h.lifecycle.dispose?.()
+    }
+  }, 10_000)
+
+  test("a second session start while a retry waits does not start a second retry loop for the same child", async () => {
+    const gate = Promise.withResolvers<void>()
+    const h = harness({ gateWait: () => gate.promise })
+    try {
+      await h.lifecycle.reconcileOnSessionStart("parent-1")
+      await h.lifecycle.reconcileOnSessionStart("parent-1")
+      // One loop is parked on its first backoff; a second loop would have parked a second one.
+      expect(h.fixture.waits).toEqual([10])
+    } finally {
+      h.lifecycle.dispose?.()
+      gate.resolve()
     }
   }, 10_000)
 })

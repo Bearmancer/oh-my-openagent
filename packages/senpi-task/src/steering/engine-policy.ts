@@ -24,13 +24,20 @@ export function scopeDenied(record: TaskRecord, input: SendInput): SendOutcome |
   }
 }
 
+/** What happens next to a deferred revival: capacity and a live owner wait for the other side to move. */
+function deferralOutlook(reason: string): string {
+  if (reason === "capacity") return "it is revived when a running child finishes or is reclaimed."
+  if (reason === "foreign_live_owner") return "another live session holds it, and it stays with that session."
+  return "it is retried a few times, then marked lost if it still cannot be revived."
+}
+
 export function notContinuableReason(record: TaskRecord): string {
   // Persisted-only and non-terminal RPC children resume only with their session. Terminal RPC
   // children with a transcript are the sole suspended records eligible for lazy task_send revival.
   if (record.residency_state === "persisted_only" || record.residency_state === "rpc_detached") {
     if (record.suspension_reason === "revival_deferred") {
       const reason = record.revival_deferred_reason ?? "unknown"
-      return `Task ${record.task_id} is suspended: its session was resumed, but reviving it was deferred (${reason}); task_output shows its state and task_cancel ends it.`
+      return `Task ${record.task_id} is suspended: its session was resumed, but reviving it was deferred (${reason}); ${deferralOutlook(reason)} task_output shows its state and task_cancel ends it.`
     }
     return `Task ${record.task_id} is suspended - resumes when its session is resumed.`
   }

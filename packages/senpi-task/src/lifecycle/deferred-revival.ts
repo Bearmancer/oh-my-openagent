@@ -14,6 +14,33 @@ const LOST_ON_EXHAUSTION: ReadonlySet<string> = new Set([
   "model_unavailable", "session_unavailable", "rollback_failed", "lock_contended",
 ])
 
+/**
+ * Sessions whose scoped retries must stop: the engine shut that session down or was disposed. A retry
+ * re-checks this after every wait, so it never revives a child under a session the user has left, and
+ * never exhausts into `lost` for one (review of omo#9714, H1).
+ */
+const stoppedSessions = new WeakMap<LifecycleContext, Set<string>>()
+const disposedContexts = new WeakSet<LifecycleContext>()
+
+export function stopScopedRetries(context: LifecycleContext, parentSessionId: string): void {
+  const stopped = stoppedSessions.get(context) ?? new Set<string>()
+  stopped.add(parentSessionId)
+  stoppedSessions.set(context, stopped)
+}
+
+/** A session that is resumed again may retry its children again. */
+export function resumeScopedRetries(context: LifecycleContext, parentSessionId: string): void {
+  stoppedSessions.get(context)?.delete(parentSessionId)
+}
+
+export function disposeScopedRetries(context: LifecycleContext): void {
+  disposedContexts.add(context)
+}
+
+function retriesStopped(context: LifecycleContext, parentSessionId: string): boolean {
+  return disposedContexts.has(context) || stoppedSessions.get(context)?.has(parentSessionId) === true
+}
+
 /** Retry only this resumed session's child, using the same fenced admission as session_start. */
 export async function retryDeferredScopedChild(
   context: LifecycleContext,
@@ -26,6 +53,7 @@ export async function retryDeferredScopedChild(
   let expected = context.store.load(taskId)
   for (const backoffMs of context.hostRetry.deferredRetryBackoffMs) {
     await context.hostRetry.wait(backoffMs)
+    if (retriesStopped(context, parentSessionId)) return
     const fresh = context.store.load(taskId)
     if (!canRetry(context, fresh, parentSessionId)) return
     // Another revival can claim a child before it installs its handle. The claim/epoch fence,
@@ -66,6 +94,7 @@ export async function retryDeferredScopedChild(
     if (!SCOPED_RETRY_REASONS.has(reason)) return
     expected = context.store.load(taskId)
   }
+  if (retriesStopped(context, parentSessionId)) return
   const observed = context.store.load(taskId)
   if (!canRetry(context, observed, parentSessionId)) return
   if (expected === null || observed.residency_claim !== expected.residency_claim

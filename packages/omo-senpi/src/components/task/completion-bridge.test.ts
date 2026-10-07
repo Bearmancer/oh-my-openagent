@@ -42,11 +42,12 @@ function pendingRunner(): ManagedRunner {
   }
 }
 
-function createHarness(): {
+function createHarness(options: { currentSessionId?: string } = {}): {
   readonly manager: TaskManager
   readonly messages: ParentNotifierMessage[]
   readonly complete: (taskId: string) => void
   readonly lose: (taskId: string) => void
+  readonly notifyCalls: () => number
 } {
   const backing = createTaskRecordStore({ project_dir: tempProject() })
   const messages: ParentNotifierMessage[] = []
@@ -55,10 +56,13 @@ function createHarness(): {
     store: backing,
   })
   let managerRef: TaskManager | undefined
+  let notifyCalls = 0
   const store = createCompletionObservingStore(backing, {
-    notifier: completion,
+    // Counts the bridge's own calls, so "once" is the bridge's guarantee, not the notifier's dedupe.
+    notifier: { ...completion, notifyTerminal: (input) => { notifyCalls += 1; return completion.notifyTerminal(input) } },
     parentState: () => ({ kind: "idle" }),
     wasBackground: (taskId) => managerRef?.wasBackground(taskId) ?? false,
+    currentSessionId: () => options.currentSessionId ?? "parent-session",
   })
   const runner = pendingRunner()
   const manager = createTaskManager({
@@ -72,6 +76,7 @@ function createHarness(): {
   return {
     manager,
     messages,
+    notifyCalls: () => notifyCalls,
     complete: (taskId) => {
       store.transition(taskId, {
         type: "complete",
@@ -105,9 +110,25 @@ describe("completion bridge live background promotion", () => {
     if (started.kind !== "started") throw new Error("expected started task")
     harness.lose(started.task_id)
     harness.lose(started.task_id)
+    expect(harness.notifyCalls()).toBe(1)
     expect(harness.messages).toHaveLength(1)
     expect(harness.messages[0]?.details[0]?.task_id).toBe(started.task_id)
     expect(harness.messages[0]?.details[0]?.status).toBe("lost")
+  })
+
+  it("#given another session's child #when a reconcile marks it lost #then this session is not notified and the child's own notification stays pending (review of omo#9714)", async () => {
+    const harness = createHarness({ currentSessionId: "other-session" })
+    const started = await harness.manager.start({
+      prompt: "work",
+      parent_session_id: "parent-session",
+      depth: 1,
+      category: "quick",
+      run_in_background: true,
+    })
+    if (started.kind !== "started") throw new Error("expected started task")
+    harness.lose(started.task_id)
+    expect(harness.notifyCalls()).toBe(0)
+    expect(harness.messages).toHaveLength(0)
   })
 
   it("#given a foreground start promoted before terminal #when completion applies #then the live manager flag delivers a notification", async () => {

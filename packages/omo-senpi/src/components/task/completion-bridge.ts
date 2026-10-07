@@ -20,6 +20,12 @@ export interface CompletionBridgeDeps {
   readonly parentState: () => ParentState
   readonly wasBackground: (taskId: string) => boolean
   readonly onTerminal?: (record: TaskRecord) => void
+  /**
+   * The session this engine currently serves. A reconcile also marks OTHER sessions' crashed children
+   * lost; only a child of this session may be notified here, or its own parent would never hear of it
+   * (its notification would already be spent on the wrong session). Unknown means no lost notification.
+   */
+  readonly currentSessionId?: () => string | undefined
 }
 
 /**
@@ -41,7 +47,7 @@ export function createCompletionObservingStore(backing: TaskRecordStore, deps: C
         becameLost = next.status === "lost" && !TERMINAL_STATUSES.has(fresh.status)
         return next
       })
-      if (becameLost && record !== null) {
+      if (becameLost && record !== null && record.parent_session_id === deps.currentSessionId?.()) {
         deps.notifier.notifyTerminal({
           record,
           parentState: deps.parentState(),
