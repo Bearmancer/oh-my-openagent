@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.23] - 2026-10-07
+
 ### Changed
 
 **omo runs on senpi 2026.10.10-6, so a background task no longer fails to start on a busy machine with "Provider scope is closed".** The engine host now acknowledges a child's first prompt as soon as it arrives instead of timing it out after 30 seconds ([senpi#2871](https://github.com/code-yeongyu/senpi/issues/2871)). On the Claude subscription lane, senpi now summarizes a long conversation itself by default, the same way it does on every other provider, and Claude Code's own auto-compact stays off so the two never both rewrite it; `compactionOwner: "sdk"` hands the job back to Claude Code ([senpi#2746](https://github.com/code-yeongyu/senpi/issues/2746), [senpi#2749](https://github.com/code-yeongyu/senpi/pull/2749), thanks @trac3r00). Anthropic sessions no longer fail on every request after a tool change ([senpi#2864](https://github.com/code-yeongyu/senpi/issues/2864)), a first message no longer waits for MCP servers to connect ([senpi#2843](https://github.com/code-yeongyu/senpi/issues/2843)), and a restored subscription session whose last reply was never recorded is rebuilt instead of resumed unchecked ([senpi#2858](https://github.com/code-yeongyu/senpi/issues/2858)). Full list: [senpi 2026.10.10-6](https://github.com/code-yeongyu/senpi/releases/tag/v2026.10.10-6).
