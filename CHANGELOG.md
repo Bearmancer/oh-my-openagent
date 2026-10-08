@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 **A bundled `visualize` skill renders inline HTML pages.** Charts, tables, diagrams and mockups come back as a self-contained page shown in the session; where the html preview is not available, the skill opens the page file through the browser skill instead. ([#9700](https://github.com/code-yeongyu/oh-my-openagent/issues/9700), [#9702](https://github.com/code-yeongyu/oh-my-openagent/pull/9702))
 
+**Arch Linux users can install OmO from the community AUR package `omo-bin`.** The install guide now documents it: `yay -S omo-bin` (or any AUR helper) installs the official Linux binary from our GitHub releases after checking it against the release's `SHA256SUMS`. It's maintained by @sTiKyt, not the OmO team, so update it with your AUR helper rather than `omo update`. ([#9584](https://github.com/code-yeongyu/oh-my-openagent/issues/9584), [#9610](https://github.com/code-yeongyu/oh-my-openagent/pull/9610))
+
 ### Fixed
 
 **A task child spawned with an explicit model runs on that model, or the spawn fails and says why.** A pin with a thinking level such as `anthropic/claude-opus-5-5:medium` used to be dropped silently, so the child ran on the default model instead; the pin is now resolved once against the live model registry, and the child's own reported model is checked after it starts. A model that cannot be resolved, or a child that comes up on a different model, fails the spawn with a typed error, and `task_output` shows the model the child actually ran next to the one requested. ([#9722](https://github.com/code-yeongyu/oh-my-openagent/issues/9722), [#9736](https://github.com/code-yeongyu/oh-my-openagent/pull/9736))
