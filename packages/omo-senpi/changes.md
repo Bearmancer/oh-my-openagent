@@ -1,3 +1,13 @@
+## 2026-10-08 - ulw-plan and mass-ulw ask their gating questions with `required: true` (#9735)
+
+senpi 2026.10.10-9 added `required: true` to `ask_user_question` (code-yeongyu/senpi#2959). On a required question, a timed-out, dismissed or unavailable answer returns "No answer: do not take the action it gates. Keep that action pending and end the turn." instead of the generic "Continue the work to completion on your best judgment". The approval gate (`ulw-plan/SKILL.md`, `references/full-workflow.md`), the final authorization block (`references/stance-calibration.md`) and mass-ulw's scope, spend and irreversible decisions (`mass-ulw/SKILL.md`) now set it on their call. Ordinary forks stay unflagged, so a timed-out fork still falls to its recommended default.
+
+The #9748 backstop sentence stays, because the flag is opt-in per call. In live QA on senpi -9 (gate left unanswered, 1-minute timeout):
+- `anthropic/claude-opus-5-5` set `required: true` on every gate call and got the refusal.
+- `zai/glm-5.3` never set it. Without the backstop, one of two runs wrote the plan on a timed-out gate; with it, none did.
+
+Plugin-side enforcement of the flag is tracked in #9774.
+
 ## 2026-10-08 - ulw-plan and mass-ulw ask through the question prompt (#9735)
 
 `ulw-plan` delivered its approval gate as chat text and ended the turn, so a user away from the screen never saw it. The renderers in `references/stance-calibration.md` and the gate in `references/full-workflow.md` said to "present" or "deliver" questions without naming a channel.
