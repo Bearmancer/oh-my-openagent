@@ -1,3 +1,15 @@
+## 2026-10-08 - Gating questions are asked with `required: true` even when the model omits it (#9774)
+
+senpi's `required: true` on `ask_user_question` turns a timed-out, dismissed or unavailable answer into "No answer: do not take the action it gates. Keep that action pending and end the turn." The flag is opt-in per call, and in live QA `zai/glm-5.3` never set it (0 of 6 gate calls; #9775), so its unanswered ulw-plan gate still read "continue on your best judgment".
+
+The new `question-gates` component (`src/components/question-gates/`) enforces it from the plugin. One `tool_call` handler on `ask_user_question` and `request_user_input` sets `required: true` in place before senpi's tool runs; the agent loop passes the same arguments object to the hook and to `execute`. Gates are detected from the call itself:
+- **Primary:** a question header the skills now pin, matched anchored: `Approval` for the ulw-plan approval gate; `Authorization` for the final authorization block and for mass-ulw's scope, spend and irreversible decisions; `승인` / `권한` in Korean sessions.
+- **Fallback:** an option label starting with `approve` / `authorize`.
+
+Question text is never read, so a fork that only mentions approving something stays unflagged and still falls back to its recommended default. The flag is never set to false. Each forced call writes one `debug` line naming the tool, the header and the matched rule, with no question text.
+
+A gate state rule (a ulw-plan draft at `status: awaiting-approval`) was rejected: in run t4 the model asked the gate while its draft still said `drafting`.
+
 ## 2026-10-08 - ulw-plan and mass-ulw ask their gating questions with `required: true` (#9735)
 
 senpi 2026.10.10-9 added `required: true` to `ask_user_question` (code-yeongyu/senpi#2959). On a required question, a timed-out, dismissed or unavailable answer returns "No answer: do not take the action it gates. Keep that action pending and end the turn." instead of the generic "Continue the work to completion on your best judgment". The approval gate (`ulw-plan/SKILL.md`, `references/full-workflow.md`), the final authorization block (`references/stance-calibration.md`) and mass-ulw's scope, spend and irreversible decisions (`mass-ulw/SKILL.md`) now set it on their call. Ordinary forks stay unflagged, so a timed-out fork still falls to its recommended default.
