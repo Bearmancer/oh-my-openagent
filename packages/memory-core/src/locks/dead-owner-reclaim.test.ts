@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { randomUUID } from "node:crypto"
-import { mkdtemp, readdir, rm, unlink, utimes, writeFile } from "node:fs/promises"
+import { chmod, mkdtemp, readdir, rm, unlink, utimes, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
@@ -143,6 +143,26 @@ describe("dead-owner lock reclaim", () => {
     // #then
     expect(beforeInterval).toEqual([path.basename(crashed)])
     expect(await readdir(locksDirectory)).toEqual([])
+  })
+
+  test("#given an unreadable lock before a crashed owner's lock #when the directory is swept #then the dead lock is still reclaimed and the failure is reported", async () => {
+    // #given
+    const locksDirectory = await createLocksDirectory()
+    const unreadable = path.join(locksDirectory, "a-unreadable.lock")
+    const crashed = path.join(locksDirectory, "b-crashed.lock")
+    await writeRecord(unreadable, await deadOwnerRecord("unreadable"))
+    await chmod(unreadable, 0o000)
+    await writeRecord(crashed, await deadOwnerRecord("crashed"))
+    const failures: string[] = []
+
+    // #when
+    const reclaimed = await sweepDeadOwnerLocks(locksDirectory, { onFailure: (lockPath) => failures.push(path.basename(lockPath)) })
+
+    // #then
+    await chmod(unreadable, 0o600)
+    expect(reclaimed).toBe(1)
+    expect(failures).toEqual([path.basename(unreadable)])
+    expect(await readdir(locksDirectory)).toEqual([path.basename(unreadable)])
   })
 
   test("#given leaked candidates #when swept #then a dead process's candidate goes at once and a live one's young candidate stays", async () => {

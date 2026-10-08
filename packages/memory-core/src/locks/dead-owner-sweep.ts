@@ -2,7 +2,9 @@ import { hostname } from "node:os"
 import path from "node:path"
 
 import { lstat, readdir, readFile } from "../fs/resilient"
-import { LockContentionError, acquireWithoutDirectorySweep, isLockOwnerProvenDead, releaseLock } from "./acquire"
+import { LockContentionError, acquireWithoutDirectorySweep } from "./acquire-core"
+import { releaseLock } from "./lock-owner"
+import { isLockOwnerProvenDead } from "./stale-owner"
 import { createLockRecord, parseLockRecord } from "./lock-record"
 import { getPidLiveness } from "./process-identity"
 
@@ -28,35 +30,50 @@ async function ownerIsProvenDead(lockPath: string): Promise<boolean> {
   return isLockOwnerProvenDead(owner)
 }
 
+export interface DeadOwnerSweepOptions {
+  /** Called for each lock (or the directory) the sweep could not inspect or reclaim; the sweep goes on. */
+  readonly onFailure?: (lockPath: string, error: unknown) => void
+}
+
+async function reclaimIfDeadOwner(lockPath: string): Promise<boolean> {
+  const status = await lstat(lockPath).catch(() => undefined)
+  if (status === undefined || !status.isFile() || !(await ownerIsProvenDead(lockPath))) return false
+  const sweeper = await createLockRecord("dead-owner-sweep")
+  try {
+    await acquireWithoutDirectorySweep(lockPath, sweeper, { waitTimeoutMs: 0 })
+  } catch (error) {
+    if (error instanceof LockContentionError) return false
+    throw error
+  }
+  await releaseLock(lockPath, sweeper)
+  return true
+}
+
 /**
  * Reclaims every `*.lock` in `lockDirectory` whose recorded owner's pid is gone on this host (the same
  * proof every contender applies; never age). A lock nobody contends for again is otherwise kept
- * forever. Reclaim goes through the acquire path with no wait, so it follows the same race-safe recovery
- * protocol every contender uses, and the lock is released at once. Returns how many were reclaimed.
+ * forever. Reclaim goes through the acquire path with no wait, so it follows the same race-safe
+ * recovery protocol every contender uses, and the lock is released at once. One lock that cannot be
+ * read or reclaimed is reported through `onFailure` and skipped; the sweep never throws. Returns how
+ * many were reclaimed.
  */
-export async function sweepDeadOwnerLocks(lockDirectory: string): Promise<number> {
+export async function sweepDeadOwnerLocks(lockDirectory: string, options: DeadOwnerSweepOptions = {}): Promise<number> {
   let names: readonly string[]
   try {
     names = await readdir(lockDirectory)
   } catch (error) {
-    if (errorCode(error) === "ENOENT") return 0
-    throw error
+    if (errorCode(error) !== "ENOENT") options.onFailure?.(lockDirectory, error)
+    return 0
   }
   let reclaimed = 0
   for (const name of names) {
     if (!name.endsWith(LOCK_FILE_SUFFIX)) continue
     const lockPath = path.join(lockDirectory, name)
-    const status = await lstat(lockPath).catch(() => undefined)
-    if (status === undefined || !status.isFile() || !(await ownerIsProvenDead(lockPath))) continue
-    const sweeper = await createLockRecord("dead-owner-sweep")
     try {
-      await acquireWithoutDirectorySweep(lockPath, sweeper, { waitTimeoutMs: 0 })
+      if (await reclaimIfDeadOwner(lockPath)) reclaimed += 1
     } catch (error) {
-      if (error instanceof LockContentionError) continue
-      throw error
+      options.onFailure?.(lockPath, error)
     }
-    await releaseLock(lockPath, sweeper)
-    reclaimed += 1
   }
   return reclaimed
 }

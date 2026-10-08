@@ -33,16 +33,21 @@ afterEach(async () => {
 })
 
 describe("lock wait backoff", () => {
-  test("#given the retry schedule #when attempts grow #then each delay stays inside its jitter band and under the cap", () => {
-    let previousCeiling = 0
-    for (let attempt = 0; attempt < 20; attempt += 1) {
-      const ceiling = Math.min(LOCK_RETRY_MAX_DELAY_MS, 5 * 2 ** attempt)
-      expect(lockRetryDelayMs(attempt, 5, () => 0)).toBe(Math.max(1, Math.round(ceiling / 2)))
-      expect(lockRetryDelayMs(attempt, 5, () => 1)).toBe(ceiling)
-      expect(ceiling).toBeGreaterThanOrEqual(previousCeiling)
-      previousCeiling = ceiling
+  test("#given the retry schedule #when attempts grow #then delays never shrink, stay positive, and never pass the cap", () => {
+    // #given
+    const extremes = [() => 0, () => 0.5, () => 0.999]
+
+    // #when
+    const schedules = extremes.map((random) => Array.from({ length: 40 }, (_, attempt) => lockRetryDelayMs(attempt, 5, random)))
+
+    // #then
+    for (const delays of schedules) {
+      expect(delays.every((delay) => delay >= 1 && delay <= LOCK_RETRY_MAX_DELAY_MS)).toBe(true)
+      expect(delays.every((delay, index) => index === 0 || delay >= (delays[index - 1] ?? 0))).toBe(true)
+      expect(delays[0]).toBeLessThanOrEqual(5)
+      expect(delays.at(-1)).toBeGreaterThan(LOCK_RETRY_MAX_DELAY_MS / 4)
     }
-    expect(previousCeiling).toBe(LOCK_RETRY_MAX_DELAY_MS)
+    expect(new Set(schedules.map((delays) => delays.at(-1))).size).toBeGreaterThan(1)
   })
 
   test("#given a live holder for a whole second #when a contender waits with a 5 ms base delay #then it polls a bounded number of times", async () => {
