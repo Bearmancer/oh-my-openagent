@@ -111,8 +111,14 @@ function parseTarEntry(line: string): ArchiveEntry | null {
 }
 
 async function listTarEntries(archivePath: string, cwd?: string): Promise<ArchiveEntry[]> {
+  // GNU tar reads extra options from TAR_OPTIONS (--block-number prefixes every line) and translates
+  // " link to " in the message locale, so the listing runs in the C locale without them. bsdtar ignores
+  // both; Windows bsdtar keeps the system locale regardless, hence the localized date forms above.
+  const env: NodeJS.ProcessEnv = { ...process.env, LC_ALL: "C" }
+  delete env.TAR_OPTIONS
   const proc = spawn(["tar", "-tvzf", archivePath], {
     cwd,
+    env,
     stdout: "pipe",
     stderr: "pipe",
   })

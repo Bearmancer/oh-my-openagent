@@ -271,9 +271,10 @@ describe.skipIf(process.platform === "win32")("archive extraction preflight", ()
 // month names are two words ("10-р сар" under mn_MN, "تشرين الأول" under ar_JO). GNU tar prints
 // "owner/group size YYYY-MM-DD HH:MM" with no link count. The extraction runs in a child
 // process whose PATH starts with a stand-in `tar` printing one such line (a spawned child only sees the
-// environment it is given), so the entry parser sees the bytes those systems emit. The archive bytes are
-// not a tar, so a run that reached the real tar would fail its listing instead of passing.
-// POSIX-only: the stand-in is a shell script.
+// environment it is given), so the entry parser sees the bytes those systems emit. Like GNU tar, the
+// stand-in prefixes lines for TAR_OPTIONS=--block-number and translates " link to " when LANGUAGE is set
+// outside the C locale. The archive bytes are not a tar, so a run that reached the real tar would fail
+// its listing instead of passing. POSIX-only: the stand-in is a shell script.
 describe.skipIf(process.platform === "win32")("tar listing layouts", () => {
 	it.each([
 		[
@@ -312,11 +313,23 @@ describe.skipIf(process.platform === "win32")("tar listing layouts", () => {
 			/^resolved$/m,
 		],
 		[
+			"extracts a contained hard link when the environment asks GNU tar for translated messages",
+			"hrw-r--r-- 0/0               0 2026-10-08 20:47 bin/hard link to bin/tool",
+			/^resolved$/m,
+			{ LANGUAGE: "de", LC_ALL: "" },
+		],
+		[
+			"ignores TAR_OPTIONS that change GNU tar's listing layout",
+			"lrwxr-xr-x user/group     0 2026-10-08 20:47 bin/link -> ../../escape",
+			/symlink target/i,
+			{ TAR_OPTIONS: "--block-number" },
+		],
+		[
 			"refuses to extract when a listing line has an unknown layout",
 			"?rw-r--r-- an unrecognized listing layout bin/tool",
 			/could not be parsed/i,
 		],
-	])("%s", (_name, listingLine, expected) => {
+	])("%s", (_name, listingLine, expected, extraEnv: Record<string, string> = {}) => {
 		//#given
 		const rootDir = createTestDir()
 		const archivePath = join(rootDir, "localized-listing.tar.gz")
@@ -328,7 +341,17 @@ describe.skipIf(process.platform === "win32")("tar listing layouts", () => {
 		const listingPath = join(rootDir, "listing.txt")
 		writeFileSync(listingPath, `${listingLine}\n`)
 		const fakeTar = join(binDir, "tar")
-		writeFileSync(fakeTar, `#!/bin/sh\ncase "$1" in -tvzf) cat '${listingPath}' ;; esac\n`)
+		writeFileSync(
+			fakeTar,
+			[
+				"#!/bin/sh",
+				'[ "$1" = "-tvzf" ] || exit 0',
+				`line=$(cat '${listingPath}')`,
+				'if [ "${LC_ALL:-}" != "C" ] && [ -n "${LANGUAGE:-}" ]; then line=$(printf "%s\\n" "$line" | sed "s/ link to / Verknüpfung zu /"); fi',
+				'case " ${TAR_OPTIONS:-} " in *" --block-number "*) line="block 0: $line" ;; esac',
+				'printf "%s\\n" "$line"',
+			].join("\n"),
+		)
 		chmodSync(fakeTar, 0o755)
 		const driver = [
 			`const { extractTarGz } = await import(${JSON.stringify(join(import.meta.dir, "binary-downloader.ts"))})`,
@@ -347,6 +370,7 @@ describe.skipIf(process.platform === "win32")("tar listing layouts", () => {
 				PATH: `${binDir}:${process.env.PATH ?? ""}`,
 				LOCALIZED_TAR_ARCHIVE: archivePath,
 				LOCALIZED_TAR_DEST: destDir,
+				...extraEnv,
 			},
 			stdout: "pipe",
 			stderr: "pipe",
