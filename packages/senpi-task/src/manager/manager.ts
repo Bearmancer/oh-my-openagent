@@ -59,6 +59,7 @@ import { NameRegistry } from "./names"
 import { TaskSequence } from "./task-sequence"
 import { createRunStatsTracker, type RunStatsTracker } from "../run-stats"
 import { subscribeChildFacts } from "./child-facts"
+import { readObservedModel } from "./observed-model"
 import type {
   ContinueResult,
   ListScope,
@@ -1008,7 +1009,7 @@ class TaskManagerImpl implements TaskManager {
     const spawnSpec = handle.spawnSpec
     // A v1 spawn_spec persisted at spawn is authoritative: the rpc echo would rewrite it as the
     // legacy {cwd, extensions, member_env} shape, dropping the rebuild facts v1 carries.
-    const updated: TaskRecord = spawnSpec === undefined || (current.spawn_spec !== undefined && isSpawnSpecV1(current.spawn_spec))
+    const specApplied: TaskRecord = spawnSpec === undefined || (current.spawn_spec !== undefined && isSpawnSpecV1(current.spawn_spec))
       ? withSession
       : {
           ...withSession,
@@ -1018,7 +1019,35 @@ class TaskManagerImpl implements TaskManager {
             ...(spawnSpec.memberEnv === undefined ? {} : { member_env: spawnSpec.memberEnv }),
           },
         }
+    // The post-start check already refuses a pin the child did not honour, so what reached this
+    // point IS the route the child runs on (#9722): the record states it, and the child's own
+    // model observations keep it current (#observeChildModel).
+    const updated: TaskRecord = specApplied.resolved_model === undefined || specApplied.effective_model !== undefined
+      ? specApplied
+      : { ...specApplied, effective_model: specApplied.resolved_model }
     if (updated !== current) this.#options.store.replace(updated)
+  }
+
+  /**
+   * A child's own observation of the model it runs on (an in-process assistant message, or an rpc
+   * model_change/model_select notification) rewrites the record's effective route. It touches
+   * NOTHING else: `model` and `resolved_model` keep stating the plan, and a runtime fallback's own
+   * rewrite stays the fallback path's job.
+   */
+  #observeChildModel(taskId: string, provider: string, modelId: string): void {
+    const current = this.#tryLoad(taskId)
+    if (current === null || isTerminalRecord(current)) return
+    if (current.effective_model?.provider === provider && current.effective_model.model_id === modelId) return
+    this.#options.store.replace({
+      ...current,
+      effective_model: {
+        provider,
+        model_id: modelId,
+        display: `${provider}/${modelId}`,
+        source: current.effective_model?.source ?? current.resolved_model?.source ?? "explicit",
+      },
+      updated_at: nowIso(this.#now),
+    })
   }
 
   // One child subscription feeds BOTH durable facts: the JSONL transcript log and the run-stats
@@ -1038,7 +1067,11 @@ class TaskManagerImpl implements TaskManager {
   }
 
   #subscribeChildFacts(handle: ManagedChildHandle, taskId: string): () => void {
-    return subscribeChildFacts({
+    const modelEvents = handle.subscribe((event) => {
+      const observed = readObservedModel(event)
+      if (observed !== undefined) this.#observeChildModel(taskId, observed.provider, observed.modelId)
+    })
+    const facts = subscribeChildFacts({
       handle, taskId, store: this.#options.store, now: this.#now,
       runStats: this.#runStats, fallbackExhaustions: this.#nativeFallbackExhaustions,
       reopen: () => reopenSelfResumedTurn(this.#selfResumedPorts, taskId, handle),
@@ -1047,6 +1080,10 @@ class TaskManagerImpl implements TaskManager {
         if (record != null && record.host_pid === this.#hostPid) this.#options.onChildExtensionEvent?.(event, record)
       },
     })
+    return () => {
+      modelEvents()
+      facts()
+    }
   }
 
   async #tryRuntimeFallback(input: {

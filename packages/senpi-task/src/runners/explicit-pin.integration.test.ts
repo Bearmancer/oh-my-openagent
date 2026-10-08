@@ -7,6 +7,7 @@ import type { AgentSession } from "@code-yeongyu/senpi"
 
 import { createTaskChildPlanner } from "../../../omo-senpi/src/components/task/planner"
 import { createParentRegistrySessionContext } from "../manager/parent-registry-context"
+import { readSettingsDefaultRoute } from "../senpi/explicit-pin"
 import type { ManagedStartSpec } from "../manager/types"
 import { InProcessRunner } from "./in-process"
 import { createBuiltinChildMachine, type BuiltinChildMachine } from "./in-process/__fixtures__/builtin-child"
@@ -42,7 +43,13 @@ async function world(defaultModelId: string): Promise<BuiltinChildMachine> {
 }
 
 function planFor(machine: BuiltinChildMachine, pin: string): PlanResolution {
-  return createTaskChildPlanner({}, {}, () => machine.modelRegistry)({
+  return createTaskChildPlanner(
+    {},
+    {},
+    () => machine.modelRegistry,
+    () => undefined,
+    () => readSettingsDefaultRoute({ cwd: machine.cwd, agentDir: machine.agentDir }),
+  )({
     prompt: "reply with done",
     parent_session_id: "parent-9722",
     depth: 1,
@@ -83,6 +90,7 @@ async function startPlannedChild(machine: BuiltinChildMachine, plan: ResolvedPla
     selectedModel: plan.model,
     ...(context.thinkingLevel === undefined ? {} : { thinkingLevel: context.thinkingLevel }),
   })
+  await handle.waitForIdle()
   await handle.dispose()
   const session = sessions.at(-1)
   if (session === undefined) throw new Error("the child session was not created")
@@ -90,12 +98,21 @@ async function startPlannedChild(machine: BuiltinChildMachine, plan: ResolvedPla
 }
 
 function firstSessionEntry(machine: BuiltinChildMachine, taskId: string, entryType: string): Record<string, unknown> {
-  const dir = join(machine.agentDir, "..", "children", taskId, "sessions", taskId)
+  const root = join(machine.agentDir, "..", "children", taskId)
   const { readdirSync, readFileSync, existsSync } = require("node:fs") as typeof import("node:fs")
-  if (!existsSync(dir)) throw new Error(`no child session dir at ${dir}`)
-  for (const name of readdirSync(dir).sort()) {
-    if (!name.endsWith(".jsonl")) continue
-    for (const line of readFileSync(join(dir, name), "utf8").split("\n")) {
+  if (!existsSync(root)) throw new Error(`no child session dir at ${root}`)
+  const jsonl: string[] = []
+  const walk = (dir: string, depth: number): void => {
+    if (depth > 3) return
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name)
+      if (entry.isDirectory()) walk(path, depth + 1)
+      else if (entry.name.endsWith(".jsonl")) jsonl.push(path)
+    }
+  }
+  walk(root, 0)
+  for (const path of jsonl.sort()) {
+    for (const line of readFileSync(path, "utf8").split("\n")) {
       if (line.trim() === "") continue
       let entry: unknown
       try {
@@ -108,7 +125,7 @@ function firstSessionEntry(machine: BuiltinChildMachine, taskId: string, entryTy
       }
     }
   }
-  throw new Error(`no ${entryType} entry under ${dir}`)
+  throw new Error(`no ${entryType} entry under ${root}`)
 }
 
 describe("explicit task model pins are honoured or fail loudly (#9722)", () => {

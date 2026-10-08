@@ -254,6 +254,57 @@ describe("TaskManager.start", () => {
     expect(rawRecord).not.toContain('"messages"')
   })
 
+  test("#given a resolved model plan #when the child is up #then the record carries its effective model and keeps it current from the child's own observations (#9722)", async () => {
+    // given
+    const resolvedModel: ResolvedModelRecord = {
+      provider: "anthropic",
+      model_id: "claude-opus-4-8",
+      display: "anthropic/claude-opus-4-8",
+      reasoning: "medium",
+      source: "explicit",
+    }
+    const planner: ChildPlanner = () => ({
+      kind: "resolved",
+      plan: { model: "anthropic/claude-opus-4-8", resolved_model: resolvedModel },
+    })
+    const runner = new FakeRunner()
+    const { manager, store } = makeManager({ planner, inProcess: runner })
+
+    // when
+    const result = await manager.start(baseSpec({}))
+    if (result.kind !== "started") throw new Error("expected started")
+    const fake = runner.handles.get(result.task_id)
+    if (fake === undefined) throw new Error("expected live handle")
+    await fake.waitForSubscription()
+    await flush()
+
+    // then: spawn stamped the effective route the post-start check proved
+    expect(store.load(result.task_id)?.effective_model).toEqual(resolvedModel)
+
+    // and when: the child reports its own model through an assistant observation
+    fake.emit({
+      type: "message_end",
+      message: { role: "assistant", provider: "anthropic", model: "claude-opus-4-8" },
+    })
+
+    // then: a matching observation rewrites nothing
+    expect(store.load(result.task_id)?.effective_model).toEqual(resolvedModel)
+
+    // and when: the child moves to a different model
+    fake.emit({
+      type: "message_end",
+      message: { role: "assistant", provider: "anthropic", model: "claude-fable-5" },
+    })
+
+    // then: the record's effective model follows the child, while the plan fields keep stating intent
+    expect(store.load(result.task_id)?.effective_model).toMatchObject({
+      provider: "anthropic",
+      model_id: "claude-fable-5",
+      source: "explicit",
+    })
+    expect(store.load(result.task_id)?.resolved_model).toEqual(resolvedModel)
+  })
+
   test("#given a resolved ultrabrain plan whose runner throws #when the real task mapping renders start_failed #then resolved context reaches the error row without the prompt", async () => {
     // given
     const resolvedModel: ResolvedModelRecord = {
@@ -420,8 +471,8 @@ describe("TaskManager child subscriptions", () => {
     await flush()
 
     const promoted = runner.handles.get(queued.task_id)
-    // Owned transcript + run-stats subscriptions plus the deferred external child listener.
-    expect(promoted?.subscribeCount()).toBe(3)
+    // Owned transcript + run-stats + effective-model subscriptions plus the deferred external child listener.
+    expect(promoted?.subscribeCount()).toBe(4)
     unsubscribe()
     expect(promoted?.unsubscribeCount()).toBe(1)
   })

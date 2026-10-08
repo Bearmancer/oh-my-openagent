@@ -1,4 +1,6 @@
 import { asSenpiThinkingLevel } from "../../senpi/thinking-level"
+import { splitModelDecorators } from "../../senpi/explicit-pin"
+import type { HostSessionLiveness } from "./handle-port"
 import {
   SESSION_START_FAILURE_REASONS,
   isTaskStartFailureReason,
@@ -19,17 +21,22 @@ import type { HostRetryFallbackProfile, HostSessionOpenInput } from "./session-t
 const SESSION_FAILURE_REASONS = new Set<TaskStartFailureReason>(SESSION_START_FAILURE_REASONS)
 
 export async function openTaskHostSession(input: {
-  readonly client: { open(request: HostSessionOpenInput): Promise<OpenedHostSession> }
+  readonly client: {
+    open(request: HostSessionOpenInput): Promise<OpenedHostSession>
+    getState?(): Promise<HostSessionLiveness>
+    stop?(): Promise<void>
+  }
   readonly spec: RpcRunnerSpec
   readonly sessionPath: string
 }): Promise<OpenedHostSession> {
   const model = splitModelRef(input.spec.model)
-  const thinkingLevel = asSenpiThinkingLevel(input.spec.reasoning ?? input.spec.variant)
+  const thinkingLevel = asSenpiThinkingLevel(input.spec.reasoning ?? input.spec.variant) ?? asSenpiThinkingLevel(model?.thinkingLevel)
+  let opened: OpenedHostSession
   try {
-    return await input.client.open({
+    opened = await input.client.open({
       sessionPath: input.sessionPath,
       cwd: input.spec.cwd,
-      ...(model === undefined ? {} : model),
+      ...(model === undefined ? {} : { provider: model.provider, modelId: model.modelId }),
       ...(thinkingLevel === undefined ? {} : { thinkingLevel }),
       ...buildChildContext(input.spec),
       retainOnDisconnect: true,
@@ -46,6 +53,24 @@ export async function openTaskHostSession(input: {
       cause: error,
     })
   }
+  // Post-start check (#9722): a FRESH child must have opened on the pinned base id. The host
+  // answers get_state with its effective model; a mismatch fails the spawn typed instead of
+  // letting the child run a turn on the host's settings default. An ATTACHED open re-joins a
+  // session that is already running its own model - recovery re-opens must not re-assert the
+  // pin against it, and this read is skipped so a held get_state can never hang a reattach. The
+  // open succeeded, so this channel is stopped here - the caller never sees a handle to close.
+  if (model !== undefined && opened.attached !== true && input.client.getState !== undefined) {
+    const state = await input.client.getState().catch(() => undefined)
+    const effective = state?.model
+    if (effective !== undefined && (effective.provider !== model.provider || effective.id !== model.modelId)) {
+      await input.client.stop?.().catch(() => undefined)
+      throw new RunnerError({
+        kind: "model_unavailable",
+        message: `the host opened the child on ${effective.provider}/${effective.id} instead of the pinned ${model.provider}/${model.modelId}; refusing the substitution`,
+      })
+    }
+  }
+  return opened
 }
 
 function sessionFailureReason(error: unknown): TaskStartFailureReason | undefined {
@@ -69,9 +94,20 @@ function childRetryFallback(spec: RpcRunnerSpec): { readonly retryFallback?: Hos
   return retryFallback === undefined ? {} : { retryFallback }
 }
 
-function splitModelRef(model: string | undefined): { readonly provider: string; readonly modelId: string } | undefined {
+/**
+ * Split a task model reference into the wire's provider/modelId pair, first stripping any
+ * `:<thinking-level>`/`:<service-tier>` decorators with the same grammar senpi's `--model` parses
+ * (#9722): the suffix rides `thinkingLevel` instead of being sent as part of the id. A reference
+ * with no usable provider/model boundary yields undefined, so the host keeps its own resolution.
+ */
+function splitModelRef(model: string | undefined): { readonly provider: string; readonly modelId: string; readonly thinkingLevel?: string } | undefined {
   if (model === undefined) return undefined
-  const separator = model.indexOf("/")
-  if (separator <= 0 || separator === model.length - 1) return undefined
-  return { provider: model.slice(0, separator), modelId: model.slice(separator + 1) }
+  const { base, thinkingLevel } = splitModelDecorators(model)
+  const separator = base.indexOf("/")
+  if (separator <= 0 || separator === base.length - 1) return undefined
+  return {
+    provider: base.slice(0, separator),
+    modelId: base.slice(separator + 1),
+    ...(thinkingLevel === undefined ? {} : { thinkingLevel }),
+  }
 }

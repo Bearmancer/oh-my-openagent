@@ -4,32 +4,45 @@ import { inheritParentFastMode, type ResolveParentServiceTier } from "./fast-mod
 import {
   resolveAgent,
   resolveCategory,
+  resolveExplicitTaskPin,
+  splitModelDecorators,
   type AgentDefinition,
   type ChildPlanner,
+  type ExplicitPinRuntime,
   type PlanResolution,
   type ResolvedAgentResult,
   type SenpiModelPort,
   type SenpiModelRegistryPort,
+  type SettingsDefaultRoute,
 } from "@oh-my-opencode/senpi-task"
 
 type ResolvedPlan = Extract<PlanResolution, { readonly kind: "resolved" }>["plan"]
 type ResolvedModelMetadata = NonNullable<ResolvedPlan["resolved_model"]>
 
 // The live senpi model registry surface the planner needs. ExtensionContext.modelRegistry satisfies
-// it structurally; a fake with getAvailable/find satisfies it in tests.
-export type TaskModelRegistry = SenpiModelRegistryPort<SenpiModelPort>
+// it structurally; a fake with getAvailable/find satisfies it in tests. `modelRuntime` rides along
+// on the concrete registry: explicit pins resolve through senpi's own `resolveCliModel`, which
+// needs the runtime's catalog, so a registry without one can only offer exact-id `find` matching.
+export type TaskModelRegistry = SenpiModelRegistryPort<SenpiModelPort> & {
+  readonly modelRuntime?: ExplicitPinRuntime
+}
 
 export type ResolveModelRegistry = () => TaskModelRegistry | undefined
+
+// The settings-default route a pin-less child would start on, named in model_unavailable errors so
+// the caller sees exactly what the refusal protected it from.
+export type ResolveDefaultRoute = () => SettingsDefaultRoute | undefined
 
 const NO_REGISTRY_MESSAGE = "No senpi model registry is available yet to resolve a task model."
 
 // The category-and-agent resolving ChildPlanner the manager consumes. Resolution order:
-// 1. a subagent_type naming a known agent wins: an explicit `model` keeps the headless explicit
-//    path (agent persona attached, no registry access); otherwise the agent's model chain resolves
-//    against the live registry and a missing registry fails closed as model_unavailable. A
-//    subagent_type naming no enabled agent is a typed unknown_target error - never a category
-//    lookup of the same string (#8348).
-// 2. an explicit `model` alone is honored verbatim, before any registry access.
+// 1. a subagent_type naming a known agent wins: an explicit `model` pin is parsed ONCE with
+//    senpi's own resolver and must resolve against the live registry, or the spawn fails typed
+//    (#9722); otherwise the agent's model chain resolves against the live registry and a missing
+//    registry fails closed as model_unavailable. A subagent_type naming no enabled agent is a
+//    typed unknown_target error - never a category lookup of the same string (#8348).
+// 2. an explicit `model` alone is the same parsed pin: canonical provider/model_id plus thinking
+//    level, resolved or failed.
 // 3. a category resolves against omo.json + the registry.
 // Whatever path resolved, the plan then inherits the parent's effective execution tier
 // (fast-mode-inheritance.ts) so a fast parent never delegates to a standard-tier child.
@@ -38,21 +51,24 @@ export function createTaskChildPlanner(
   agents: Readonly<Record<string, AgentDefinition>>,
   resolveRegistry: ResolveModelRegistry,
   resolveParentServiceTier: ResolveParentServiceTier = () => undefined,
+  resolveDefaultRoute?: ResolveDefaultRoute,
 ): ChildPlanner {
   const availableAgents = listAvailableAgents(agents)
   const planChild = (spec: Parameters<ChildPlanner>[0]): PlanResolution => {
     if (spec.subagent_type !== undefined) {
-      const agentResolution = resolveAgentTarget(spec.subagent_type, spec.model, agents, resolveRegistry, omoConfig)
+      const agentResolution = resolveAgentTarget(spec.subagent_type, spec.model, agents, resolveRegistry, omoConfig, resolveDefaultRoute)
       return agentResolution ?? unresolvableAgentTarget(spec.subagent_type, availableAgents, resolveRegistry, omoConfig)
     }
 
     if (spec.model !== undefined && spec.model.length > 0) {
-      const resolvedModel = explicitModelMetadata(spec.model)
+      const pin = resolveExplicitPin(spec.model, resolveRegistry, resolveDefaultRoute)
+      if (pin.kind !== "resolved") return { kind: "error", error: pin.error }
       return {
         kind: "resolved",
         plan: {
-          model: spec.model,
-          ...(resolvedModel !== undefined ? { resolved_model: resolvedModel } : {}),
+          model: pin.canonical,
+          resolved_model: pin.metadata,
+          ...(pin.thinkingLevel === undefined ? {} : { variant: pin.thinkingLevel }),
         },
       }
     }
@@ -92,11 +108,14 @@ function resolveAgentTarget(
   agents: Readonly<Record<string, AgentDefinition>>,
   resolveRegistry: ResolveModelRegistry,
   omoConfig: OmoConfig,
+  resolveDefaultRoute?: ResolveDefaultRoute,
 ): PlanResolution | undefined {
   if (explicitModel !== undefined && explicitModel.length > 0) {
     const resolution = resolveAgent(agentName, agents, undefined, { modelOverride: explicitModel })
     if (resolution.kind !== "resolved") return undefined
-    return { kind: "resolved", plan: toAgentPlan(resolution, explicitModelMetadata(explicitModel)) }
+    const pin = resolveExplicitPin(explicitModel, resolveRegistry, resolveDefaultRoute)
+    if (pin.kind !== "resolved") return { kind: "error", error: pin.error }
+    return { kind: "resolved", plan: toAgentPlan(resolution, pin.metadata, pin.canonical) }
   }
 
   const registry = resolveRegistry()
@@ -147,13 +166,13 @@ function unresolvableAgentTarget(
   }
 }
 
-function toAgentPlan(resolution: ResolvedAgentResult, explicitModel: ResolvedModelMetadata | undefined): ResolvedPlan {
+function toAgentPlan(resolution: ResolvedAgentResult, explicitModel: ResolvedModelMetadata | undefined, canonicalModel?: string): ResolvedPlan {
   const resolvedModel = resolution.resolved_model ?? explicitModel
   // Identical precedence to the category path below: reasoning outranks reasoningEffort outranks
   // variant, and whichever is chosen becomes the child's thinking level through asSenpiThinkingLevel.
-  const appliedVariant = resolution.resolved_model?.reasoning ?? resolution.resolved_model?.reasoning_effort ?? resolution.resolved_model?.variant
+  const appliedVariant = resolvedModel?.reasoning ?? resolvedModel?.reasoning_effort ?? resolvedModel?.variant
   return {
-    model: resolution.model,
+    model: canonicalModel ?? resolution.model,
     ...(resolution.requested_model !== undefined
       ? { requested_model: resolution.requested_model }
       : {}),
@@ -245,15 +264,95 @@ function toPlanResolution(
   }
 }
 
-function explicitModelMetadata(model: string): ResolvedModelMetadata | undefined {
-  const separatorIndex = model.indexOf("/")
-  if (separatorIndex <= 0 || separatorIndex === model.length - 1) {
-    return undefined
+type ExplicitPinResolution =
+  | { readonly kind: "resolved"; readonly canonical: string; readonly metadata: ResolvedModelMetadata; readonly thinkingLevel?: string }
+  | { readonly kind: "error"; readonly error: { readonly code: "invalid_target" | "model_unavailable"; readonly message: string } }
+
+/**
+ * Parse an explicit task model pin ONCE and resolve it against the live registry, or fail closed
+ * (#9722): the raw `provider/model:level` string is never trusted as a model id again. senpi's own
+ * resolver owns the split whenever the registry carries its runtime; a structurally minimal
+ * registry (unit fakes) falls back to exact-id `find` on the shared decorator split. Either way a
+ * miss is a typed model_unavailable naming the pin and the settings default the child would
+ * otherwise have ridden, and a malformed pin is a typed invalid_target.
+ */
+function resolveExplicitPin(
+  pin: string,
+  resolveRegistry: ResolveModelRegistry,
+  resolveDefaultRoute: ResolveDefaultRoute | undefined,
+): ExplicitPinResolution {
+  const registry = resolveRegistry()
+  if (registry === undefined) {
+    return { kind: "error", error: { code: "model_unavailable", message: withDefaultRoute(NO_REGISTRY_MESSAGE, resolveDefaultRoute) } }
   }
+  const runtime = registry.modelRuntime
+  if (runtime !== undefined) {
+    const resolved = resolveExplicitTaskPin(pin, runtime)
+    if (resolved.kind !== "resolved") {
+      return {
+        kind: "error",
+        error: {
+          code: resolved.kind,
+          message: resolved.kind === "model_unavailable" ? withDefaultRoute(resolved.message, resolveDefaultRoute) : resolved.message,
+        },
+      }
+    }
+    return explicitPinResolved(pin, resolved.provider, resolved.modelId, resolved.thinkingLevel)
+  }
+  return resolvePinByExactId(pin, registry, resolveDefaultRoute)
+}
+
+function resolvePinByExactId(
+  pin: string,
+  registry: TaskModelRegistry,
+  resolveDefaultRoute: ResolveDefaultRoute | undefined,
+): ExplicitPinResolution {
+  const { base, thinkingLevel } = splitModelDecorators(pin.trim())
+  const slash = base.indexOf("/")
+  if (slash <= 0 || slash === base.length - 1) {
+    return {
+      kind: "error",
+      error: { code: "invalid_target", message: `The task model pin "${pin}" is malformed: use provider/model with an optional :thinking-level suffix.` },
+    }
+  }
+  const provider = base.slice(0, slash)
+  const modelId = base.slice(slash + 1)
+  const found = registry.find(provider, modelId)
+  if (found === undefined) {
+    return {
+      kind: "error",
+      error: {
+        code: "model_unavailable",
+        message: withDefaultRoute(`The task model pin "${pin}" did not resolve to a model in the live registry.`, resolveDefaultRoute),
+      },
+    }
+  }
+  return explicitPinResolved(pin, provider, modelId, thinkingLevel)
+}
+
+function explicitPinResolved(
+  pin: string,
+  provider: string,
+  modelId: string,
+  thinkingLevel: string | undefined,
+): ExplicitPinResolution {
   return {
-    source: "explicit",
-    provider: model.slice(0, separatorIndex),
-    model_id: model.slice(separatorIndex + 1),
-    display: model,
+    kind: "resolved",
+    canonical: `${provider}/${modelId}`,
+    metadata: {
+      source: "explicit",
+      provider,
+      model_id: modelId,
+      display: pin,
+      ...(thinkingLevel === undefined ? {} : { reasoning: thinkingLevel }),
+    },
+    ...(thinkingLevel === undefined ? {} : { thinkingLevel }),
   }
+}
+
+function withDefaultRoute(message: string, resolveDefaultRoute: ResolveDefaultRoute | undefined): string {
+  const route = resolveDefaultRoute?.()
+  return route === undefined
+    ? message
+    : `${message} The child would otherwise start on the settings default route ${route.provider}/${route.modelId}.`
 }

@@ -21,10 +21,14 @@ export type ChildExtensionRunner = {
   emit(event: { readonly type: "session_shutdown"; readonly reason: "quit" }): Promise<unknown>
 }
 
-// Structural subset of senpi's AgentSession that the handle drives. The default seam returns a
-// live AgentSession; fakes implement only these members.
+/**
+ * Structural subset of senpi's AgentSession that the handle drives. The default seam returns a
+ * live AgentSession; fakes implement only these members. `model` is what the session actually
+ * started on, read by the runner's post-start pin check (#9722); fakes may omit it.
+ */
 export type ChildSession = {
   readonly sessionId: string
+  readonly model?: { readonly provider: string; readonly id: string }
   prompt(text: string): Promise<void>
   steer(text: string): Promise<QueuedInputDisposition>
   followUp(text: string): Promise<QueuedInputDisposition>
