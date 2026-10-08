@@ -1,3 +1,11 @@
+## 2026-10-05 - Live fallback QA covers process children and a turn near compaction (#9582)
+
+`scripts/qa/task-runtime-fallback-e2e.mjs`:
+- `limit-after-tool` now requires the tool call before the in-session hop on every process runner. The child-process `N/A` is gone now that a process child carries its own chain.
+- New scenario `limit-near-compaction`: the same tool-then-limit turn, but the tool-call response reports a context past the compaction threshold of a 128K window (114K input; senpi refuses to start a session under its start minimum, about 52K here and more where more tools load). The engine's pre-retry compaction therefore runs on the spent model first, and the child must still end on its fallback model with the settings file byte-identical.
+- The driver runs on Windows too: the process table comes from the CIM process list instead of `ps`/`pgrep`, and `senpi` resolves through PATHEXT.
+
+`task-runtime-fallback-mock-provider.ts` serves the new model. `task-runtime-fallback-e2e.windows.test.ts` runs the child-process runner through `user-fallback`, `limit-after-tool` and `limit-near-compaction` on Windows, where every task child is a process child.
 ## 2026-10-07 - A bundled visualize skill for inline HTML pages (#9700)
 
 Agents can show a self-contained HTML page inline in a thread (senpi `show_html_page`, the desktop `html_preview` / `html_render`), but nothing told them how to make the page good.
