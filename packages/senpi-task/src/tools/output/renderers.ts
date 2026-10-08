@@ -109,7 +109,12 @@ export function taskOutputModelText(snapshot: TaskSnapshot): string {
   ].filter((part) => part !== undefined)
   const planned = `${display ?? model}${details.length > 0 ? ` (${details.join(", ")})` : ""}`
   const effective = nonEmpty(snapshot.effective_model?.display)
-  if (effective === undefined || effective === snapshot.resolved_model?.display) return `model ${planned}`
+  const sameModel =
+    snapshot.effective_model !== undefined &&
+    snapshot.resolved_model !== undefined &&
+    snapshot.effective_model.provider === snapshot.resolved_model.provider &&
+    snapshot.effective_model.model_id === snapshot.resolved_model.model_id
+  if (effective === undefined || sameModel) return `model ${planned}`
   return `model ${effective} (planned ${planned})`
 }
 

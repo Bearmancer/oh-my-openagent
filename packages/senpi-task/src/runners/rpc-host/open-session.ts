@@ -53,19 +53,19 @@ export async function openTaskHostSession(input: {
       cause: error,
     })
   }
-  // Post-start check (#9722): a FRESH child must have opened on the pinned base id. The host
-  // answers get_state with its effective model; a mismatch fails the spawn typed instead of
-  // letting the child run a turn on the host's settings default, and an UNREADABLE state fails
-  // closed the same way - a check that silently skips on error is no check at all. An ATTACHED
-  // open re-joins a session that is already running its own model - recovery re-opens must not
-  // re-assert the pin against it, and this read is skipped so a held get_state can never hang a
-  // reattach. The open succeeded, so this channel is closed here - the caller never sees a handle.
-  if (opened.attached !== true && input.client.getState !== undefined) {
+  // Post-start check (#9722): a FRESH open (attached !== true) must have opened on the pinned
+  // base id. The host answers get_state with its effective model; a mismatch, an unreadable
+  // state, or a state carrying NO model all fail typed - a check that silently skips on error is
+  // no check at all. An ATTACHED open re-joins a session that is already running its own model -
+  // recovery re-opens must not re-assert the pin against it, and this read is skipped entirely so
+  // a held or model-less get_state can never break a reattach. The open succeeded, so this
+  // channel is closed here - the caller never sees a handle.
+  const freshOpen = opened.attached !== true
+  if (model !== undefined && freshOpen) {
     let effective: HostSessionLiveness["model"]
     try {
-      effective = (await input.client.getState()).model
+      effective = (await input.client.getState?.())?.model
     } catch (error) {
-      if (model === undefined) return opened
       await input.client.close?.().catch(() => undefined)
       throw new RunnerError({
         kind: "model_unavailable",
@@ -73,18 +73,26 @@ export async function openTaskHostSession(input: {
         cause: error,
       })
     }
-    if (
-      model !== undefined &&
-      effective !== undefined &&
-      (effective.provider !== model.provider || effective.id !== model.modelId)
-    ) {
+    if (effective === undefined) {
+      await input.client.close?.().catch(() => undefined)
+      throw new RunnerError({
+        kind: "model_unavailable",
+        message: `the host reported no model after opening the pinned ${model.provider}/${model.modelId}; refusing to start unverified`,
+      })
+    }
+    if (effective.provider !== model.provider || effective.id !== model.modelId) {
       await input.client.close?.().catch(() => undefined)
       throw new RunnerError({
         kind: "model_unavailable",
         message: `the host opened the child on ${effective.provider}/${effective.id} instead of the pinned ${model.provider}/${model.modelId}; refusing the substitution`,
       })
     }
-    return effective === undefined ? opened : { ...opened, effectiveModel: effective }
+    return { ...opened, reportedModel: effective }
+  }
+  if (freshOpen && input.client.getState !== undefined) {
+    const state = await input.client.getState().catch(() => undefined)
+    const effective = state?.model
+    return effective === undefined ? opened : { ...opened, reportedModel: effective }
   }
   return opened
 }

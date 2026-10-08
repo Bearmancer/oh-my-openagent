@@ -595,9 +595,8 @@ describe("DAG crash recovery", () => {
     const config = settings()
     const launchObservations: Array<TaskRecord | null> = []
     const calls: string[] = []
-    const { effectiveModel: _managedEffectiveModel, ...managedHandle } = makeHandle(pending.task_id).handle
     const handle: RpcChildHandle = {
-      ...managedHandle,
+      ...makeHandle(pending.task_id).handle,
       pid: 9002,
       subscribe: () => () => undefined,
       waitForIdle: async () => undefined,

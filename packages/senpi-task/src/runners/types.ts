@@ -57,7 +57,7 @@ export type ChildHandle = {
   readonly sessionId: string | undefined
   readonly pid: number | undefined
   /** The model the child actually opened on, when its open path observed one (host get_state; #9722). */
-  readonly effectiveModel?: { readonly provider: string; readonly id: string }
+  readonly reportedModel?: { readonly provider: string; readonly id: string }
   steer(text: string): Promise<void>
   followUp(text: string): Promise<void>
   abort(): Promise<void>

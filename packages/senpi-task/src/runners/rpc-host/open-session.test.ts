@@ -37,12 +37,16 @@ describe("openTaskHostSession suffix and post-start model (#9722)", () => {
     expect(openedInputs[0]).toMatchObject({ provider: "test", modelId: "model", thinkingLevel: "medium" })
   })
 
-  test("#given a fresh open whose host state reports a different model #when the session opens #then the spawn fails typed as model_unavailable (#9722)", async () => {
+  test("#given a fresh open whose host state reports a different model #when the session opens #then the spawn fails typed as model_unavailable and the channel is closed (#9722)", async () => {
     // given
+    let closeCalls = 0
     const client = {
       open: () => Promise.resolve({ sessionId: "sess-1", attached: false, instanceId: "i-1", engineVersion: "v" }),
       getState: () => Promise.resolve({ sessionId: "sess-1", model: { provider: "test", id: "substitute" } }),
-      close: () => Promise.resolve(),
+      close: () => {
+        closeCalls += 1
+        return Promise.resolve()
+      },
     }
 
     // when
@@ -53,14 +57,19 @@ describe("openTaskHostSession suffix and post-start model (#9722)", () => {
     expect(RunnerError.is(failure) ? failure.failure.kind : undefined).toBe("model_unavailable")
     expect(failure instanceof Error ? failure.message : "").toContain("test/substitute")
     expect(failure instanceof Error ? failure.message : "").toContain("test/model")
+    expect(closeCalls).toBe(1)
   })
 
-  test("#given a fresh open whose state read fails #when the session opens #then the spawn fails closed instead of skipping the check (#9722)", async () => {
+  test("#given a fresh open whose state read fails #when the session opens #then the spawn fails closed and the channel is closed (#9722)", async () => {
     // given
+    let closeCalls = 0
     const client = {
       open: () => Promise.resolve({ sessionId: "sess-1", attached: false, instanceId: "i-1", engineVersion: "v" }),
       getState: () => Promise.reject(new Error("state unavailable")),
-      close: () => Promise.resolve(),
+      close: () => {
+        closeCalls += 1
+        return Promise.resolve()
+      },
     }
 
     // when
@@ -69,6 +78,29 @@ describe("openTaskHostSession suffix and post-start model (#9722)", () => {
 
     // then
     expect(RunnerError.is(failure) ? failure.failure.kind : undefined).toBe("model_unavailable")
+    expect(closeCalls).toBe(1)
+  })
+
+  test("#given a pinned fresh open whose state carries no model #when the session opens #then it fails closed as unverified (#9722)", async () => {
+    // given
+    let closeCalls = 0
+    const client = {
+      open: () => Promise.resolve({ sessionId: "sess-1", attached: false, instanceId: "i-1", engineVersion: "v" }),
+      getState: () => Promise.resolve({ sessionId: "sess-1" }),
+      close: () => {
+        closeCalls += 1
+        return Promise.resolve()
+      },
+    }
+
+    // when
+    const failure = await openTaskHostSession({ client, spec, sessionPath: "/tmp/session.jsonl" })
+      .catch((error: unknown) => error)
+
+    // then
+    expect(RunnerError.is(failure) ? failure.failure.kind : undefined).toBe("model_unavailable")
+    expect(failure instanceof Error ? failure.message : "").toContain("unverified")
+    expect(closeCalls).toBe(1)
   })
 
   test("#given a reattach that rejoins a live session #when the session opens #then no model re-assertion reaches the host (#9722)", async () => {

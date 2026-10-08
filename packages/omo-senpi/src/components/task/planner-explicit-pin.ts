@@ -56,7 +56,7 @@ export function resolveExplicitPin(
   return resolvePinByExactId(pin, registry, resolveDefaultRoute)
 }
 
-const NO_REGISTRY_MESSAGE = "No senpi model registry is available yet to resolve a task model."
+export const NO_REGISTRY_MESSAGE = "No senpi model registry is available yet to resolve a task model."
 
 function resolvePinByExactId(
   pin: string,

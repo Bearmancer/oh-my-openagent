@@ -80,6 +80,28 @@ describe("adaptInProcessHandle", () => {
 })
 
 describe("adaptRpcHandle", () => {
+  test("#given an rpc handle carrying the host's reported model #when adapted #then the managed handle answers it as its effective model (#9722)", () => {
+    // given
+    const rpc = {
+      ...fakeRpcHandle(),
+      reportedModel: { provider: "vendor-a", id: "opened-model" },
+    }
+
+    // when
+    const managed = adaptRpcHandle(rpc)
+
+    // then
+    expect(managed.effectiveModel?.()).toEqual({ provider: "vendor-a", id: "opened-model" })
+  })
+
+  test("#given an rpc handle with no reported model #when adapted #then the managed handle reports none (#9722)", () => {
+    // given / when
+    const managed = adaptRpcHandle(fakeRpcHandle())
+
+    // then
+    expect(managed.effectiveModel?.()).toBeUndefined()
+  })
+
   test("#given an rpc terminal provider error on a resident process #when adapted #then the outcome is a child-turn error carrying the provider message", async () => {
     // given
     const handle = adaptRpcHandle(

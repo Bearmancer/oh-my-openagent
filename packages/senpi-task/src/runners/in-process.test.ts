@@ -1,9 +1,35 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { rmSync } from "node:fs"
+
+import { ModelRegistry, ModelRuntime } from "@code-yeongyu/senpi"
+
 import { InProcessRunner, RunnerError } from "./in-process"
 import { baseSpec, createFakeSession, makeTool, tmpSessionDirs } from "./in-process-child-spec.test-support"
 import type { CreateAgentSessionOptions } from "./in-process-child-spec.test-support"
 import type { ChildSession } from "./in-process"
+
+type RealModel = NonNullable<CreateAgentSessionOptions["model"]>
+
+function realModel(provider: string, id: string): RealModel {
+  const registry = new ModelRegistry(ModelRuntime.createSync())
+  registry.registerProvider(provider, {
+    api: "openai-completions",
+    baseUrl: `file://${provider}-pin-test`,
+    apiKey: "test-key",
+    models: [{
+      id,
+      name: id,
+      reasoning: false,
+      input: ["text"],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 16_000,
+      maxTokens: 4096,
+    }],
+  })
+  const model = registry.find(provider, id)
+  if (model === undefined) throw new Error(`registry did not serve ${provider}/${id}`)
+  return model
+}
 
 const unhandled: unknown[] = []
 const onUnhandled = (reason: unknown): void => { unhandled.push(reason) }
@@ -20,7 +46,7 @@ describe("InProcessRunner", () => {
     const failure = await runner
       .start(
         baseSpec({
-          model: { provider: "vendor-a", id: "pinned" } as never,
+          model: realModel("vendor-a", "pinned"),
           selectedModel: "vendor-a/pinned",
           resolvedModel: {
             provider: "vendor-a",
@@ -38,6 +64,39 @@ describe("InProcessRunner", () => {
     expect(fake.promptCalls).toBe(0)
   })
 
+  test("#given a mismatch whose session teardown also fails #when start runs #then the failure is still typed (#9722)", async () => {
+    // given
+    const fake = createFakeSession()
+    fake.session = {
+      ...fake.session,
+      model: { provider: "vendor-b", id: "substitute" },
+      dispose() {
+        throw new Error("dispose exploded")
+      },
+    }
+    const runner = new InProcessRunner({ createSession: async () => fake.session })
+
+    // when
+    const failure = await runner
+      .start(
+        baseSpec({
+          model: realModel("vendor-a", "pinned"),
+          selectedModel: "vendor-a/pinned",
+          resolvedModel: {
+            provider: "vendor-a",
+            model_id: "pinned",
+            display: "vendor-a/pinned",
+            source: "explicit",
+          },
+        }),
+      )
+      .catch((error: unknown) => error)
+
+    // then
+    expect(RunnerError.is(failure) ? failure.failure.kind : undefined).toBe("model_unavailable")
+    expect(failure instanceof Error ? failure.message : "").toContain("shutting down its session failed")
+  })
+
   test("#given a session on exactly the model the spec resolved #when start runs #then the child is accepted (#9722)", async () => {
     // given
     const fake = createFakeSession()
@@ -47,7 +106,7 @@ describe("InProcessRunner", () => {
     // when
     const handle = await runner.start(
       baseSpec({
-        model: { provider: "vendor-a", id: "pinned" } as never,
+        model: realModel("vendor-a", "pinned"),
         selectedModel: "vendor-a/pinned",
         resolvedModel: {
           provider: "vendor-a",

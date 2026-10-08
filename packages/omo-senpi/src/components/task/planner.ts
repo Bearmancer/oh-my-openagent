@@ -1,7 +1,7 @@
 import type { OmoConfig } from "@oh-my-opencode/omo-config-core"
 
 import { inheritParentFastMode, type ResolveParentServiceTier } from "./fast-mode-inheritance"
-import { resolveExplicitPin, type ResolveDefaultRoute } from "./planner-explicit-pin"
+import { NO_REGISTRY_MESSAGE, resolveExplicitPin, type ResolveDefaultRoute } from "./planner-explicit-pin"
 import {
   resolveAgent,
   resolveCategory,
@@ -28,8 +28,6 @@ export type TaskModelRegistry = SenpiModelRegistryPort<SenpiModelPort> & {
 export type ResolveModelRegistry = () => TaskModelRegistry | undefined
 
 export type { ResolveDefaultRoute } from "./planner-explicit-pin"
-
-const NO_REGISTRY_MESSAGE = "No senpi model registry is available yet to resolve a task model."
 
 // The category-and-agent resolving ChildPlanner the manager consumes. Resolution order:
 // 1. a subagent_type naming a known agent wins: an explicit `model` pin is parsed ONCE with

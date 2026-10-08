@@ -139,7 +139,7 @@ const TEXT_INPUT: Array<"text"> = ["text"]
 function registerLateModel(machine: BuiltinChildMachine, id: string): void {
   const provider = machine.modelRegistry.getRegisteredProviderConfig(PROVIDER)
   if (provider === undefined) throw new Error("fixture provider is not registered")
-  Reflect.apply(machine.modelRegistry.registerProvider, machine.modelRegistry, [PROVIDER, {
+  machine.modelRegistry.registerProvider(PROVIDER, {
     ...provider,
     models: [
       ...(provider.models ?? []),
@@ -154,7 +154,7 @@ function registerLateModel(machine: BuiltinChildMachine, id: string): void {
       },
     ],
     streamSimple: provider.streamSimple,
-  }])
+  })
 }
 
 describe("explicit task model pins are honoured or fail loudly (#9722)", () => {

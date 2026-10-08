@@ -32,9 +32,8 @@ function harness(mode: "in-process" | "process", priorStamp?: string) {
     start: async () => { observe(); return handle },
     resume: async () => { observe(); return handle },
   }
-  const { effectiveModel: _managedEffectiveModel, ...managedHandle } = handle
   const rpcHandle: RpcChildHandle = {
-    ...managedHandle,
+    ...handle,
     pid: 4321,
     subscribe: () => () => undefined,
     waitForIdle: async () => undefined,

@@ -77,9 +77,8 @@ function hostRunner(
   return {
     start: (spec: RpcRunnerSpec): Promise<RpcChildHandle> => {
       calls.specs.push(spec)
-      const { effectiveModel: _managedEffectiveModel, ...managedBase } = makeHandle(spec.task_id).handle
       const handle = {
-        ...managedBase,
+        ...makeHandle(spec.task_id).handle,
         kind: "host-session" as const,
         attached: true,
         openDisposition,

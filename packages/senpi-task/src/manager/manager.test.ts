@@ -351,6 +351,68 @@ describe("TaskManager.start", () => {
     expect(store.load(result.task_id)?.resolved_model).toEqual(resolvedModel)
   })
 
+  test("#given a child reporting its own model at spawn #when no message has arrived #then the record and the started result carry the child's, never the plan's (#9722 M2)", async () => {
+    // given: the plan names model A; the child's spawn-time read says it actually opened on model B
+    const resolvedModel: ResolvedModelRecord = {
+      provider: "anthropic",
+      model_id: "model-a",
+      display: "anthropic/model-a",
+      reasoning: "medium",
+      source: "explicit",
+    }
+    const planner: ChildPlanner = () => ({
+      kind: "resolved",
+      plan: { model: "anthropic/model-a", resolved_model: resolvedModel },
+    })
+    const runner = new FakeRunner()
+    runner.childEffectiveModel = { provider: "anthropic", id: "model-b" }
+    const { manager, store } = makeManager({ planner, inProcess: runner })
+
+    // when
+    const result = await manager.start(baseSpec({}))
+    if (result.kind !== "started") throw new Error("expected started")
+    const fake = runner.handles.get(result.task_id)
+    if (fake === undefined) throw new Error("expected live handle")
+    await fake.waitForSubscription()
+    await flush()
+
+    // then: BEFORE any assistant message, the spawn stamp is the child's own read
+    expect(store.load(result.task_id)?.effective_model).toMatchObject({ provider: "anthropic", model_id: "model-b" })
+    expect(store.load(result.task_id)?.resolved_model).toEqual(resolvedModel)
+    expect(result.effective_model).toMatchObject({ provider: "anthropic", model_id: "model-b" })
+    expect(result.resolved_model).toEqual(resolvedModel)
+  })
+
+  test("#given a host-session child reporting its open model #when spawned #then its reported model reaches the record and the started result (#9722 M1)", async () => {
+    // given: the plan names model A; the host's get_state says the session opened on model B
+    const resolvedModel: ResolvedModelRecord = {
+      provider: "anthropic",
+      model_id: "model-a",
+      display: "anthropic/model-a",
+      reasoning: "medium",
+      source: "explicit",
+    }
+    const planner: ChildPlanner = () => ({
+      kind: "resolved",
+      plan: { model: "anthropic/model-a", resolved_model: resolvedModel },
+    })
+    const runner = new FakeRunner()
+    runner.childEffectiveModel = { provider: "anthropic", id: "model-b" }
+    const { manager, store } = makeManager({ planner, process: runner, config: settings({ default_execution_mode: "process" }) })
+
+    // when
+    const result = await manager.start(baseSpec({}))
+    if (result.kind !== "started") throw new Error("expected started")
+    const fake = runner.handles.get(result.task_id)
+    if (fake === undefined) throw new Error("expected live handle")
+    await fake.waitForSubscription()
+    await flush()
+
+    // then
+    expect(store.load(result.task_id)?.effective_model).toMatchObject({ provider: "anthropic", model_id: "model-b" })
+    expect(result.effective_model).toMatchObject({ provider: "anthropic", model_id: "model-b" })
+  })
+
   test("#given a resolved ultrabrain plan whose runner throws #when the real task mapping renders start_failed #then resolved context reaches the error row without the prompt", async () => {
     // given
     const resolvedModel: ResolvedModelRecord = {

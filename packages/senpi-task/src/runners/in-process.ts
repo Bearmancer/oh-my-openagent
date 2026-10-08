@@ -192,11 +192,18 @@ export class InProcessRunner {
       // a strong reference to the parent kernel until TTL expunge.
       this.#kernelToolBindings?.release(spec.taskId)
       // A session that WAS created but failed the pin check is disposed here (session_shutdown +
-      // dispose): no handle exists yet, so nobody else owns that teardown (#9722 M1).
+      // dispose): no handle exists yet, so nobody else owns that teardown (#9722 M1). A teardown
+      // that itself fails still escapes as a typed RunnerError - never an untyped AggregateError.
       if (createdSession !== undefined) {
-        await discardUnstartedChildSession(createdSession).catch((shutdownError: unknown) => {
-          throw new AggregateError([error, shutdownError], "pin check failed, and shutting down its session failed")
-        })
+        try {
+          await discardUnstartedChildSession(createdSession)
+        } catch (shutdownError) {
+          throw new RunnerError({
+            kind: "model_unavailable",
+            message: "the pin check failed, and shutting down its session failed",
+            cause: new AggregateError([error, shutdownError]),
+          })
+        }
       }
       if (RunnerError.is(error)) throw error
       throw new RunnerError({ kind: "session-create-failed", message: sessionCreateMessage(error), cause: error })
