@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.27] - 2026-10-08
+
 **omo runs on senpi 2026.10.10-9, which stops automatic turns from running without bound.** After one message from you, stream-rule nudges, goal continuations and other automatic follow-ups pause after 150 turns, or once 12 automatic turns in a minute do no work, and each stream rule corrects a message at most once. When it pauses, the session says so, and your next message picks it back up. Full engine notes: [senpi 2026.10.10-9](https://github.com/code-yeongyu/senpi/releases/tag/v2026.10.10-9). ([senpi#2967](https://github.com/code-yeongyu/senpi/issues/2967), [senpi#2969](https://github.com/code-yeongyu/senpi/pull/2969), [#9772](https://github.com/code-yeongyu/oh-my-openagent/pull/9772))
 
 **A required question can't be read as permission.** senpi's `ask_user_question` accepts `required: true` for a question that gates an action, such as an approval before an irreversible step: if it times out, is dismissed or can't be shown, the model is told not to take that action. ([senpi#2949](https://github.com/code-yeongyu/senpi/issues/2949), [senpi#2959](https://github.com/code-yeongyu/senpi/pull/2959))
