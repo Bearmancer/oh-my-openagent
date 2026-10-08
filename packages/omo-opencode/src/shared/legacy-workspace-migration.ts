@@ -1,4 +1,5 @@
 import { constants, copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, type Stats } from "node:fs"
+import { homedir, userInfo } from "node:os"
 import { dirname, join, relative, resolve } from "node:path"
 
 import { resolveHomeDir } from "@oh-my-opencode/omo-config-core"
@@ -77,8 +78,10 @@ export function migrateLegacyWorkspaceDirectory(directory: string): LegacyWorksp
   // In $HOME, `.omo` is the OmO home (agent dir, memory, the desktop app's live data under
   // ~/.omo/desktop), not a project workspace, so the per-project migration never writes into it.
   // The only home-level legacy entry, ~/.sisyphus/rules, is still read in place by the rules engine.
-  // The same home the config loader uses for the user layer (~/.omo/omo.jsonc).
-  if (canonicalPath(directory) === canonicalPath(resolveHomeDir())) {
+  // Every spelling of "home": HOME/USERPROFILE (the config loader's user layer), os.homedir(), and the
+  // account home the config loader also treats as a boundary. Any of them can be the OmO home.
+  const homes = new Set([resolveHomeDir(), homedir(), userInfo().homedir].map(canonicalPath))
+  if (homes.has(canonicalPath(directory))) {
     return { migrated: false, skipped: [] }
   }
 
