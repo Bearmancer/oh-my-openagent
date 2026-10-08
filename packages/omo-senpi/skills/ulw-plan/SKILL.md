@@ -123,7 +123,7 @@ When producing the plan, encode every executable item as a column-zero Markdown 
 
 ## Approval gate
 
-When exploration is exhausted and the unknowns are answered, record the gate in the draft (`status: awaiting-approval`, approach, and the next workflow action), present a short brief once, then **ask for the user's explicit okay through the question tool** (`waitForAnswer: true`; channel rules in `references/stance-calibration.md`). Approval authorizes plan creation only; any already-required review runs afterward under its existing authorization. Full mechanics: `references/full-workflow.md`.
+When exploration is exhausted and the unknowns are answered, record the gate in the draft (`status: awaiting-approval`, approach, and the next workflow action), present a short brief once, then **ask for the user's explicit okay through the question tool** (wait flag true; channel rules in `references/stance-calibration.md`). Approval authorizes plan creation only; any already-required review runs afterward under its existing authorization. Full mechanics: `references/full-workflow.md`.
 
 ## Delegation (OpenCode-native)
 

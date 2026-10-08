@@ -1,12 +1,12 @@
 ## 2026-10-08 - ulw-plan and mass-ulw ask through the question prompt (#9735)
 
-`ulw-plan` delivered its owner-decision forks and the approval gate as chat text and ended the turn, so a user away from the screen never saw them. The source of that was the delivery wording itself: the renderers in `references/stance-calibration.md` and the approval gate in `references/full-workflow.md` said to "present" or "deliver" the questions without naming a channel.
+`ulw-plan` delivered its approval gate as chat text and ended the turn, so a user away from the screen never saw it. The renderers in `references/stance-calibration.md` and the gate in `references/full-workflow.md` said to "present" or "deliver" questions without naming a channel.
 
-- `stance-calibration.md`: every question the skill puts to the user (each renderer, the approval gate, the final authorization block) goes through the question tool (`ask_user_question` or `request_user_input`, whichever the session lists) with `waitForAnswer: true`. When no question tool is listed (print or JSON mode, ask-user disabled, a subagent), the questions go in chat with one line saying the prompt is unavailable.
-- `full-workflow.md`: the approval gate asks through the tool. The options are approve (recommended, first), approve without the high-accuracy review (the explicit opt-out the brief already had to offer), and change the approach. The Phase 4 start-or-review question and the UNCLEAR okay go through the tool as well. `SKILL.md`'s gate summary points at the same rule.
-- `mass-ulw/SKILL.md`: a decision only the user can make is asked through the tool before the phase that depends on it starts.
+- `stance-calibration.md`: every question the skill puts to the user goes through the question tool (`ask_user_question` or `request_user_input`, whichever the session lists) with its wait flag set to true. When no question tool is listed or a call returns unavailable, the questions go in chat with one line saying so. A timed-out, dismissed or unavailable answer is not approval: a fork takes its default, but the approval gate and the final authorization block stay open and the turn ends.
+- `full-workflow.md`: the gate asks one question, recommended first: Approve; Approve, skip review (only when the review is default-on); Change approach. The review-cap stop asks through the tool too. `SKILL.md`'s gate summary points at the same rule; `intent-clear.md`'s renderer recap now defers to stance-calibration.
+- `mass-ulw/SKILL.md`: a decision only the user can make is asked from the main session through the tool before the run that depends on it, never from an eval cell or a node prompt.
 
-No test: this is prose with no machine consumer. Proof is a live, real-model `/skill:ulw-plan` run in an isolated senpi sandbox (see the PR).
+No test: prose with no machine consumer. Proof is a live real-model `/skill:ulw-plan` run in an isolated senpi sandbox (see the PR).
 
 ## 2026-10-08 - A skill name inside an identifier, a path, a URL or a prohibition no longer arms (#9738, #9740)
 

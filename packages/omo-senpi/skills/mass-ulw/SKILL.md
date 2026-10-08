@@ -22,7 +22,9 @@ Route every node by `category` using the routing table in `references/planning.m
 
 ## Goal before start
 
-Every run is goal-bound. In a standalone run, register the goal as written (`create_goal`, or a `# Goal` block where no goal tool exists). Under `ulw-loop` or `ulw-execute`, the loop's registered goal already covers the run, so register no second goal. The objective names the deliverable the graph produces, and the success criteria carry RESULT VERIFICATION - node and run completion claims are false until proven against captured evidence, the same contract the dag completion directive injects (TREAT AS FALSE UNTIL YOU PROVE IT). The verification wave (references/planning.md) produces the evidence those criteria name; the run ends when the criteria pass, never when the last node reports completion. A decision only the user can make (scope, spend, anything irreversible) is asked before the phase that depends on it starts, through the question tool (`ask_user_question` or `request_user_input`) with `waitForAnswer: true` and the recommended option first; it goes into chat text only when no question tool is listed.
+Every run is goal-bound. In a standalone run, register the goal as written (`create_goal`, or a `# Goal` block where no goal tool exists). Under `ulw-loop` or `ulw-execute`, the loop's registered goal already covers the run, so register no second goal. The objective names the deliverable the graph produces, and the success criteria carry RESULT VERIFICATION - node and run completion claims are false until proven against captured evidence, the same contract the dag completion directive injects (TREAT AS FALSE UNTIL YOU PROVE IT). The verification wave (references/planning.md) produces the evidence those criteria name; the run ends when the criteria pass, never when the last node reports completion.
+
+Ask a decision only the user can make (scope, spend, anything irreversible) from the main session through the question tool before starting the run that depends on it - never from an eval cell or a node prompt.
 
 ## Running a dag - eval is the default
 
