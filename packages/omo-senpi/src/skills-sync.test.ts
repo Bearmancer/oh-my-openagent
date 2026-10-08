@@ -35,6 +35,7 @@ const expectedSkillNames = [
   "ulw-plan",
   "ulw-research",
   "visual-qa",
+  "visualize",
 ] as const
 
 const CODEX_DERIVED_SKILL_NAMES: Record<string, true> = {}
@@ -50,6 +51,7 @@ const NATIVE_SENPI_SKILL_NAMES: Record<string, true> = {
   ultrawork: true,
   "ulw-loop": true,
   "ulw-research": true,
+  visualize: true,
 }
 const namePattern = /^[a-z0-9-]{1,64}$/
 const forbiddenTokenPattern = /\b(?:codex|multi_agent|spawn_agent|update_plan)\b/i
@@ -136,7 +138,7 @@ describe("OMO Senpi scoped skill sync", () => {
     expect([...telemetrySkillNames].sort()).toEqual(listDirectoryNames(skillsRoot))
   })
 
-  test("#given synced skill output #when inspected #then exactly 25 roots exist with valid names", () => {
+  test("#given synced skill output #when inspected #then exactly 26 roots exist with valid names", () => {
     const actualNames = listDirectoryNames(skillsRoot)
     expect(actualNames).toEqual([...expectedSkillNames].sort())
 
