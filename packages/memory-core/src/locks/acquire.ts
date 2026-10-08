@@ -24,6 +24,10 @@ import {
 import type { LockRecord } from "./lock-record"
 import { parseLockRecord } from "./lock-record"
 import { getPidLiveness, getProcessStartIdentity, startIdentitiesConflict } from "./process-identity"
+import { delay, lockRetryDelayMs } from "./retry-delay"
+import { sweepDeadOwnerLocks } from "./dead-owner-sweep"
+
+export { delay } from "./retry-delay"
 
 export type AcquireLockOptions = {
   readonly waitTimeoutMs?: number
@@ -95,21 +99,6 @@ async function unlinkCandidate(candidatePath: string): Promise<boolean> {
   return false
 }
 
-/** Resolves after `milliseconds`, or rejects with the signal's reason the moment it aborts. */
-export function delay(milliseconds: number, signal?: AbortSignal): Promise<void> {
-  signal?.throwIfAborted()
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(finish, milliseconds)
-    const onAbort = () => finish(signal?.reason ?? new DOMException("The operation was aborted", "AbortError"))
-    signal?.addEventListener("abort", onAbort, { once: true })
-    function finish(error?: unknown) {
-      clearTimeout(timer)
-      signal?.removeEventListener("abort", onAbort)
-      error === undefined ? resolve() : reject(error)
-    }
-  })
-}
-
 async function readOwner(lockPath: string): Promise<OwnerSnapshot | null> {
   try {
     const raw = await readFile(lockPath, "utf8")
@@ -136,7 +125,7 @@ async function openFreshCandidate(
   lockPath: string,
 ): Promise<{ readonly candidatePath: string; readonly handle: FileHandle }> {
   for (let attempt = 0; ; attempt += 1) {
-    const candidatePath = `${lockPath}.candidate-${randomUUID()}`
+    const candidatePath = `${lockPath}.candidate-${process.pid}-${randomUUID()}`
     try {
       return { candidatePath, handle: await open(candidatePath, "wx", 0o600) }
     } catch (error) {
@@ -198,7 +187,10 @@ export function isCandidatePublishRace(error: unknown): boolean {
   return code === "EEXIST" || code === "ENOENT"
 }
 
-const sweptLockDirectories = new Set<string>()
+// Directory hygiene runs on a process's first acquisition in a directory and again once the
+// interval has passed, so a long-lived host keeps reclaiming what crashed neighbours leave behind.
+export const LOCK_DIRECTORY_SWEEP_INTERVAL_MS = 10 * 60 * 1000
+const sweptLockDirectories = new Map<string, number>()
 
 export interface LockCandidateFs {
   readonly link?: typeof link
@@ -308,7 +300,10 @@ async function recoverStaleOwner(
   // Bounded to one reclaim and one re-publish so a waitTimeoutMs: 0 caller (the bind-time
   // reconcile path) recovers a doubly-stale lock in a single pass without introducing a spin.
   for (let attempt = 0; ; attempt += 1) {
-    if (await publishExclusive(recoveryPath, recoveryRecord)) break
+    // Read before publishing, as for the primary: while a live contender visibly holds the recovery
+    // lock, a publish here is a doomed create+fsync+link+unlink cycle repeated on every retry tick.
+    const recoveryOwner = await readOwner(recoveryPath)
+    if (recoveryOwner === null && (await publishExclusive(recoveryPath, recoveryRecord))) break
     if (attempt > 0 || !(await reclaimStaleRecoveryLock(recoveryPath, now, incompleteLockGraceMs))) return false
   }
 
@@ -334,16 +329,13 @@ export async function acquireLock(
   record: LockRecord,
   options: AcquireLockOptions = {},
 ): Promise<void> {
-  const waitTimeoutMs = options.waitTimeoutMs ?? 0
-  const retryDelayMs = options.retryDelayMs ?? 25
-  const incompleteLockGraceMs = options.incompleteLockGraceMs ?? INCOMPLETE_LOCK_GRACE_MS
   const now = options.now ?? Date.now
-  if (waitTimeoutMs < 0 || retryDelayMs <= 0 || incompleteLockGraceMs < 0) throw new Error("lock wait options must be positive")
   const lockDirectory = path.dirname(lockPath)
-  if (!sweptLockDirectories.has(lockDirectory)) {
-    sweptLockDirectories.add(lockDirectory)
-    // Opportunistic hygiene, once per process per directory: a failed sweep must never
-    // block or fail the acquisition it rides on. Failed candidate cleanup re-arms this memo.
+  const lastSwept = sweptLockDirectories.get(lockDirectory)
+  if (lastSwept === undefined || now() - lastSwept >= LOCK_DIRECTORY_SWEEP_INTERVAL_MS) {
+    sweptLockDirectories.set(lockDirectory, now())
+    // Opportunistic hygiene: a failed sweep must never block or fail the acquisition it rides on.
+    // Failed candidate cleanup re-arms this memo.
     await sweepStaleLockCandidates(lockDirectory, Date.now, {
       ...(candidateFs.unlink === undefined ? {} : { unlink: candidateFs.unlink }),
       ...(candidateFs.isSharingError === undefined ? {} : { isSharingError: candidateFs.isSharingError }),
@@ -351,10 +343,27 @@ export async function acquireLock(
     }).catch(() => {
       rearmCandidateSweep(lockDirectory)
     })
+    await sweepDeadOwnerLocks(lockDirectory).catch(() => {
+      sweptLockDirectories.delete(lockDirectory)
+    })
   }
+  return acquireWithoutDirectorySweep(lockPath, record, options)
+}
+
+/** {@link acquireLock} without the directory hygiene: the dead-owner sweep reclaims through this. */
+export async function acquireWithoutDirectorySweep(
+  lockPath: string,
+  record: LockRecord,
+  options: AcquireLockOptions = {},
+): Promise<void> {
+  const waitTimeoutMs = options.waitTimeoutMs ?? 0
+  const retryDelayMs = options.retryDelayMs ?? 25
+  const incompleteLockGraceMs = options.incompleteLockGraceMs ?? INCOMPLETE_LOCK_GRACE_MS
+  const now = options.now ?? Date.now
+  if (waitTimeoutMs < 0 || retryDelayMs <= 0 || incompleteLockGraceMs < 0) throw new Error("lock wait options must be positive")
   const deadline = now() + waitTimeoutMs
 
-  for (;;) {
+  for (let attempt = 0; ; attempt += 1) {
     options.signal?.throwIfAborted()
     // Read before publishing. `publishExclusive` creates a candidate file, writes it, FSYNCS it,
     // hard-links it and unlinks it - six filesystem operations, one of them durable - and while
@@ -376,7 +385,7 @@ export async function acquireLock(
     if (await recoverStaleOwner(lockPath, owner, record, now(), incompleteLockGraceMs)) continue
     options.signal?.throwIfAborted()
     if (now() >= deadline) throw new LockContentionError(lockPath, owner.record)
-    await delay(Math.min(retryDelayMs, Math.max(1, deadline - now())), options.signal)
+    await delay(Math.min(lockRetryDelayMs(attempt, retryDelayMs), Math.max(1, deadline - now())), options.signal)
   }
 }
 
