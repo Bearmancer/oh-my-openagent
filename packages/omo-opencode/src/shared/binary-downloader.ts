@@ -75,7 +75,8 @@ export function ensureExecutable(binaryPath: string): void {
 }
 
 function parseTarEntry(line: string): ArchiveEntry | null {
-  const match = line.match(/^([^\s])\S*\s+\d+\s+\S+\s+\S+\s+\d+\s+\w+\s+\d+\s+(?:\d{2}:\d{2}|\d{4})\s+(.*)$/)
+  // bsdtar prints the month in the system locale, before the day on Windows and in locale order on macOS.
+  const match = line.match(/^([^\s])\S*\s+\d+\s+\S+\s+\S+\s+\d+\s+(?:\S+\s+\d+|\d+\s+\S+)\s+(?:\d{2}:\d{2}|\d{4})\s+(.*)$/)
   if (!match) {
     return null
   }

@@ -1,7 +1,7 @@
 /// <reference types="bun-types" />
 
 import { afterEach, describe, expect, it } from "bun:test"
-import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { chmodSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { spawnSync } from "bun"
@@ -263,5 +263,57 @@ describe.skipIf(process.platform === "win32", "archive extraction preflight", ()
 		expect(readFileSync(join(zipDestDir, "bin", "tool.txt"), "utf8")).toBe("safe")
 		expect(lstatSync(join(tarDestDir, "bin", "tool-link")).isSymbolicLink()).toBe(true)
 		expect(lstatSync(join(zipDestDir, "bin", "tool-link")).isSymbolicLink()).toBe(true)
+	})
+})
+
+// bsdtar prints the month in the system locale: Windows keeps it before the day ("сен 30"), and macOS
+// orders it by locale ("30 сент." under ru_RU, "30 Sep." under de_DE). The extraction runs in a child
+// process whose PATH starts with a stand-in `tar` printing such a listing (a spawned child only sees the
+// environment it is given), so the entry parser sees the bytes a non-English system emits. The archive
+// bytes are not a tar, so a run that reached the real tar would fail its listing instead of passing.
+// POSIX-only: the stand-in is a shell script.
+describe.skipIf(process.platform === "win32")("localized tar listings", () => {
+	it.each([
+		["month first (Windows)", "lrwxr-xr-x  0 0      0           0 сен 30 12:00 bin/tool -> ../../escape"],
+		["day first (macOS, ru_RU)", "lrwxr-xr-x  0 0      0           0 30 сент. 12:00 bin/tool -> ../../escape"],
+	])("rejects an escaping symlink when the listing puts a localized %s", (_order, listingLine) => {
+		//#given
+		const rootDir = createTestDir()
+		const archivePath = join(rootDir, "localized-listing.tar.gz")
+		writeFileSync(archivePath, "not a tar archive")
+		const destDir = join(rootDir, "dest")
+		mkdirSync(destDir)
+		const binDir = join(rootDir, "fake-bin")
+		mkdirSync(binDir)
+		const listingPath = join(rootDir, "listing.txt")
+		writeFileSync(listingPath, `${listingLine}\n`)
+		const fakeTar = join(binDir, "tar")
+		writeFileSync(fakeTar, `#!/bin/sh\ncase "$1" in -tvzf) cat '${listingPath}' ;; esac\n`)
+		chmodSync(fakeTar, 0o755)
+		const driver = [
+			`const { extractTarGz } = await import(${JSON.stringify(join(import.meta.dir, "binary-downloader.ts"))})`,
+			"try {",
+			"\tawait extractTarGz(process.env.LOCALIZED_TAR_ARCHIVE, process.env.LOCALIZED_TAR_DEST)",
+			'\tconsole.log("resolved")',
+			"} catch (error) {",
+			"\tconsole.log(error instanceof Error ? error.message : String(error))",
+			"}",
+		].join("\n")
+
+		//#when
+		const result = spawnSync([process.execPath, "-e", driver], {
+			env: {
+				...process.env,
+				PATH: `${binDir}:${process.env.PATH ?? ""}`,
+				LOCALIZED_TAR_ARCHIVE: archivePath,
+				LOCALIZED_TAR_DEST: destDir,
+			},
+			stdout: "pipe",
+			stderr: "pipe",
+			timeout: 10_000,
+		})
+
+		//#then
+		expect(result.stdout.toString()).toMatch(/symlink target/i)
 	})
 })
