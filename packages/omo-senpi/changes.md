@@ -1,3 +1,6 @@
+## 2026-10-06 - The slash picker lists each bundled skill once (#9648)
+
+`components/skill-commands/autocomplete.ts`: the top-level `/` list showed every bundled skill twice, as its bare alias (#9042) and its `skill:<name>` row. The alias now takes the `skill:<name>` row's place, so each skill is one row and senpi's ranking of everything else is unchanged; an alias whose skill row is not on the page is still offered at the end. A bare `/` is left as senpi lists it (senpi lists no `skill:` rows there). Typing `/skill:` still lists every skill under its `skill:` name. A skill whose bare name a same-named template or command shadows keeps its `skill:<name>` row, the only way left to reach it. Submitting either form is unchanged: the bare form is still rewritten to the `/skill:` form and recorded as a human invocation.
 ## 2026-10-05 - Live fallback QA covers process children and a turn near compaction (#9582)
 
 `scripts/qa/task-runtime-fallback-e2e.mjs`:
