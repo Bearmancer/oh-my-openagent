@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test"
 import { spawn, type ChildProcess } from "node:child_process"
-import { existsSync, fstatSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs"
+import { fstatSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -66,7 +66,7 @@ describe("model catalog probe output capture (#9068)", () => {
         child.once("exit", () => {
           for (const entry of readdirSync(tmpdir())) {
             const candidate = join(tmpdir(), entry, "stdout")
-            if (entry.startsWith("omo-model-catalog-") && existsSync(candidate) && statSync(candidate).ino === captureInode) rmSync(candidate)
+            if (entry.startsWith("omo-model-catalog-") && statSync(candidate, { throwIfNoEntry: false })?.ino === captureInode) rmSync(candidate)
           }
         })
         return child
