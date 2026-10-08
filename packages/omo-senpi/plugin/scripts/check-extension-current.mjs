@@ -17,6 +17,8 @@ export async function checkExtensionCurrent(options = {}) {
     toolkitSdkOutput,
     rollbackRuntimeOutput,
     computerUseOutput,
+    memoryDoctorOutput,
+    memoryMemfsOutput,
     gatewayStoreWorkerOutput,
     threadSdkOutput,
   } = resolveOutputs(options)
@@ -36,6 +38,10 @@ export async function checkExtensionCurrent(options = {}) {
   if (currentAdvisorRuntime === undefined) return { ok: false, reason: "missing-output", output: advisorRuntimeOutput }
   const currentSidePanelRuntime = await readBuiltEntry(sidePanelRuntimeOutput)
   if (currentSidePanelRuntime === undefined) return { ok: false, reason: "missing-output", output: sidePanelRuntimeOutput }
+  const currentMemoryDoctor = await readBuiltEntry(memoryDoctorOutput)
+  const currentMemoryMemfs = await readBuiltEntry(memoryMemfsOutput)
+  if (currentMemoryDoctor === undefined) return { ok: false, reason: "missing-output", output: memoryDoctorOutput }
+  if (currentMemoryMemfs === undefined) return { ok: false, reason: "missing-output", output: memoryMemfsOutput }
   const currentComputerUse = await readBuiltEntry(computerUseOutput)
   if (currentComputerUse === undefined) return { ok: false, reason: "missing-output", output: computerUseOutput }
   const currentGatewayStoreWorker = await readBuiltEntry(gatewayStoreWorkerOutput)
@@ -53,6 +59,8 @@ export async function checkExtensionCurrent(options = {}) {
     sidePanelRuntimeOutputPath: join(tempRoot, "omo-side-panel.js"),
     toolkitSdkOutputPath: join(tempRoot, "runtime", "agent-toolkit-sdk", "sdk.js"),
     rollbackRuntimeOutputPath: join(tempRoot, "runtime", "rollback-migrate.js"),
+    memoryDoctorOutputPath: join(tempRoot, "omo-memory-doctor.js"),
+    memoryMemfsOutputPath: join(tempRoot, "omo-memory-memfs.js"),
     computerUseOutputPath: join(tempRoot, "omo-computer-use.js"),
     gatewayStoreWorkerOutputPath: join(tempRoot, GATEWAY_STORE_WORKER_NAME),
     threadSdkOutputPath: join(tempRoot, THREAD_SDK_RELATIVE_PATH),
@@ -68,6 +76,8 @@ export async function checkExtensionCurrent(options = {}) {
       [currentSupervisor, expected.supervisorOutputPath, supervisorOutput],
       [currentAdvisorRuntime, expected.advisorRuntimeOutputPath, advisorRuntimeOutput],
       [currentSidePanelRuntime, expected.sidePanelRuntimeOutputPath, sidePanelRuntimeOutput],
+      [currentMemoryDoctor, expected.memoryDoctorOutputPath, memoryDoctorOutput],
+      [currentMemoryMemfs, expected.memoryMemfsOutputPath, memoryMemfsOutput],
       [currentComputerUse, expected.computerUseOutputPath, computerUseOutput],
       [currentGatewayStoreWorker, expected.gatewayStoreWorkerOutputPath, gatewayStoreWorkerOutput],
       [currentThreadSdk, expected.threadSdkOutputPath, threadSdkOutput],

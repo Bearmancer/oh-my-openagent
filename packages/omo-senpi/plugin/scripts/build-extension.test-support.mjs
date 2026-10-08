@@ -14,6 +14,8 @@ export function outputPathsIn(root) {
     sidePanelRuntimeOutputPath: join(root, "omo-side-panel.js"),
     toolkitSdkOutputPath: join(root, "runtime", "agent-toolkit-sdk", "sdk.js"),
     rollbackRuntimeOutputPath: join(root, "runtime", "rollback-migrate.js"),
+    memoryDoctorOutputPath: join(root, "omo-memory-doctor.js"),
+    memoryMemfsOutputPath: join(root, "omo-memory-memfs.js"),
     computerUseOutputPath: join(root, "omo-computer-use.js"),
     gatewayStoreWorkerOutputPath: join(root, "gateway-store-worker.mjs"),
     threadSdkOutputPath: join(root, "runtime", "thread-sdk", "sdk.js"),

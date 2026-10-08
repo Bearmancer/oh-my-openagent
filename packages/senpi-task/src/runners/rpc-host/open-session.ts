@@ -13,7 +13,8 @@ import {
   type OpenedHostSession,
 } from "./session-client"
 import { buildChildContext } from "./session-context"
-import type { HostSessionOpenInput } from "./session-transport"
+import { childRetryFallbackProfile } from "../retry-fallback-profile"
+import type { HostRetryFallbackProfile, HostSessionOpenInput } from "./session-transport"
 
 const SESSION_FAILURE_REASONS = new Set<TaskStartFailureReason>(SESSION_START_FAILURE_REASONS)
 
@@ -33,6 +34,7 @@ export async function openTaskHostSession(input: {
       ...buildChildContext(input.spec),
       retainOnDisconnect: true,
       autoTitle: false,
+      ...childRetryFallback(input.spec),
     })
   } catch (error) {
     if (error instanceof HostUnavailableError) throw error
@@ -59,6 +61,12 @@ function sessionFailureReason(error: unknown): TaskStartFailureReason | undefine
     return "open_timed_out"
   }
   return undefined
+}
+
+/** A child without a chain sends no profile, so the host keeps applying its own settings' fallback. */
+function childRetryFallback(spec: RpcRunnerSpec): { readonly retryFallback?: HostRetryFallbackProfile } {
+  const retryFallback = childRetryFallbackProfile(spec)
+  return retryFallback === undefined ? {} : { retryFallback }
 }
 
 function splitModelRef(model: string | undefined): { readonly provider: string; readonly modelId: string } | undefined {

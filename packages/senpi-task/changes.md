@@ -1,3 +1,130 @@
+## 2026-10-05 - A process-runner child gets its own fallback chain (#9582)
+
+`runners/rpc-process.ts`: a task child started as its own `senpi --mode rpc` process (`task.process_runner: "child-process"`, and every child on win32) now receives the fallback chain resolved for its category. When the engine advertises `retry_fallback_command`, the runner sends `set_retry_fallback` with the same profile a daemon-hosted child gets on `open_session` (`runners/retry-fallback-profile.ts`, now shared with `rpc-host/open-session.ts`). It sends it before the resumed session is switched in and before the first prompt, because senpi refuses it once the session has a turn. The engine holds it in memory only, so the user's settings file is never written, and a usage limit after a tool call now switches models inside the running session instead of ending the child.
+
+The chain never holds a start up. If the engine refuses `set_retry_fallback`, or does not answer it (or `get_protocol_info`) within 10 s, the runner names the task in a warning and sends the first prompt anyway; the child then falls back only when a turn fails before any tool call, the same as on an older engine. A child that died meanwhile still fails on that prompt with its exit recorded, and its warning says the child exited instead of blaming the engine.
+
+`runners/rpc/handle.ts`: a process child's events now go through the same early-event buffer the host runner got in #9518 (`rpc-host/handle-listeners.ts`). The manager subscribes only after `start` returns, and a fast first turn (a tool call and an in-session fallback hop included) used to finish in that window, so `tool_execution` and `retry_fallback_applied` never reached the task record and it kept naming the spent model. `rpc-process-early-events.test.ts` (both cases fail on `dev`): an observer attached after the first turn still receives it in order, and two observers attached together each get it once, with later events arriving live. Subscribers still run after the handle has recorded each event, as on `dev` and on the host handle, so a live observer reads current state (`lastAssistantText()` at `message_end`); the third case pins that order.
+
+An engine without the capability gets nothing new and the user is told once. A child without a chain sends nothing, so its command stream is unchanged.
+
+`rpc-process-fallback-chain.test.ts` covers the chain sent before the prompt, the chain sent before `switch_session` on a resume, a chainless child unchanged, and an older engine warned once. Three of the four fail on `dev`. The fake RPC child (`rpc/__fixtures__/fake-child.mjs`) answers `get_protocol_info` with `FAKE_CAPABILITIES` and can log every command it receives (`FAKE_COMMAND_LOG`).
+## 2026-10-07 - Resumed children retry deferred revival and settle unowned failures (#9498)
+
+`lifecycle/host-session-revive.ts` extends the existing per-child single-flight
+retry to the resumed session's own `capacity`, `lock_contended`,
+`model_unavailable`, `session_unavailable`, `rollback_failed` and
+`foreign_live_owner` deferrals. `lifecycle/deferred-revival.ts` uses the existing
+`hostRetry` backoffs and scoped admission lease, excluding other children from
+that attempt's admission while still counting them toward capacity. Every retry
+re-reads terminality, kill intent, handles and ownership; a new claim or epoch
+stops a stale retry.
+
+`lifecycle/reconcile.ts` carries the initial live-owner exclusion into scoped
+admission's fresh store selector too: filtering only the observed candidate
+array did not protect a suspended record still owned by a live foreign process.
+
+After the bounded retries, unowned model/session/rollback/lock failures become
+`lost` through `markRecordLostForReconciliation` and the lifecycle destruction
+port. The error and events name the last deferral and retry count. The adapter's
+completion bridge observes the `lost` mutation and delivers the parent's notification.
+Capacity and live owners remain suspended because the other side must release
+them; daemon-hosted children are never lost. Configuration-only deferrals such
+as `reattach_disabled` are not scheduled.
+
+`lifecycle/deferred-revival.test.ts` exercises revival on the first retry,
+exhaustion with terminal `task_output` breadcrumbs, capacity with the
+`task_send` refusal policy, and daemon preservation, using fixture clocks and
+pre-subscribed event promises rather than sleeps.
+
+## 2026-10-07 - An eval handle's send and cancel replies come only from the post-engine check, and a rolled-back epoch is never issued again (#9562)
+
+A: `eval-handles/steer-refs.ts` now holds send and cancel, and no task record or `taskSnapshot` is in scope there. Every reply comes from `eval-handles/run-after-engine.ts`. `fenceBeforeEngine` fences the ref and returns a `PriorRun` whose record is private. Its `reread` re-reads the task after the engine returned and yields a `RunAfterEngine`, which builds the reply (`delivered`, `phase`, `stale`). `steer-refs.ts` imports no `taskSnapshot`, so every send and cancel reply there goes through the re-read run (review: this is a convention of the module, not a type guarantee, since `deps.tasks.get()` still returns a record). `control.ts` keeps only result and output. `afterEngine` is gone from the exports, `SEND_HOST_STATUS` moved to `run-after-engine.ts` and `WATCH_HOST_STATUS` to `watch.ts`.
+
+B: `rollbackDetachedRevival` records the epoch of a run it undid as `burnt_epoch` (persisted; `store/record-parse.ts` reads it back). `state/run-fence.ts` adds `nextRunEpoch(record)`: one above every epoch the task ever issued. Every site that issues an epoch uses it:
+- revive (`buildRevived`);
+- model fallback;
+- fallback handoff;
+- reattach;
+- a self-resumed turn;
+- the concurrency lease keys;
+- workpool worker admission and reconcile.
+
+A handle minted for an undone run therefore stays stale and never names a later run. The watch's terminal revision (`epoch * 2 + 1`) cannot collide with a later run either. A rollback that undid only a claim, where no run started, burns nothing. Workpool crash recovery (`workpool/dispatcher.ts`) rebuilds a recovered turn's worker from the task's own `run_epoch` instead of `binding - 1`, so a turn bound above a burnt epoch is dispatched after a restart instead of refused (`workpool/delivery.test.ts`).
+
+`lifecycle/revive-rollback-epochs.test.ts` covers:
+- the next revive starting above the undone epoch;
+- a send through the undone run's handle being refused before it reaches the newer run;
+- the burnt epoch surviving a reload from disk;
+- a claim-only rollback taking the very next epoch.
+
+On the previous sources the first three fail and the fourth passes. The table row that answered a cancel `cancel_pending` with a newer run started is dropped: a pending cancel blocks revive and steer, so that state is unreachable. The rollback-watch test now also asserts `host_status`.
+
+## 2026-10-06 - The GPT-6 Astra DAG directives are a spot-check, not a replay (omo#8168)
+
+`completion/dag-verification-directive.ts`: `ASTRA_DAG_VERIFICATION_DIRECTIVE` tells the parent to read the node's VERIFY output against the scope its prompt set, in both directions, and to rerun a check only when that output is missing, failing, or contradicts the scope; `ASTRA_DAG_RUN_VERIFICATION_DIRECTIVE` defers the combined checks to the run's verification node. The #9642 texts asked the Astra parent to reconstruct every node's scope and inspect every artifact, which on a model whose prior is already to verify broadly reproduced the per-node rerun loop the directive was meant to end. `DAG_VERIFICATION_DIRECTIVE` (every other receiver) is unchanged.
+
+## 2026-10-04 - Package-local test runs get the hermetic home (#9578)
+
+`test-support/warm-lazy-runtime.ts`, the package's own `bun test` preload, now installs the repo's hermetic home and agent dir before warming the lazy barrels, so `bun test` from inside `packages/senpi-task` can no longer start a task host in the real agent dir.
+
+## 2026-10-04 - A fake RPC child in a test can no longer signal a real process group (#9546)
+
+`handle-terminated-by-runner.test.ts` built its fake child with a literal `pid: 5532`. `handle.terminate()` went through the real `terminateRpcChild`, which probes and signals that pid's process GROUP (`process.kill(-5532, ...)`) on whatever machine runs the suite. On a macOS CI runner a foreign group 5532 existed: the probe got `EPERM` (counted as "exists") and the `SIGTERM` threw, which failed the v5.1.16 release-state PR. On a developer machine owning such a group, the test would really have sent it `SIGTERM`.
+
+`createRpcChildHandle` takes an optional `terminateChild` (default `terminateRpcChild`, so production is unchanged), and the test injects a recording fake. Its assertions now also check the call it recorded. A guard test stubs `process.kill` to throw and asserts that terminating a handle over a fake child never calls it. With the old handle, both fail; with the fix, they pass. The other rpc tests with a literal pid (`handle.test.ts`, `handle-steer-delivery`, `handle-user-abort`) never call `terminate()`.
+
+## 2026-10-04 - A warm host's first-turn events reach the task record (#9512)
+
+`runners/rpc-host/handle-listeners.ts`: the manager subscribes a child's observers (transcript log, run stats) only after `runner.start` returns. A warm host can finish a whole first turn in that window, including an in-session fallback hop (`retry_fallback_applied`). The handle used to deliver those events to an empty listener set, so the task record kept the dead primary model and no fallback attempt. Events emitted before the first subscription are now all kept, with no cap, because a partial history would bring the gap back. They are replayed to every observer attached in that same tick, then released.
+
+`handle-listeners.test.ts` covers:
+- the replay to two observers;
+- no second replay to a later observer;
+- live delivery afterwards;
+- a long first turn whose fallback hop is the first of 5,002 events, all of which still arrive in order.
+
+The tests fail without the buffer and with a 1,000-event cap.
+
+Review follow-ups (same change):
+- Until the buffer is released it is the single ordered log. An event that arrives meanwhile, including one an observer causes while its own replay is running, is appended. An observer still replaying reads it through its cursor; only observers that already finished replaying get it live. So each observer sees each event exactly once, in emission order.
+- A listener that throws during replay is reported (`onListenerError`, logged by the handle) instead of escaping `subscribe`, which runs after the child is already live.
+- `clearActive()` releases the buffer, so a child that ends before anyone subscribes keeps nothing.
+
+`rpc-process.ts` and `rpc-host/session-open.ts`: the one-time warnings now state the real limit. A process child, or a child on a host without `retry_fallback_profile`, still switches to its fallback models when a turn fails before any tool call (the manager's runtime fallback). What it loses is the switch after a tool call.
+
+## 2026-10-04 - A daemon-hosted child gets its own fallback chain on open_session (#9512)
+
+A child run on the shared task host never got its configured fallback models. `RpcRunnerSpec` had no field for them, the host session ran on the host's settings, and its in-session fallback refused to switch once the turn had made tool calls.
+
+The rpc runner spec now carries `fallbackModels` as `provider/model[:thinking]` selectors, through `modelSelector`, shared with the in-process runner. They are set on a fresh start in `runner.ts` and on both respawn paths in `manager-respawn.ts`, which read the record. `open-session.ts` sends them as `open_session.retryFallback` (`{ modelFallback: true, fallbackChains: { <model>: [...] } }`). A host advertising `retry_fallback_profile` (senpi 2026.10.6, senpi#2672) holds that chain for that one session, in memory only.
+
+**Who sees a change:** only children that have fallback models of their own. Today their chain is ignored; now they fall back through it. A child without fallback models sends no profile, so it keeps falling back through the user's settings exactly as before.
+
+When a child's chain cannot reach it, the user is warned once, with no silent loss:
+- **Older host:** a host without the capability gets no field, and `session-open.ts` warns once per runner, naming the host's engine version.
+- **Process runner:** a per-child `senpi --mode rpc` process has no CLI, environment or classic-RPC way to receive an in-memory chain. `rpc-process.ts` warns once per runner that such children fall back only through the user's settings. omo-senpi passes its host warning hook to that runner too.
+
+Tests:
+- `rpc-host-retry-fallback.test.ts` drives the real `RpcHostRunner` against the fake host. It covers the chain on a capable host, no profile for a child without a chain, an older host (no field, one warning for two children), and a reopen carrying the same chain.
+- `rpc-process-fallback-chain.test.ts` covers one warning for two process children with a chain, and none without one.
+- `runner.test.ts` covers selector threading, and `host-session-park.test.ts` the respawn path.
+
+Each source change goes red when reverted.
+
+## 2026-10-03 - A kill is the one the runner issued; Windows external terminations are reported as crashes (#9471)
+
+`runners/rpc/exit-mapping.ts` `classifyChildExit` decided a signal-less exit was a kill on Windows when the child's stderr held nothing but Bun's child-reaper advisory. A killed child's teardown also writes diagnostics there: the memory component's `memory shutdown drain step failed` (EPERM on a state rename) and `memory shutdown drain hit its budget`. Those made a real kill read as a crash (`killed=false`), and the Windows RPC e2e `kill_marks_error_killed_true` failed intermittently on unrelated PRs.
+
+A kill now comes only from facts the runner owns: the handle's own `terminate()` (`terminationRequested`, passed as `terminatedByRunner`) or a POSIX signal. stderr is never read to decide it, and the Windows stderr heuristic (`hasOnlyWindowsStartupAdvisories`, `isWindowsExternalTermination`) is gone. **Behavior change:** on Windows, a child terminated from outside the runner (TerminateProcess, Task Manager, an OOM kill) exits with code 1 and no signal, exactly like a crash. It is now recorded as `status=error`, `killed=false`, with `RPC child exited unexpectedly (exit code N)` followed by the stderr tail. A process crash's message gains that lead line too, while a daemon session's exit keeps the host's reason as its whole message. A runner-issued signal-less kill reads `RPC child was terminated by its runner (exit code N, pid=…)`.
+
+Tests: `exit-mapping.test.ts` covers a runner-terminated child with the memory EPERM and drain-budget stderr (killed), a child that writes "killed" on its own (crashed), an external Windows termination with and without the advisory (crashed), the spawn-error precedence, and the messages. `handle-terminated-by-runner.test.ts` drives the real handle: `terminate()` followed by a code-1 exit is killed, and the same exit without `terminate()` is crashed. The e2e keeps the external SIGKILL check on POSIX, where the signal is the evidence, and on Windows proves the honest outcome as `external_termination_reports_unexpected_exit`.
+
+## 2026-10-03 - Task tool wording stops naming few-read investigations and small foreground children as delegation targets (#9499)
+
+- `src/tools/task/description.ts`: the run_in_background guideline is "Spawn children with run_in_background=true." The deleted clause ("pass false only for a short child whose result gates your very next call") contradicted the GPT-6 preset's foreground rule and named a small child as a routine spawn; `run_in_background=false` stays documented in the tool description body.
+- `src/category/openai-categories.ts`: the deep-low `Selection_Gate` now reads "Of the two deep lanes this is the default: the child settles its decisions from what it reads. When unsure, choose deep-low; a misrouted child returns `ESCALATE: deep-high` after one cheap attempt, and you re-spawn the same brief as deep-high with its findings." (the one-subsystem-plus-callers shape and "wide but mechanical work belongs here" are gone), and the deep-low description says "preferred over deep-high for 3D graphics, computer/browser use, CAPTCHA, multimodal, backend, logic, and algorithm work" without bold. Both strings are byte-identical to the omo-opencode twins.
+
 ## 2026-10-03 - A pending task_cancel waits when the host cannot list its sessions (#9450)
 
 `finishPendingCancel` closes a child's host session before it marks a pending cancel finished (#9403). It decided whether there was a session to close with `sessionLive()`, and a `list_sessions` the daemon refused or did not answer read as an empty list (`runners/rpc-host/liveness.ts` returned `[]`). On a host that answers its probe but is too loaded to list, the cancel therefore finished, skipped the close, and left the session running until the TTL sweep. `liveSessionPaths` now reports a failed listing as an error, the probe (`lifecycle/host-session.ts`) keeps whether the listing succeeded and answers `sessionLiveness()` as `live`, `gone` or `unknown`, and `lifecycle/pending-cancel.ts` leaves the cancel pending on `unknown`, as it already does for an unconfirmed close. `sessionLive()` keeps its answer for reconcile, TTL and destroy.
