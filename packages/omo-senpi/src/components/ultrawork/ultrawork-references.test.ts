@@ -25,6 +25,9 @@ describe("omo-senpi ultrawork references do not arm", () => {
       "summarize ulw.md",
       "the ulw-research_v2 file",
       "the mass-ulw-loop-runner session finished",
+      "senpi-mass-ulw lane",
+      "amass-ulw notes",
+      "mass-ulw the migration",
     ]) {
       expect({ text, effective: classify(text).effective }).toEqual({ text, effective: false })
       expect(classify(text).suppressionReason).toBe("identifier_reference")

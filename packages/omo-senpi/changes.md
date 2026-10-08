@@ -1,7 +1,7 @@
 ## 2026-10-08 - A skill name inside an identifier, a path, a URL or a prohibition no longer arms (#9738, #9740)
 
 `ultrawork` and `skill-pointers` treat a skill name as a request only when it stands as a word of its own:
-- **Identifier or path segment:** `mass-ulw-refactor`, `senpi-ulw-loop`, `.omo/ulw/...` and `.omo/ulw-execute/ledger.jsonl` arm nothing. A leading bundled skill name still arms (`ulw-loop ...`, `ulw-plan this`, `mass-ulw the migration`), and so does a skill chain (`mass ulw-loop`).
+- **Identifier or path segment:** `mass-ulw-refactor`, `senpi-ulw-loop`, `.omo/ulw/...` and `.omo/ulw-execute/ledger.jsonl` arm nothing. A leading bundled skill name still arms (`ulw-loop ...`, `ulw-plan this`), and so does a skill chain (`mass ulw-loop`). The hyphenated `mass-ulw ...` still injects the mass-ulw pointer but no longer arms ultrawork on its own: it is lexically the same as the reference "in a mass-ulw research pipeline" that every delegated research brief carries, so allowing one allows both; `mass ulw ...` (spaced) and `ulw-mass ...` still arm.
 - **A URL** is masked like a code span.
 - **A prohibition:** `do not` / `don't` / `never` + `load|use|run|invoke|start|trigger|arm|enable` masks its objects up to the next sentence or clause break (`.;:!?` or a newline; a comma does not end it), so "Do not load mass-ulw or ulw-research" arms neither. A request that starts a new sentence still arms ("Don't use tmux. ulw this"), and so does a negation outside that verb list ("do not stop until done, ulw").
 - **Delegated sessions:** `skill-pointers` now applies the same `readSessionRole` rule `ultrawork` got in #9602, so a task child, DAG child or team member never gets a pointer from its own brief.
