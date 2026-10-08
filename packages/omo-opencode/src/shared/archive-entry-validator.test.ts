@@ -273,8 +273,9 @@ describe.skipIf(process.platform === "win32")("archive extraction preflight", ()
 // process whose PATH starts with a stand-in `tar` printing one such line (a spawned child only sees the
 // environment it is given), so the entry parser sees the bytes those systems emit. Like GNU tar, the
 // stand-in prefixes lines for TAR_OPTIONS=--block-number and translates " link to " when LANGUAGE is set
-// outside the C locale. The archive bytes are not a tar, so a run that reached the real tar would fail
-// its listing instead of passing. POSIX-only: the stand-in is a shell script.
+// outside the C locale, and like both tars it prints owner and group names as stored unless
+// --numeric-owner is passed. The archive bytes are not a tar, so a run that reached the real tar would
+// fail its listing instead of passing. POSIX-only: the stand-in is a shell script.
 describe.skipIf(process.platform === "win32")("tar listing layouts", () => {
 	it.each([
 		[
@@ -325,6 +326,16 @@ describe.skipIf(process.platform === "win32")("tar listing layouts", () => {
 			{ TAR_OPTIONS: "--block-number" },
 		],
 		[
+			"extracts a file whose owner and group names contain spaces (GNU tar layout)",
+			"-rw-r--r-- {gnu-owner}     1 2026-10-08 20:47 bin/tool",
+			/^resolved$/m,
+		],
+		[
+			"extracts a file whose owner and group names contain spaces (bsdtar layout)",
+			"-rw-r--r--  0 {bsd-owner} 1 Oct  8 20:47 bin/tool",
+			/^resolved$/m,
+		],
+		[
 			"refuses to extract when a link line contains its separator more than once",
 			"lrwxr-xr-x user/group     0 2026-10-08 20:47 bin/link -> /etc -> safe",
 			/could not be parsed/i,
@@ -350,8 +361,10 @@ describe.skipIf(process.platform === "win32")("tar listing layouts", () => {
 			fakeTar,
 			[
 				"#!/bin/sh",
-				'[ "$1" = "-tvzf" ] || exit 0',
+				'case " $* " in *" -tvzf "*) ;; *) exit 0 ;; esac',
 				`line=$(cat '${listingPath}')`,
+				'case " $* " in *" --numeric-owner "*) gnu="1000/1001"; bsd="1000   1001" ;; *) gnu="John Doe/Domain Users"; bsd="John Doe Domain Users" ;; esac',
+				'line=$(printf "%s\\n" "$line" | sed -e "s#{gnu-owner}#$gnu#" -e "s#{bsd-owner}#$bsd#")',
 				'if [ "${LC_ALL:-}" != "C" ] && [ -n "${LANGUAGE:-}" ]; then line=$(printf "%s\\n" "$line" | sed "s/ link to / Verknüpfung zu /"); fi',
 				'case " ${TAR_OPTIONS:-} " in *" --block-number "*) line="block 0: $line" ;; esac',
 				'printf "%s\\n" "$line"',

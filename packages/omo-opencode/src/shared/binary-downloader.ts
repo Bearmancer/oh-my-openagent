@@ -120,7 +120,8 @@ async function listTarEntries(archivePath: string, cwd?: string): Promise<Archiv
   // both; Windows bsdtar keeps the system locale regardless, hence the localized date forms above.
   const env: NodeJS.ProcessEnv = { ...process.env, LC_ALL: "C" }
   delete env.TAR_OPTIONS
-  const proc = spawn(["tar", "-tvzf", archivePath], {
+  // Owner and group names are stored as-is and can contain spaces, so both tars list them as numbers.
+  const proc = spawn(["tar", "--numeric-owner", "-tvzf", archivePath], {
     cwd,
     env,
     stdout: "pipe",
