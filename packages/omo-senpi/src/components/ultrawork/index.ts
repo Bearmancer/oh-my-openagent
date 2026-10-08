@@ -7,16 +7,17 @@ import {
   maskNegatedInvocations,
   NOT_AFTER_IDENTIFIER,
   NOT_BEFORE_PATH,
+  NOT_INTO_IDENTIFIER,
   stripQuotedRegions,
   stripQuotedSpans,
 } from "../skill-pointers/strip-quoted-regions"
 import { SENPI_ASTRA_ULTRAWORK_DIRECTIVE, SENPI_ULTRAWORK_DIRECTIVE } from "./generated-directive"
 
-// Match complete words so prose such as "ulwfoo" and identifiers such as "ulw_helper" do not
-// arm ultrawork. Hyphens and spaces remain boundaries, so skill names like "ulw-loop" and phrases
-// like "ulw loop" still arm. Quoted and injected regions are blanked before this pattern runs.
+// The keyword arms only as a word of its own: "ulw", "ulw loop", a leading "ulw-loop" or "ulw-plan." do;
+// "ulwfoo", "ulw_helper", "mass-ulw-refactor", "ulw-plan.md" and ".omo/ulw/" do not (#9738). Quoted,
+// injected, relayed and negated regions are blanked before this pattern runs.
 const ULTRAWORK_KEYWORD = /\b(?:ultrawork|ulw)\b/i
-const ULTRAWORK_CURRENT_PROMPT_PATTERN = new RegExp(String.raw`${NOT_AFTER_IDENTIFIER}\b(?:ultrawork|ulw)\b${NOT_BEFORE_PATH}`, "i")
+const ULTRAWORK_CURRENT_PROMPT_PATTERN = new RegExp(String.raw`${NOT_AFTER_IDENTIFIER}\b(?:ultrawork|ulw)\b${NOT_INTO_IDENTIFIER}${NOT_BEFORE_PATH}`, "i")
 const ULTRAWORK_DISABLED_FLAG = "omo-senpi-ultrawork-disabled"
 const ULTRAWORK_MODE_OPEN_TAG = "<ultrawork-mode>"
 const ULTRAWORK_MODE_CLOSE_TAG = "</ultrawork-mode>"

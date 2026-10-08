@@ -22,6 +22,8 @@ describe("omo-senpi skill-pointers suppression", () => {
         "what happened in the mass-ulw-refactor session?",
         "the senpi-ulw-loop lane finished",
         "notes are in .omo/ulw-plan/draft.md",
+        "the mass-ulw-loop-runner session finished",
+        "see mass-ulw-research-notes.md",
         "Do not load mass-ulw or ulw-research or launch your own workflow.",
       ]) {
         expect({ text, matched: matchedSkillPointerNames(text) }).toEqual({ text, matched: [] })

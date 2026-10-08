@@ -20,6 +20,11 @@ describe("omo-senpi ultrawork references do not arm", () => {
       "the ledger is at .omo/ulw-execute/ledger.jsonl",
       "branch fix/ulw-plan-gate has the change",
       "the senpi-ulw-loop lane finished",
+      "what happened in the ulw-plan-refactor session yesterday?",
+      "open ulw-plan.md and summarize it",
+      "summarize ulw.md",
+      "the ulw-research_v2 file",
+      "the mass-ulw-loop-runner session finished",
     ]) {
       expect({ text, effective: classify(text).effective }).toEqual({ text, effective: false })
       expect(classify(text).suppressionReason).toBe("identifier_reference")
@@ -56,10 +61,23 @@ describe("omo-senpi ultrawork references do not arm", () => {
       "can you ulw this refactor for me",
       "Don't use tmux. ulw this",
       "do not stop until done, ulw",
+      "Do not use tmux, but ulw the fix",
+      "don’t use tmux — ulw this",
+      "never mind, ulw this",
+      "don't run the old one; ulw the new one",
+      "ulw fix src/foo.ts",
+      "ulw-loop.",
       "ulw-plan.",
     ]) {
       expect({ text, effective: classify(text).effective }).toEqual({ text, effective: true })
     }
+  })
+
+  it("#given a long input of URL-like runs #when masked #then it stays linear", () => {
+    const long = "a.".repeat(100_000)
+    const started = performance.now()
+    classify(long)
+    expect(performance.now() - started).toBeLessThan(500)
   })
 
   it("#given a reference and a request in one message #when dispatched #then the request arms", async () => {

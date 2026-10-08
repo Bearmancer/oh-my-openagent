@@ -4,7 +4,7 @@ import { readSessionRole } from "@oh-my-opencode/senpi-task"
 import type { ComponentContext, OmoSenpiComponent, SenpiExtensionAPI } from "../../extension/types"
 import { getBuiltinSkillsRoot } from "../telemetry/product-identity"
 import { resolveUlwLoopSessionScope } from "../ulw-loop/session-scope"
-import { NOT_AFTER_IDENTIFIER, NOT_BEFORE_PATH, stripQuotedRegions } from "./strip-quoted-regions"
+import { NOT_AFTER_IDENTIFIER, NOT_BEFORE_PATH, NOT_INTO_IDENTIFIER, stripQuotedRegions } from "./strip-quoted-regions"
 
 export const MASS_ULW_CUSTOM_TYPE = "omo-mass-ulw:skill-pointer"
 export const ULW_PLAN_CUSTOM_TYPE = "omo-ulw-plan:skill-pointer"
@@ -52,9 +52,9 @@ const ULTIMATE_BROWSING_COMPANION: SkillCompanion = {
 
 // After quoted regions are removed, patterns match independently and overlapping
 // mentions all fire ("mass ulw-loop" injects the mass-ulw
-// AND ulw-loop pointers while the ultrawork component arms on the same text). `\b` on
-// both edges is the only boundary rule; `[\s-]*` accepts spaced, hyphenated, and fused
-// spellings alike.
+// AND ulw-loop pointers while the ultrawork component arms on the same text). Each pattern
+// is wrapped by `skillNamePattern`, so a name inside a longer identifier or path does not
+// match; `[\s-]*` accepts spaced, hyphenated, and fused spellings alike.
 //
 // The mass aliases that carry no literal "ulw" (`mulw`, `meth`) and the reversed spelling
 // (`ulw mass`) leave no `ulw <skill>` for the per-skill patterns to match, so each of them
@@ -63,9 +63,7 @@ const ULTIMATE_BROWSING_COMPANION: SkillCompanion = {
 const MASS_ALIAS = String.raw`(?:mass[\s-]*ulw|ulw[\s-]*mass|mulw|meth)`
 // A skill name is a request only as a word of its own: not a segment of a longer identifier
 // (`mass-ulw-refactor`, `senpi-ulw-loop`) and not part of a path or file name (`.omo/ulw-plan/`).
-// A chained skill name (`mass ulw-loop`, `ulwmass-research`) is still one request, so the next segment may be a skill word.
-const NOT_IN_IDENTIFIER_AFTER = String.raw`(?![-_](?!(?:loop|plan|research|execute)\b)[A-Za-z0-9]|\.[A-Za-z0-9])${NOT_BEFORE_PATH}`
-const skillNamePattern = (body: string): RegExp => new RegExp(String.raw`${NOT_AFTER_IDENTIFIER}\b${body}\b${NOT_IN_IDENTIFIER_AFTER}`, "i")
+const skillNamePattern = (body: string): RegExp => new RegExp(String.raw`${NOT_AFTER_IDENTIFIER}\b${body}\b${NOT_INTO_IDENTIFIER}${NOT_BEFORE_PATH}`, "i")
 const TARGETS: readonly SkillPointerTarget[] = [
   {
     skillName: "mass-ulw",
