@@ -1,5 +1,6 @@
 import { applyEdits, findNodeAtLocation, modify, parseTree, type Node } from "jsonc-parser/lib/esm/main.js"
 
+import { parseJsoncSafe } from "../internal/jsonc-parse"
 import type { OmoConfigEdit } from "./types"
 
 const FORMATTING_OPTIONS = {
@@ -12,15 +13,43 @@ const FORMATTING_OPTIONS = {
 // member's line, so members are inserted and removed here by hand. Replacing an existing value
 // still goes through `modify`, which rewrites only that value's own text (#9777).
 export function applyOmoConfigEdit(content: string, edit: OmoConfigEdit): string {
+  const fallback = formattedModify(content, edit)
+  const surgical = surgicalEditPreservingEol(content, edit)
+  if (surgical === undefined) return fallback
+  if (parses(fallback)) return sameData(surgical, fallback) ? surgical : fallback
+  // jsonc-parser leaves a stray comma when it removes a sole member that has a trailing comma.
+  return parses(surgical) ? surgical : fallback
+}
+
+function surgicalEditPreservingEol(content: string, edit: OmoConfigEdit): string | undefined {
+  const crlf = content.includes("\r\n")
+  if (crlf && /(?<!\r)\n/.test(content)) return undefined
+  const text = crlf ? content.replaceAll("\r\n", "\n") : content
+  const edited = surgicalEdit(text, edit)
+  if (edited === undefined) return undefined
+  return crlf ? edited.replaceAll("\n", "\r\n") : edited
+}
+
+function parses(content: string): boolean {
+  return parseJsoncSafe<unknown>(content).errors.length === 0
+}
+
+function surgicalEdit(content: string, edit: OmoConfigEdit): string | undefined {
   const root = parseTree(content)
-  if (root === undefined) return formattedModify(content, edit)
+  if (root === undefined) return undefined
   const target = findNodeAtLocation(root, [...edit.path])
-  if (target !== undefined) {
-    if (edit.value !== undefined) return formattedModify(content, edit)
-    return removeMember(content, target) ?? formattedModify(content, edit)
-  }
+  if (target !== undefined) return edit.value === undefined ? removeMember(content, target) : undefined
   if (edit.value === undefined) return content
-  return insertMember(content, root, edit) ?? formattedModify(content, edit)
+  return insertMember(content, root, edit)
+}
+
+// A hand edit is kept only when it parses to exactly what jsonc-parser's own edit produces, so a
+// layout this module misreads costs formatting, never data.
+function sameData(surgical: string, fallback: string): boolean {
+  const left = parseJsoncSafe<unknown>(surgical)
+  const right = parseJsoncSafe<unknown>(fallback)
+  if (left.errors.length > 0 || right.errors.length > 0) return false
+  return JSON.stringify(left.data) === JSON.stringify(right.data)
 }
 
 function formattedModify(content: string, edit: OmoConfigEdit): string {
@@ -54,18 +83,25 @@ function commaAfter(content: string, offset: number): number | undefined {
 // another member shares the line, and the line cannot be edited as a unit.
 function lineRestIsTrivia(content: string, offset: number): boolean {
   const rest = content.slice(offset, lineEnd(content, offset))
-  return /^[ \t]*,?[ \t]*(?:\/\/.*|\/\*.*\*\/[ \t]*)?$/.test(rest)
+  return /^[ \t]*,?[ \t]*(?:\/\/.*|\/\*(?:(?!\*\/).)*\*\/[ \t]*)?$/.test(rest)
 }
 
 function memberNodes(objectNode: Node): Node[] {
   return (objectNode.children ?? []).filter((child) => child.type === "property")
 }
 
-function indentUnit(memberIndent: string, objectIndent: string): string {
+function fileIndentUnit(content: string): string {
+  const indents = [...content.matchAll(/\n([ \t]+)\S/g)].map((match) => match[1] ?? "")
+  if (indents.some((indent) => indent.startsWith("\t"))) return "\t"
+  const widths = indents.map((indent) => indent.length).filter((width) => width > 0)
+  return " ".repeat(widths.length === 0 ? 2 : Math.min(...widths))
+}
+
+function indentUnit(content: string, memberIndent: string, objectIndent: string): string {
   if (memberIndent.startsWith(objectIndent) && memberIndent.length > objectIndent.length) {
     return memberIndent.slice(objectIndent.length)
   }
-  return "  "
+  return fileIndentUnit(content)
 }
 
 function renderMember(key: string, value: unknown, memberIndent: string, unit: string): string {
@@ -96,8 +132,9 @@ function insertMember(content: string, root: Node, edit: OmoConfigEdit): string 
 
   if (last === undefined) {
     if (!/^\{\s*\}$/.test(content.slice(parent.offset, closeBrace + 1))) return undefined
-    const memberIndent = `${objectIndent}  `
-    const member = renderMember(key, value, memberIndent, "  ")
+    const unit = fileIndentUnit(content)
+    const memberIndent = `${objectIndent}${unit}`
+    const member = renderMember(key, value, memberIndent, unit)
     return `${content.slice(0, parent.offset)}{\n${memberIndent}${member}\n${objectIndent}}${content.slice(closeBrace + 1)}`
   }
 
@@ -107,7 +144,7 @@ function insertMember(content: string, root: Node, edit: OmoConfigEdit): string 
   const insertAt = lineEnd(content, lastEnd)
   if (insertAt >= closeBrace) return undefined
   const memberIndent = leadingWhitespace(content, last.offset)
-  const unit = indentUnit(memberIndent, objectIndent)
+  const unit = indentUnit(content, memberIndent, objectIndent)
   const trailingComma = commaAfter(content, lastEnd)
   const member = renderMember(key, value, memberIndent, unit)
   const head = trailingComma === undefined

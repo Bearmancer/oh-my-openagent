@@ -100,4 +100,59 @@ describe("applyOmoConfigEdit", () => {
     // then
     expect(next).toBe('{\n  /* keep */\n  "a": [1, 2,], // keep too\n  "b": 5,\n}\n')
   })
+
+  test("#given two members sharing a line between block comments #when the first is removed #then the second survives", () => {
+    // given
+    const content = '{\n  "a": 1, /* x */ "b": 2 /* y */\n}\n'
+
+    // when
+    const next = applyOmoConfigEdit(content, { path: ["a"], value: undefined })
+
+    // then
+    expect(parsed(next)).toEqual({ b: 2 })
+  })
+
+  test("#given a CRLF file with trailing comments #when a member is added #then line endings, comments and indentation are kept", () => {
+    // given
+    const content = '{\r\n    "a": 1, // keep me\r\n    "b": {\r\n        "c": true\r\n    }\r\n}\r\n'
+
+    // when
+    const next = applyOmoConfigEdit(content, { path: ["d"], value: { e: 1 } })
+
+    // then
+    expect(next).toBe('{\r\n    "a": 1, // keep me\r\n    "b": {\r\n        "c": true\r\n    },\r\n    "d": {\r\n        "e": 1\r\n    }\r\n}\r\n')
+  })
+
+  test("#given a CRLF file #when a member is removed #then the other lines are byte-identical", () => {
+    // given
+    const content = '{\r\n  "a": 1, // first\r\n  "b": 2\r\n}\r\n'
+
+    // when
+    const next = applyOmoConfigEdit(content, { path: ["b"], value: undefined })
+
+    // then
+    expect(next).toBe('{\r\n  "a": 1 // first\r\n}\r\n')
+  })
+
+  test("#given a tab-indented file with an empty nested object #when a member is added to it #then it is indented with tabs", () => {
+    // given
+    const content = '{\n\t"agents": {},\n\t"x": 1\n}\n'
+
+    // when
+    const next = applyOmoConfigEdit(content, { path: ["agents", "oracle"], value: "m" })
+
+    // then
+    expect(next).toBe('{\n\t"agents": {\n\t\t"oracle": "m"\n\t},\n\t"x": 1\n}\n')
+  })
+
+  test.each([
+    ['{\n  "a": 1,\n}\n', '{\n}\n'],
+    ['{\r\n  "a": 1,\r\n}\r\n', '{\r\n}\r\n'],
+  ])("#given %p whose sole member has a trailing comma #when it is removed #then the object stays valid", (content, expected) => {
+    // when
+    const next = applyOmoConfigEdit(content, { path: ["a"], value: undefined })
+
+    // then
+    expect(next).toBe(expected)
+  })
 })

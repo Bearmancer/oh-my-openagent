@@ -1,4 +1,4 @@
-import { isPlainObject } from "../internal/plain-object"
+import { isPlainObject, isUnsafeObjectKey } from "../internal/plain-object"
 
 type ConfigEdit = { readonly path: readonly string[]; readonly value: unknown }
 
@@ -26,9 +26,11 @@ export function diffEdits(
 ): ConfigEdit[] {
   const edits: ConfigEdit[] = []
   for (const key of Object.keys(before)) {
+    if (isUnsafeObjectKey(key)) continue
     if (!Object.prototype.hasOwnProperty.call(after, key)) edits.push({ path: [...path, key], value: undefined })
   }
   for (const [key, value] of Object.entries(after)) {
+    if (isUnsafeObjectKey(key)) continue
     const nextPath = [...path, key]
     if (!Object.prototype.hasOwnProperty.call(before, key)) {
       edits.push({ path: nextPath, value })
