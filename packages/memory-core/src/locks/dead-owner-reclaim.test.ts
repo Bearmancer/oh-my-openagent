@@ -1,9 +1,10 @@
-import { afterEach, describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, spyOn, test } from "bun:test"
 import { randomUUID } from "node:crypto"
-import { chmod, mkdtemp, readdir, rm, unlink, utimes, writeFile } from "node:fs/promises"
+import { mkdtemp, readdir, rm, unlink, utimes, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
 
+import * as resilientFs from "../fs/resilient"
 import { sweepStaleLockCandidates } from "./candidate-sweep"
 import { LOCK_DIRECTORY_SWEEP_INTERVAL_MS } from "./acquire"
 import { sweepDeadOwnerLocks } from "./dead-owner-sweep"
@@ -151,15 +152,23 @@ describe("dead-owner lock reclaim", () => {
     const unreadable = path.join(locksDirectory, "a-unreadable.lock")
     const crashed = path.join(locksDirectory, "b-crashed.lock")
     await writeRecord(unreadable, await deadOwnerRecord("unreadable"))
-    await chmod(unreadable, 0o000)
     await writeRecord(crashed, await deadOwnerRecord("crashed"))
+    const realReadFile = resilientFs.readFile
+    const readFailure = spyOn(resilientFs, "readFile").mockImplementation(((filePath: string, ...rest: unknown[]) => {
+      if (String(filePath) === unreadable) return Promise.reject(Object.assign(new Error("permission denied"), { code: "EACCES" }))
+      return (realReadFile as (...args: unknown[]) => unknown)(filePath, ...rest)
+    }) as typeof resilientFs.readFile)
     const failures: string[] = []
 
     // #when
-    const reclaimed = await sweepDeadOwnerLocks(locksDirectory, { onFailure: (lockPath) => failures.push(path.basename(lockPath)) })
+    let reclaimed: number
+    try {
+      reclaimed = await sweepDeadOwnerLocks(locksDirectory, { onFailure: (lockPath) => failures.push(path.basename(lockPath)) })
+    } finally {
+      readFailure.mockRestore()
+    }
 
     // #then
-    await chmod(unreadable, 0o600)
     expect(reclaimed).toBe(1)
     expect(failures).toEqual([path.basename(unreadable)])
     expect(await readdir(locksDirectory)).toEqual([path.basename(unreadable)])
