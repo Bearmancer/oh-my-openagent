@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.26] - 2026-10-08
+
 5.1.25 was not released: its Linux x64 binaries went over the 150 MiB per-binary size budget during publishing, so no `omo-ai`, `lazycodex-ai`, `oh-my-opencode` or `oh-my-openagent` 5.1.25 exists. Everything planned for it ships here. Some 5.1.25 platform packages did reach npm and are deprecated; nothing installs them.
 
 **omo runs on senpi 2026.10.10-8, which keeps a saved MCP sign-in with the authorization server that issued it.** The bundled MCP SDK moves to 1.32.1 (GHSA-6qxp-vccf-f47h), and senpi records which authorization server issued each saved sign-in and refreshes only there. If an MCP server's authorization server changes, you are asked to sign in again instead. MCP servers signed in with very old senpi versions may ask you to sign in again once their access token expires. An MCP HTTP endpoint that redirects to a different origin is no longer followed, and the connect error names both origins and the URL to put in the server's config. Full engine notes: [senpi 2026.10.10-8](https://github.com/code-yeongyu/senpi/releases/tag/v2026.10.10-8). ([senpi#2940](https://github.com/code-yeongyu/senpi/issues/2940), [senpi#2944](https://github.com/code-yeongyu/senpi/pull/2944), [#9757](https://github.com/code-yeongyu/oh-my-openagent/pull/9757))
