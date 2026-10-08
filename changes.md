@@ -11,6 +11,10 @@ The root `AGENTS.md` now reserves `desktop/` and `desktop.init-*` in `~/.omo` fo
 
 The engine's copy-forward into a flat-layout brand dir skips the reserved names in senpi (code-yeongyu/senpi#2898).
 
+## 2026-10-08 - An explicit task model pin is honoured or the spawn fails loudly (#9722)
+
+A task spawn carrying `model: "provider/model:level"` silently ran on the global settings default whenever the default differed from the pin: the planner kept the suffix as part of the model id, the in-process session context dropped the unresolvable id without an error, and senpi substituted the default. The pin is now parsed once with senpi's own model resolver into a canonical `provider/model_id` plus thinking level, resolved against the live registry at plan time, and a pin that does not resolve fails with a typed `model_unavailable` naming the pin and the default route the child would have used. The in-process session context asserts the spec's model instead of filtering it, the RPC process and host runners admit a valid `:level` pin and send the base id plus the level, and after start the child's effective model is checked against the plan and persisted on the record, so `task_output` and the `started` result name the model that actually ran.
+
 ## 2026-10-07 - Suspended children retry after their parent session resumes (#9498)
 
 A resumed session now retries its own children when revival temporarily cannot
