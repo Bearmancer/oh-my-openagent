@@ -185,6 +185,19 @@ describe("createParentRegistrySessionContext", () => {
     expect(context.thinkingLevel).toBeUndefined()
   })
 
+  test("#given a legacy record whose model id still carries a thinking suffix #when the context is built #then it resolves the canonical base and maps the suffix to the thinking level", () => {
+    // given
+    const registry = registryWithMockProvider()
+    const provide = createParentRegistrySessionContext(() => registry)
+
+    // when
+    const context = provide(baseSpec({ model: "omo-mock/mock-1:xhigh" }))
+
+    // then
+    expect(context.model?.id).toBe("mock-1")
+    expect(context.thinkingLevel).toBe("xhigh")
+  })
+
   test("#given a model reference absent from the parent registry #when the context is built #then it fails closed as model_unavailable instead of threading no Model", () => {
     // given
     const registry = registryWithMockProvider()

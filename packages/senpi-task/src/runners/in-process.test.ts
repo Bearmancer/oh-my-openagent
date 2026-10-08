@@ -10,6 +10,61 @@ const onUnhandled = (reason: unknown): void => { unhandled.push(reason) }
 afterEach(() => { unhandled.length = 0; while (tmpSessionDirs.length > 0) rmSync(tmpSessionDirs.pop() ?? "", { recursive: true, force: true }) })
 
 describe("InProcessRunner", () => {
+  test("#given a session that starts on a different model than the spec resolved #when start runs #then it fails typed as model_unavailable and disposes the session (#9722)", async () => {
+    // given: the spec asks for model A; the engine hands back a session on model B
+    const fake = createFakeSession()
+    fake.session = { ...fake.session, model: { provider: "vendor-b", id: "substitute" } }
+    const runner = new InProcessRunner({ createSession: async () => fake.session })
+
+    // when / then: the spawn refuses the substitution, and the opened session is torn down
+    const failure = await runner
+      .start(
+        baseSpec({
+          model: { provider: "vendor-a", id: "pinned" } as never,
+          selectedModel: "vendor-a/pinned",
+          resolvedModel: {
+            provider: "vendor-a",
+            model_id: "pinned",
+            display: "vendor-a/pinned",
+            source: "explicit",
+          },
+        }),
+      )
+      .catch((error: unknown) => error)
+    expect(RunnerError.is(failure) ? failure.failure.kind : undefined).toBe("model_unavailable")
+    expect(failure.message).toContain("vendor-b/substitute")
+    expect(failure.message).toContain("vendor-a/pinned")
+    expect(fake.disposeCount).toBe(1)
+    expect(fake.promptCalls).toBe(0)
+  })
+
+  test("#given a session on exactly the model the spec resolved #when start runs #then the child is accepted (#9722)", async () => {
+    // given
+    const fake = createFakeSession()
+    fake.session = { ...fake.session, model: { provider: "vendor-a", id: "pinned" } }
+    const runner = new InProcessRunner({ createSession: async () => fake.session })
+
+    // when
+    const handle = await runner.start(
+      baseSpec({
+        model: { provider: "vendor-a", id: "pinned" } as never,
+        selectedModel: "vendor-a/pinned",
+        resolvedModel: {
+          provider: "vendor-a",
+          model_id: "pinned",
+          display: "vendor-a/pinned",
+          source: "explicit",
+        },
+      }),
+    )
+
+    // then
+    fake.lastText.value = "done"
+    fake.resolvePrompt()
+    await expect(handle.waitForIdle()).resolves.toMatchObject({ status: "completed" })
+    await handle.dispose()
+  })
+
   test("#given a running child #when steered while the prompt is in flight #then the fake session receives it", async () => {
     const fake = createFakeSession()
     const runner = new InProcessRunner({ createSession: async () => fake.session })

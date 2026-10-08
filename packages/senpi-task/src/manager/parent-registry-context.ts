@@ -1,6 +1,7 @@
 import type { CreateAgentSessionOptions } from "@code-yeongyu/senpi"
 
 import { asSenpiThinkingLevel } from "../senpi/thinking-level"
+import { splitModelDecorators } from "../senpi/explicit-pin"
 import { RunnerError } from "../runners/in-process/runner-error"
 import type {
   InProcessSessionContext,
@@ -60,7 +61,9 @@ export function createParentRegistrySessionContext(
       return trust()
     }
     if (spec.model !== undefined) {
-      const model = findModelReference(registry, spec.model)
+      // A record written before #9722 may still carry a `:level` in its model id; resolve it by its
+      // canonical base and let the suffix ride the thinking level instead of failing the respawn.
+      const model = findModelReference(registry, spec.model) ?? findModelReference(registry, splitModelDecorators(spec.model).base)
       if (model === undefined) {
         throw new RunnerError({
           kind: "model_unavailable",
@@ -68,7 +71,7 @@ export function createParentRegistrySessionContext(
         })
       }
       const modelRuntime = registry.modelRuntime
-      const thinkingLevel = asSenpiThinkingLevel(spec.variant)
+      const thinkingLevel = asSenpiThinkingLevel(spec.variant) ?? asSenpiThinkingLevel(splitModelDecorators(spec.model).thinkingLevel)
       return {
         ...trust(),
         modelRegistry: registry,

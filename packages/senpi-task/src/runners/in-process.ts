@@ -16,6 +16,7 @@ import {
   type ChildSession,
 } from "./in-process/child-handle"
 import { buildChildSessionOptions, requireChildSessionDir, resolveMemberScopedToolNames } from "./in-process/child-options"
+import { assertPinnedModelHonoured } from "./in-process/pin-check"
 import { RunnerError } from "./in-process/runner-error"
 import type { ChildRetryOverride } from "./in-process/runtime-fallback-settings"
 import { buildSubagentPrompt } from "./in-process/subagent-prompt"
@@ -170,6 +171,7 @@ export class InProcessRunner {
     }
 
     let session: ChildSession
+    let createdSession: ChildSession | undefined
     try {
       // SessionManager and the child option helpers below read barrel values synchronously, so the
       // barrel is loaded here (memoized: a cache hit in any process that already runs the engine).
@@ -182,12 +184,20 @@ export class InProcessRunner {
         ...(this.#kernelToolBindings === undefined ? {} : { kernelToolBindings: this.#kernelToolBindings }),
       })
       session = await this.#createSession(options)
+      createdSession = session
       assertPinnedModelHonoured(spec, session)
     } catch (error) {
       // A start that never produced a session must leave NO binding behind: the runner floor refuses
       // curated/policy-narrowed/colliding grants by throwing from here, and a stale entry would keep
       // a strong reference to the parent kernel until TTL expunge.
       this.#kernelToolBindings?.release(spec.taskId)
+      // A session that WAS created but failed the pin check is disposed here (session_shutdown +
+      // dispose): no handle exists yet, so nobody else owns that teardown (#9722 M1).
+      if (createdSession !== undefined) {
+        await discardUnstartedChildSession(createdSession).catch((shutdownError: unknown) => {
+          throw new AggregateError([error, shutdownError], "pin check failed, and shutting down its session failed")
+        })
+      }
       if (RunnerError.is(error)) throw error
       throw new RunnerError({ kind: "session-create-failed", message: sessionCreateMessage(error), cause: error })
     }
@@ -278,34 +288,6 @@ function sessionCreateMessage(error: unknown): string {
 
 function sessionResumeMessage(error: unknown): string {
   return `Failed to resume in-process child session: ${error instanceof Error ? error.message : String(error)}`
-}
-
-/**
- * Post-start pin check (#9722). A child spec naming a canonical `provider/model` must have STARTED
- * on exactly that model; when the engine reports a different effective model the spawn fails typed
- * as model_unavailable and the session is torn down by the caller's start-cleanup, so no turn ever
- * runs on a substituted route (the settings default being the historical one). A spec carrying no
- * resolved model, or a runtime that reports none, skips the assertion - the planner's resolve-or-fail
- * gate is what keeps those children honest, and fakes legitimately omit `model`.
- */
-function assertPinnedModelHonoured(spec: ChildSpec, session: ChildSession): void {
-  if (spec.model === undefined) return
-  const selected = spec.resolvedModel ?? parseSelectedModel(spec.selectedModel)
-  if (selected === undefined) return
-  const effective = session.model
-  if (effective === undefined) return
-  if (effective.provider === selected.provider && effective.id === selected.model_id) return
-  throw new RunnerError({
-    kind: "model_unavailable",
-    message: `the child session started on ${effective.provider}/${effective.id} instead of the pinned ${selected.provider}/${selected.model_id}; refusing the substitution`,
-  })
-}
-
-function parseSelectedModel(reference: string | undefined): { readonly provider: string; readonly model_id: string } | undefined {
-  if (reference === undefined) return undefined
-  const slash = reference.indexOf("/")
-  if (slash <= 0 || slash === reference.length - 1) return undefined
-  return { provider: reference.slice(0, slash), model_id: reference.slice(slash + 1) }
 }
 
 function isSessionHeaderEntry(entry: unknown): entry is { readonly type: "session"; readonly id: string } {

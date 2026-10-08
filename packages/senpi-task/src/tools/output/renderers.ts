@@ -96,6 +96,8 @@ function notFoundRow(details: Extract<TaskOutputDetails, { readonly kind: "not_f
 }
 
 // Model-facing model summary for the task_output status view text (TUI rows use formatStatusTarget).
+// The effective route is what the child actually ran (#9722); when it differs from the plan the
+// plan is shown alongside, never instead of it.
 export function taskOutputModelText(snapshot: TaskSnapshot): string {
   const display = nonEmpty(snapshot.resolved_model?.display)
   const model = normalizeRendererText(snapshot.model)
@@ -105,7 +107,10 @@ export function taskOutputModelText(snapshot: TaskSnapshot): string {
     reasoning === undefined ? undefined : `reasoning ${reasoning}`,
     variant === undefined ? undefined : `variant ${variant}`,
   ].filter((part) => part !== undefined)
-  return `model ${display ?? model}${details.length > 0 ? ` (${details.join(", ")})` : ""}`
+  const planned = `${display ?? model}${details.length > 0 ? ` (${details.join(", ")})` : ""}`
+  const effective = nonEmpty(snapshot.effective_model?.display)
+  if (effective === undefined || effective === snapshot.resolved_model?.display) return `model ${planned}`
+  return `model ${effective} (planned ${planned})`
 }
 
 function nonEmpty(value: string | undefined): string | undefined {

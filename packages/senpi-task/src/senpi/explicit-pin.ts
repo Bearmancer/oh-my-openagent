@@ -30,9 +30,10 @@ export type ExplicitPinResolution = ResolvedExplicitPin | ExplicitPinFailure
  * after its full-id match. A suffix that matches neither vocabulary stays glued to the id, so a
  * genuine colon id (`provider/model:exacto`) is never mangled.
  */
-export function splitModelDecorators(reference: string): { readonly base: string; readonly thinkingLevel?: string } {
+export function splitModelDecorators(reference: string): { readonly base: string; readonly thinkingLevel?: string; readonly serviceTier?: string } {
   let base = reference
   let thinkingLevel: string | undefined
+  let serviceTier: string | undefined
   for (let count = 0; count < 2; count += 1) {
     const colon = base.lastIndexOf(":")
     if (colon <= 0) break
@@ -42,13 +43,18 @@ export function splitModelDecorators(reference: string): { readonly base: string
       base = base.slice(0, colon)
       continue
     }
-    if (SENPI_SERVICE_TIERS.has(suffix)) {
+    if (serviceTier === undefined && SENPI_SERVICE_TIERS.has(suffix)) {
+      serviceTier = suffix
       base = base.slice(0, colon)
       continue
     }
     break
   }
-  return thinkingLevel === undefined ? { base } : { base, thinkingLevel }
+  return {
+    base,
+    ...(thinkingLevel === undefined ? {} : { thinkingLevel }),
+    ...(serviceTier === undefined ? {} : { serviceTier }),
+  }
 }
 
 /**
@@ -74,9 +80,15 @@ export function resolveExplicitTaskPin(pin: string, modelRuntime: ExplicitPinRun
   const { resolveCliModel } = senpiBarrel()
   const result = resolveCliModel({ cliModel: trimmed, modelRuntime })
   if (result.error !== undefined) {
-    return result.error.includes("ambiguous")
-      ? { kind: "invalid_target", message: `The task model pin "${trimmed}" is invalid: ${result.error}` }
-      : { kind: "model_unavailable", message: `The task model pin "${trimmed}" did not resolve: ${result.error}` }
+    return { kind: "model_unavailable", message: `The task model pin "${trimmed}" did not resolve: ${result.error}` }
+  }
+  // A service tier has no task-plan carrier (tiers are inherited from the parent, not pinned per
+  // child): accepting and dropping it would silently run the child at a tier nobody asked for.
+  if (result.serviceTier !== undefined) {
+    return {
+      kind: "invalid_target",
+      message: `The task model pin "${trimmed}" carries service tier "${result.serviceTier}", which a task pin cannot express; drop the suffix or set the tier on the parent.`,
+    }
   }
   const model = result.model
   if (model !== undefined && isCatalogModel(modelRuntime, model.provider, model.id)) {

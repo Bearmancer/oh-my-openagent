@@ -1,28 +1,31 @@
 import { afterEach, describe, expect, test } from "bun:test"
 
-import { writeFileSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 
 import type { AgentSession } from "@code-yeongyu/senpi"
+import { OmoTaskSettingsSchema } from "@oh-my-opencode/omo-config-core"
 
 import { createTaskChildPlanner } from "../../../omo-senpi/src/components/task/planner"
+import { loadSenpiBarrel } from "../lazy/senpi-barrel"
+import { createTaskManager, type TaskManager } from "../manager"
 import { createParentRegistrySessionContext } from "../manager/parent-registry-context"
+import { createInProcessManagedRunner } from "../manager/runner"
 import { readSettingsDefaultRoute } from "../senpi/explicit-pin"
-import type { ManagedStartSpec } from "../manager/types"
+import { createTaskRecordStore, type TaskRecordStore } from "../store"
 import { InProcessRunner } from "./in-process"
 import { createBuiltinChildMachine, type BuiltinChildMachine } from "./in-process/__fixtures__/builtin-child"
 
 // #9722. An explicit task model pin - suffixed with a thinking level or not - is honoured or the
-// spawn fails loudly, never a silent ride on the child's settings default. The child is the REAL
-// builtin in-process fixture against a fake provider whose settings default is a different model,
-// so a substituted route is visible in the child's own session log and thinking level.
+// spawn fails loudly, never a silent ride on the child's settings default. The child runs through
+// the REAL manager and in-process runner against a fake provider whose isolated settings default
+// is a different model, so a substituted route is visible in the child's session log, the task
+// record's effective_model, and the started result.
 //
 // omo-senpi is imported by SOURCE path (senpi-task holds no dependency on the adapter): the
 // planner owns the explicit-pin parse, and this test drives the same composition the engine wires.
 
-type ManagedSpec = Parameters<ReturnType<typeof createParentRegistrySessionContext>>[0]
-type PlanResolution = ReturnType<ReturnType<typeof createTaskChildPlanner>>
-type ResolvedPlan = Extract<PlanResolution, { readonly kind: "resolved" }>["plan"]
+const PROVIDER = "runtime-fallback-test"
 
 const machines: BuiltinChildMachine[] = []
 const sessions: AgentSession[] = []
@@ -37,19 +40,61 @@ async function world(defaultModelId: string): Promise<BuiltinChildMachine> {
   machines.push(machine)
   writeFileSync(
     join(machine.agentDir, "settings.json"),
-    `${JSON.stringify({ defaultProvider: "runtime-fallback-test", defaultModel: defaultModelId }, null, 2)}\n`,
+    `${JSON.stringify({ defaultProvider: PROVIDER, defaultModel: defaultModelId }, null, 2)}\n`,
   )
   return machine
 }
 
-function planFor(machine: BuiltinChildMachine, pin: string): PlanResolution {
-  return createTaskChildPlanner(
+type Engine = {
+  readonly manager: TaskManager
+  readonly store: TaskRecordStore
+}
+
+// The engine's own wiring, narrowed to the pin path: the real planner over the fixture registry,
+// the real parent-registry context (with the fixture's agent dir threaded so the child reads the
+// isolated settings), and the real in-process runner and record store.
+function makeEngine(machine: BuiltinChildMachine): Engine {
+  const stateDir = join(machine.agentDir, "task-state")
+  const store = createTaskRecordStore({ project_dir: machine.cwd, task: { state_dir: stateDir } })
+  const provide = createParentRegistrySessionContext(() => machine.modelRegistry)
+  const inProcess = createInProcessManagedRunner(
+    new InProcessRunner({
+      createSession: async (options) => {
+        const { session } = await (await loadSenpiBarrel()).createAgentSession(options)
+        sessions.push(session)
+        await session.bindExtensions({ mode: "print" })
+        return session
+      },
+    }),
+    (spec) => ({ ...provide(spec), agentDir: machine.agentDir }),
+  )
+  const planner = createTaskChildPlanner(
     {},
     {},
     () => machine.modelRegistry,
     () => undefined,
     () => readSettingsDefaultRoute({ cwd: machine.cwd, agentDir: machine.agentDir }),
-  )({
+  )
+  const manager = createTaskManager({
+    store,
+    runners: {
+      "in-process": inProcess,
+      process: { start: () => Promise.reject(new Error("no process runner in this test")) },
+    },
+    planner,
+    config: OmoTaskSettingsSchema.parse({
+      global_concurrency: 0,
+      default_concurrency: 5,
+      max_depth: 1,
+      state_dir: stateDir,
+    }),
+    cwd: machine.cwd,
+  })
+  return { manager, store }
+}
+
+function startPin(engine: Engine, pin: string) {
+  return engine.manager.start({
     prompt: "reply with done",
     parent_session_id: "parent-9722",
     depth: 1,
@@ -57,49 +102,12 @@ function planFor(machine: BuiltinChildMachine, pin: string): PlanResolution {
   })
 }
 
-function managedSpec(machine: BuiltinChildMachine, taskId: string, plan: ResolvedPlan): ManagedSpec {
-  return {
-    taskId,
-    cwd: machine.cwd,
-    stateDir: join(machine.agentDir, "state"),
-    prompt: "reply with done",
-    depth: 1,
-    parentSessionId: "parent-9722",
-    rootSessionId: "parent-9722",
-    model: plan.model,
-    ...(plan.resolved_model === undefined ? {} : { resolvedModel: plan.resolved_model }),
-    ...(plan.variant === undefined ? {} : { variant: plan.variant }),
-  }
+function isEntryOfType(entry: unknown, entryType: string): entry is Record<string, unknown> {
+  return typeof entry === "object" && entry !== null && "type" in entry && entry.type === entryType
 }
 
-async function startPlannedChild(machine: BuiltinChildMachine, plan: ResolvedPlan, taskId: string): Promise<AgentSession> {
-  const provide = createParentRegistrySessionContext(() => machine.modelRegistry)
-  const context = provide(managedSpec(machine, taskId, plan))
-  const runner = new InProcessRunner({
-    createSession: async (options) => {
-      const session = (await (await import("@code-yeongyu/senpi")).createAgentSession(options)).session
-      sessions.push(session)
-      await session.bindExtensions({ mode: "print" })
-      return session
-    },
-  })
-  const handle = await runner.start({
-    ...machine.spec(taskId, "succeeds"),
-    model: context.model,
-    modelRuntime: context.modelRuntime,
-    selectedModel: plan.model,
-    ...(context.thinkingLevel === undefined ? {} : { thinkingLevel: context.thinkingLevel }),
-  })
-  await handle.waitForIdle()
-  await handle.dispose()
-  const session = sessions.at(-1)
-  if (session === undefined) throw new Error("the child session was not created")
-  return session
-}
-
-function firstSessionEntry(machine: BuiltinChildMachine, taskId: string, entryType: string): Record<string, unknown> {
-  const root = join(machine.agentDir, "..", "children", taskId)
-  const { readdirSync, readFileSync, existsSync } = require("node:fs") as typeof import("node:fs")
+function firstSessionEntry(engine: Engine, taskId: string, entryType: string): Record<string, unknown> {
+  const root = join(engine.store.stateDir, "children", taskId)
   if (!existsSync(root)) throw new Error(`no child session dir at ${root}`)
   const jsonl: string[] = []
   const walk = (dir: string, depth: number): void => {
@@ -120,94 +128,126 @@ function firstSessionEntry(machine: BuiltinChildMachine, taskId: string, entryTy
       } catch {
         continue
       }
-      if (typeof entry === "object" && entry !== null && "type" in entry && entry.type === entryType) {
-        return entry as Record<string, unknown>
-      }
+      if (isEntryOfType(entry, entryType)) return entry
     }
   }
   throw new Error(`no ${entryType} entry under ${root}`)
 }
 
-describe("explicit task model pins are honoured or fail loudly (#9722)", () => {
-  test("1(a)+(d) #given a settings default of child-fails #when spawned with child-succeeds:medium #then the child's first model_change is the pin at medium and the plan matches it", async () => {
-    // given: the isolated agent dir defaults to model B; the pin asks for model A at medium
-    const machine = await world("child-fails")
-    const resolution = planFor(machine, "runtime-fallback-test/child-succeeds:medium")
-    if (resolution.kind !== "resolved") throw new Error(`pin did not plan: ${resolution.kind}`)
+const TEXT_INPUT: Array<"text"> = ["text"]
 
-    // when
-    const session = await startPlannedChild(machine, resolution.plan, "st_9722_a")
-
-    // then: the child started on the pinned model at the pinned level, never the settings default
-    expect(session.model?.id).toBe("child-succeeds")
-    expect(session.thinkingLevel).toBe("medium")
-    const change = firstSessionEntry(machine, "st_9722_a", "model_change")
-    expect(change.provider).toBe("runtime-fallback-test")
-    expect(change.modelId).toBe("child-succeeds")
-    expect(change.originalModelId).toBeUndefined()
-    expect(firstSessionEntry(machine, "st_9722_a", "thinking_level_change").thinkingLevel).toBe("medium")
-    // (d): the plan's canonical model equals the child's first model_change
-    expect(resolution.plan.model).toBe(`${String(change.provider)}/${String(change.modelId)}`)
-    expect(resolution.plan.resolved_model?.model_id).toBe("child-succeeds")
-    expect(resolution.plan.variant).toBe("medium")
-  }, 30_000)
-
-  test("1(b) #given an unhonourable pin #when planned or started #then it fails typed naming the pin and the default route", async () => {
-    // given
-    const machine = await world("child-fails")
-
-    // when / then: the planner fails closed with the pin and the would-be default route
-    const resolution = planFor(machine, "runtime-fallback-test/child-missing")
-    expect(resolution.kind).toBe("error")
-    if (resolution.kind === "error") {
-      expect(resolution.error.code).toBe("model_unavailable")
-      expect(resolution.error.message).toContain("runtime-fallback-test/child-missing")
-      expect(resolution.error.message).toContain("runtime-fallback-test/child-fails")
-    }
-
-    // and: a spec that still carries the raw pin dies in the registry context, not in the child
-    const provide = createParentRegistrySessionContext(() => machine.modelRegistry)
-    expect(() =>
-      provide(managedSpec(machine, "st_9722_b", {
-        model: "runtime-fallback-test/child-missing",
-      })),
-    ).toThrow(/child-missing/)
-    expect(sessions).toEqual([])
-  }, 30_000)
-
-  test("1(c) #given a pin to a model registered only after planning #then the spawn never rides the settings default", async () => {
-    // given: model C is absent while the child is planned
-    const machine = await world("child-fails")
-    const early = planFor(machine, "runtime-fallback-test/child-late")
-    expect(early.kind).toBe("error")
-
-    // when: C appears after planning, on a provider the pin did not name
-    Reflect.apply(machine.modelRegistry.registerProvider, machine.modelRegistry, ["runtime-fallback-test-late", {
-      api: "openai-completions",
-      baseUrl: "file://runtime-fallback-test-late",
-      apiKey: "test-key",
-      models: [{
-        id: "child-late",
-        name: "child-late",
-        reasoning: false,
-        input: ["text"] as Array<"text">,
+function registerLateModel(machine: BuiltinChildMachine, id: string): void {
+  const provider = machine.modelRegistry.getRegisteredProviderConfig(PROVIDER)
+  if (provider === undefined) throw new Error("fixture provider is not registered")
+  Reflect.apply(machine.modelRegistry.registerProvider, machine.modelRegistry, [PROVIDER, {
+    ...provider,
+    models: [
+      ...provider.models,
+      {
+        id,
+        name: id,
+        reasoning: true,
+        input: TEXT_INPUT,
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         contextWindow: 200_000,
         maxTokens: 4096,
-      }],
-      streamSimple() {
-        throw new Error("unused")
       },
-    }])
+    ],
+    streamSimple: provider.streamSimple,
+  }])
+}
 
-    // then: the registry-context assertion still fails typed for the pin - it resolves the named
-    // provider's model or nothing; it can never land on the settings default child-fails
-    const provide = createParentRegistrySessionContext(() => machine.modelRegistry)
-    expect(() =>
-      provide(managedSpec(machine, "st_9722_c", {
-        model: "runtime-fallback-test/child-late",
-      })),
-    ).toThrow(/child-late/)
+describe("explicit task model pins are honoured or fail loudly (#9722)", () => {
+  test("1(a)+(d) #given a settings default of child-fails #when spawned with child-succeeds:medium #then the child runs the pin at medium and the RECORD names the child's model", async () => {
+    // given: the isolated agent dir defaults to model B; the pin asks for model A at medium
+    const machine = await world("child-fails")
+    const engine = makeEngine(machine)
+
+    // when
+    const started = await startPin(engine, `${PROVIDER}/child-succeeds:medium`)
+
+    // then: the spawn started on the pin at the pinned level
+    if (started.kind !== "started") throw new Error(`pin did not start: ${started.kind}`)
+    await engine.manager.waitFor(started.task_id)
+    const change = firstSessionEntry(engine, started.task_id, "model_change")
+    expect(change.provider).toBe(PROVIDER)
+    expect(change.modelId).toBe("child-succeeds")
+    expect(change.originalModelId).toBeUndefined()
+    expect(firstSessionEntry(engine, started.task_id, "thinking_level_change").thinkingLevel).toBe("medium")
+
+    // and (d): the record and the started result name the model the CHILD actually ran - which is
+    // the pin, because the pin was honoured - not a copy of the requested string
+    const record = engine.store.load(started.task_id)
+    expect(record?.model).toBe(`${PROVIDER}/child-succeeds`)
+    expect(record?.effective_model).toMatchObject({ provider: PROVIDER, model_id: "child-succeeds" })
+    expect(`${record?.effective_model?.provider}/${record?.effective_model?.model_id}`).toBe(
+      `${String(change.provider)}/${String(change.modelId)}`,
+    )
+    expect(started.effective_model).toMatchObject({ provider: PROVIDER, model_id: "child-succeeds" })
+  }, 30_000)
+
+  test("1(b) #given an unhonourable pin #when spawned #then the spawn fails typed naming the pin and the default route, and no child ever starts", async () => {
+    // given
+    const machine = await world("child-fails")
+    const engine = makeEngine(machine)
+
+    // when
+    const started = await startPin(engine, `${PROVIDER}/child-missing`)
+
+    // then: a typed refusal that names both the pin and the route the child would have ridden
+    if (started.kind === "started") throw new Error("the unhonourable pin started a child")
+    expect(started.kind).toBe("plan_unresolved")
+    if (started.kind === "plan_unresolved") {
+      expect(started.error.code).toBe("model_unavailable")
+      expect(started.error.message).toContain(`${PROVIDER}/child-missing`)
+      expect(started.error.message).toContain(`${PROVIDER}/child-fails`)
+    }
+    // and: no record, no child session, no turn
+    expect(engine.store.list().records).toEqual([])
     expect(sessions).toEqual([])
+  }, 30_000)
+
+  test("#given a pin carrying a service tier #when spawned #then it is a typed invalid_target, never a silently dropped tier", async () => {
+    // given
+    const machine = await world("child-fails")
+    const engine = makeEngine(machine)
+
+    // when
+    const started = await startPin(engine, `${PROVIDER}/child-succeeds:priority`)
+
+    // then
+    if (started.kind === "started") throw new Error("a tiered pin started a child")
+    expect(started.kind).toBe("plan_unresolved")
+    if (started.kind === "plan_unresolved") {
+      expect(started.error.code).toBe("invalid_target")
+      expect(started.error.message).toContain("priority")
+    }
+    expect(engine.store.list().records).toEqual([])
+  }, 30_000)
+
+  test("1(c) #given a pin to a model registered late on the SAME provider #then the late child runs on it, and an absent one still fails typed", async () => {
+    // given: child-late is absent while the spawn is planned
+    const machine = await world("child-fails")
+    const engine = makeEngine(machine)
+    const early = await startPin(engine, `${PROVIDER}/child-late`)
+    if (early.kind === "started") throw new Error("an absent model started a child")
+    expect(early.kind).toBe("plan_unresolved")
+
+    // when: the model arrives on the pinned provider itself, after that refusal
+    registerLateModel(machine, "child-late")
+    const started = await startPin(engine, `${PROVIDER}/child-late`)
+
+    // then: the same pin now resolves against the live registry, and the child runs on IT
+    if (started.kind !== "started") throw new Error("the late model did not start after registration")
+    await engine.manager.waitFor(started.task_id)
+    const record = engine.store.load(started.task_id)
+    expect(record?.effective_model).toMatchObject({ provider: PROVIDER, model_id: "child-late" })
+    const change = firstSessionEntry(engine, started.task_id, "model_change")
+    expect(change.modelId).toBe("child-late")
+
+    // and: a pin to a model that never arrives still fails typed - never the settings default
+    const never = await startPin(engine, `${PROVIDER}/child-never`)
+    expect(never.kind).toBe("plan_unresolved")
+    expect(engine.store.list().records.map((record) => record.task_id)).toEqual([started.task_id])
   }, 30_000)
 })
