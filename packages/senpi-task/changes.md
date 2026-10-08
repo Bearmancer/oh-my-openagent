@@ -1,3 +1,38 @@
+## 2026-10-08 - A child that will not stop no longer holds every finished child resident (#9785)
+
+The idle reclaimer (`lifecycle/residency.ts`) skips a tick while a sweep is running, and a sweep only ended when every resident's teardown had finished. Each teardown step awaited the child with no limit:
+- `abort()`: an RPC command whose answer the protocol client waits for forever.
+- `terminate()`.
+- `dispose()`.
+
+So one child that never answered `abort` stalled the sweep. Every later tick saw the sweep still running and skipped, and finished children piled up resident until the session ended. A report measured 19 such children at about 2.2 GB each. Sweeps also ran residents one after another, so even a bounded slow child delayed the rest.
+
+- `lifecycle/teardown-budget.ts` (new): `withinTeardownBudget` gives one teardown step at most `TEARDOWN_STEP_BUDGET_MS` (10 s).
+  - That is longer than an RPC child's own SIGTERM-to-SIGKILL escalation (5 s) plus its exit observation (2 s), so a terminate still making progress is never cut short.
+  - A step past its budget is logged with the task id and pid, and teardown moves on. A rejection still propagates as before.
+  - The budget is an injectable lifecycle dependency, `teardownStepDeadline`.
+- Bounded steps:
+  - `lifecycle/shutdown.ts` `suspendHandle`, the idle park path: abort, terminate and dispose.
+  - `lifecycle/destroy.ts` `teardownHandle`, the cancel, evict and TTL path.
+  - An RPC child whose abort hangs is therefore still terminated, which escalates to SIGKILL, and is parked.
+- `reclaimIdleResidents` reclaims each resident on its own, concurrently. One slow child no longer delays the others, and because every step is bounded, the sweep always settles and the next tick runs. Errored children were already terminal here; they are now actually reached.
+- `task_cancel` on a finished child that is still resident here now stops its child and parks the record, and reports `released`.
+  - The record is parked (`persisted_only` / `rpc_detached`), so the result stays readable and `task_send` still revives it.
+  - Before, the call answered "is error, not running. No change." and nothing released the child short of a session restart.
+  - A second cancel is a no-op. A child resident in another process is left alone.
+  - Mechanism: `lifecycle/park-terminal-resident.ts`, `TaskLifecycle.parkTerminalResident`, and the optional `DestructionPort.parkTerminalResident`. The new `released` cancel outcome is handled in `tools/control`, the renderers and `eval-handles/steer-refs.ts`.
+  - Team deletion still ends a released member for good (`team/runtime.ts`).
+
+Tests:
+- `lifecycle/idle-sweep-stuck-child.test.ts`:
+  - A stuck RPC resident ahead of a healthy one no longer delays it. Fails on `dev`.
+  - A stuck child is terminated and parked once its budgets expire, and the sweep settles. Fails on `dev`.
+  - An errored in-process resident is parked.
+
+  The budgets are driven by the test, so nothing waits on a wall clock.
+- `steering/cancel-terminal-resident.test.ts`: cancel releases an errored resident, a repeat is a no-op, and a foreign resident is untouched. The first two fail without the change.
+- `idle-park.test.ts`: now asserts each child's own step order instead of a global one, since residents are no longer serialized.
+
 ## 2026-10-05 - A process-runner child gets its own fallback chain (#9582)
 
 `runners/rpc-process.ts`: a task child started as its own `senpi --mode rpc` process (`task.process_runner: "child-process"`, and every child on win32) now receives the fallback chain resolved for its category. When the engine advertises `retry_fallback_command`, the runner sends `set_retry_fallback` with the same profile a daemon-hosted child gets on `open_session` (`runners/retry-fallback-profile.ts`, now shared with `rpc-host/open-session.ts`). It sends it before the resumed session is switched in and before the first prompt, because senpi refuses it once the session has a turn. The engine holds it in memory only, so the user's settings file is never written, and a usage limit after a tool call now switches models inside the running session instead of ending the child.

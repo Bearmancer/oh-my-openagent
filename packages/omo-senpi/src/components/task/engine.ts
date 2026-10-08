@@ -253,6 +253,7 @@ export function composeTaskEngine(deps: ComposeTaskEngineDeps): TaskEngine {
     destruction: {
       destroyResidentTask: (taskId, cause) =>
         lifecycle.destroyResidentTask(taskId, cause),
+      parkTerminalResident: (taskId) => lifecycle.parkTerminalResident(taskId),
     },
     admit: (parentSessionId) => admitAdapter(lifecycle, parentSessionId),
     trustedRespawnLaunch: createTeamMemberRespawnLaunchResolver({
