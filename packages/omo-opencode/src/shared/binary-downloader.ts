@@ -96,6 +96,10 @@ function parseTarEntry(line: string): ArchiveEntry | null {
     if (separatorIndex === -1) {
       return { path: rawEntryPath, type: rawType === "l" ? "symlink" : "hardlink" }
     }
+    // A path or target that contains the separator makes the split ambiguous, so the line stays unparsed.
+    if (rawEntryPath.indexOf(separator) !== separatorIndex) {
+      return null
+    }
 
     return {
       path: rawEntryPath.slice(0, separatorIndex),

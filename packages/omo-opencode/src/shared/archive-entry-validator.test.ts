@@ -325,6 +325,11 @@ describe.skipIf(process.platform === "win32")("tar listing layouts", () => {
 			{ TAR_OPTIONS: "--block-number" },
 		],
 		[
+			"refuses to extract when a link line contains its separator more than once",
+			"lrwxr-xr-x user/group     0 2026-10-08 20:47 bin/link -> /etc -> safe",
+			/could not be parsed/i,
+		],
+		[
 			"refuses to extract when a listing line has an unknown layout",
 			"?rw-r--r-- an unrecognized listing layout bin/tool",
 			/could not be parsed/i,
