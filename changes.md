@@ -1,7 +1,15 @@
-## 2026-10-08 - `~/.omo/desktop*` is reserved for the OmO desktop app (#9727)
+## 2026-10-08 - OpenCode never migrates `.sisyphus` into the home `~/.omo`; `~/.omo/desktop*` is reserved for the OmO desktop app (#9727)
 
-The OmO desktop app is moving its data home (a live SQLite database and worktrees) to `~/.omo/desktop`, with a transient `~/.omo/desktop.init-*` while it prepares (code-yeongyu/omo-desktop-app#1829). The root `AGENTS.md` now reserves both names: no omo code may create, reset, archive, flatten, migrate, prune, copy or sync them, and code that walks `~/.omo` top-level entries must skip them. An audit of `dev` found no such walker today, so nothing in the code changes. Scoped operations stay as they are: the isolation sweep only removes `t<hex10>` entries under `~/.omo/wt`, team cleanup only `~/.omo/runtime/<id>`, config migration only the omo config files, and omo installs senpi with `flatLayout: false`, so the agent dir is `~/.omo/agent`. The engine's copy-forward into a flat-layout brand dir skips the reserved names in senpi (code-yeongyu/senpi#2898).
+The OmO desktop app is moving its data home (a live SQLite database and worktrees) to `~/.omo/desktop`, with a transient `~/.omo/desktop.init-*` while it prepares (code-yeongyu/omo-desktop-app#1829). The OpenCode plugin's legacy workspace migration (`packages/omo-opencode/src/shared/legacy-workspace-migration.ts`, run on every plugin load) copied missing entries of `<cwd>/.sisyphus` into `<cwd>/.omo`. When OpenCode started in the home folder, that target was the OmO home itself, so a stray `~/.sisyphus/desktop/` could drop files into the desktop app's database folder. The migration now:
+- **Refuses the home target:** it does nothing when the directory is the user's home (the same home the config loader uses for `~/.omo/omo.jsonc`). `.sisyphus` was always a per-project workspace, and the only home-level legacy entry, `~/.sisyphus/rules`, is still read in place by the rules engine.
+- **Never overwrites:** it decides whether a target exists with `lstat` and copies with `COPYFILE_EXCL`, so an existing file is never overwritten and a dangling symlink at the target is never written through.
 
+The root `AGENTS.md` now reserves `desktop/` and `desktop.init-*` in `~/.omo` for the desktop app. Other operations under `~/.omo` stay scoped as before:
+- the isolation sweep removes only `t<hex10>` entries under `~/.omo/wt`;
+- team cleanup removes only `~/.omo/runtime/<id>`;
+- config migration touches only the omo config files.
+
+The engine's copy-forward into a flat-layout brand dir skips the reserved names in senpi (code-yeongyu/senpi#2898).
 ## 2026-10-07 - Suspended children retry after their parent session resumes (#9498)
 
 A resumed session now retries its own children when revival temporarily cannot
