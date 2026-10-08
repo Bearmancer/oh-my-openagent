@@ -53,7 +53,7 @@ export async function openTaskHostSession(input: {
       cause: error,
     })
   }
-  // Post-start check (#9722): a FRESH open (attached !== true) must have opened on the pinned
+  // Post-start check (#9722): a FRESH open (attached !== true) must have opened on the requested
   // base id. The host answers get_state with its effective model; a mismatch, an unreadable
   // state, or a state carrying NO model all fail typed - a check that silently skips on error is
   // no check at all. An ATTACHED open re-joins a session that is already running its own model -
@@ -69,7 +69,7 @@ export async function openTaskHostSession(input: {
       await input.client.close?.().catch(() => undefined)
       throw new RunnerError({
         kind: "model_unavailable",
-        message: `the host's effective model could not be read after opening the pinned ${model.provider}/${model.modelId}; refusing to start unverified`,
+        message: `the host's effective model could not be read after opening the requested ${model.provider}/${model.modelId}; refusing to start unverified`,
         cause: error,
       })
     }
@@ -77,14 +77,14 @@ export async function openTaskHostSession(input: {
       await input.client.close?.().catch(() => undefined)
       throw new RunnerError({
         kind: "model_unavailable",
-        message: `the host reported no model after opening the pinned ${model.provider}/${model.modelId}; refusing to start unverified`,
+        message: `the host reported no model after opening the requested ${model.provider}/${model.modelId}; refusing to start unverified`,
       })
     }
     if (effective.provider !== model.provider || effective.id !== model.modelId) {
       await input.client.close?.().catch(() => undefined)
       throw new RunnerError({
         kind: "model_unavailable",
-        message: `the host opened the child on ${effective.provider}/${effective.id} instead of the pinned ${model.provider}/${model.modelId}; refusing the substitution`,
+        message: `the host opened the child on ${effective.provider}/${effective.id} instead of the requested ${model.provider}/${model.modelId}; refusing the substitution`,
       })
     }
     return { ...opened, reportedModel: effective }

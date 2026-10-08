@@ -26,7 +26,7 @@ describe("openTaskHostSession suffix and post-start model (#9722)", () => {
     }
 
     // when
-    await openTaskHostSession({
+    const opened = await openTaskHostSession({
       client,
       spec: { ...spec, model: "test/model:medium" },
       sessionPath: "/tmp/session.jsonl",
@@ -35,6 +35,7 @@ describe("openTaskHostSession suffix and post-start model (#9722)", () => {
     // then
     expect(openedInputs).toHaveLength(1)
     expect(openedInputs[0]).toMatchObject({ provider: "test", modelId: "model", thinkingLevel: "medium" })
+    expect(opened.reportedModel).toEqual({ provider: "test", id: "model" })
   })
 
   test("#given a fresh open whose host state reports a different model #when the session opens #then the spawn fails typed as model_unavailable and the channel is closed (#9722)", async () => {
