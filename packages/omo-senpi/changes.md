@@ -1,3 +1,10 @@
+## 2026-10-07 - A bundled visualize skill for inline HTML pages (#9700)
+
+Agents can show a self-contained HTML page inline in a thread (senpi `show_html_page`, the desktop `html_preview` / `html_render`), but nothing told them how to make the page good.
+
+- `skills/visualize/SKILL.md`: a short router. Figures come from `data-scientist` (DuckDB or Polars, every number traceable to its query, chart choice from its `references/visualization.md`) and design from `frontend`. The skill itself owns only what is particular to an inline page: no network, the host's theme tokens, fluid width, a figure that reads with scripts off, designed empty states, fallbacks for pages opened outside the app, axis labels kept out of a stretched SVG, and render-and-look in both themes at 390 px and the reply width before showing.
+- Registered as a native senpi skill: `plugin/scripts/native-skill-sources.mjs` (+ test), `skills-sync.test.ts` (expected and native names), telemetry `BUILTIN_SKILL_NAMES`, and the skills AGENTS.md tables.
+
 ## 2026-10-07 - Lost background revival notifies the parent after session start (#9498)
 
 `components/task/completion-bridge.ts` observes the nonterminal-to-`lost` edge
