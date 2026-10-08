@@ -69,7 +69,7 @@ describe("RpcProcessRunner model admission", () => {
     await expect(result).resolves.toMatchObject({ code: 0, timedOut: false })
     expect(spawnOptions).toMatchObject({
       shell: false,
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["ignore", expect.any(Number), "pipe"],
       windowsHide: true,
       detached: process.platform !== "win32",
     })
