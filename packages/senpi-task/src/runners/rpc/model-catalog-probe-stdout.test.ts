@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test"
 import { spawn, type ChildProcess } from "node:child_process"
-import { mkdtempSync, rmSync } from "node:fs"
+import { existsSync, fstatSync, mkdtempSync, readdirSync, rmSync, statSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -53,6 +53,35 @@ describe("model catalog probe output capture (#9068)", () => {
       } finally {
         rmSync(dir, { recursive: true, force: true })
       }
+    })
+  })
+
+  describe("#given the capture file disappears before the probe reads it", () => {
+    it("#when the child exits #then the probe still resolves and names the read failure in stderr", async () => {
+      // given
+      // Removes only this probe's own capture: the stdout fd is still open here, so its inode names exactly one file.
+      const spawnRemovingCapture = (command: string, args: readonly string[], options: ModelCatalogSpawnOptions): ChildProcess => {
+        const captureInode = fstatSync(options.stdio[1]).ino
+        const child = spawn(command, [...args], options)
+        child.once("exit", () => {
+          for (const entry of readdirSync(tmpdir())) {
+            const candidate = join(tmpdir(), entry, "stdout")
+            if (entry.startsWith("omo-model-catalog-") && existsSync(candidate) && statSync(candidate).ino === captureInode) rmSync(candidate)
+          }
+        })
+        return child
+      }
+
+      // when
+      const result = await probeModelCatalog(
+        { command: process.execPath, args: ["-e", "process.stdout.write('provider  model\\n')"], cwd: process.cwd(), env: { ...process.env } },
+        { spawnProcess: spawnRemovingCapture, timeoutMs: 60_000 },
+      )
+
+      // then
+      expect(result.code).toBe(0)
+      expect(result.stdout).toBe("")
+      expect(result.stderr).toContain("could not read the model catalog capture")
     })
   })
 })

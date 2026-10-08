@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process"
-import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from "node:fs"
+import { closeSync, fstatSync, mkdtempSync, openSync, readSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -45,8 +45,20 @@ function appendBounded(current: string, chunk: Buffer): string {
 }
 
 function readCapturedStdout(path: string): string {
-  const text = readFileSync(path, "utf8")
-  return text.length <= MAX_OUTPUT_BYTES ? text : text.slice(text.length - MAX_OUTPUT_BYTES)
+  const fd = openSync(path, "r")
+  try {
+    const size = fstatSync(fd).size
+    const length = Math.min(size, MAX_OUTPUT_BYTES)
+    const tail = Buffer.alloc(length)
+    const read = readSync(fd, tail, 0, length, size - length)
+    return tail.subarray(0, read).toString("utf8")
+  } finally {
+    closeSync(fd)
+  }
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 export function parseModelCatalog(output: string): ReadonlySet<string> {
@@ -83,23 +95,34 @@ export function probeModelCatalog(
     const terminateChild = options.terminateChild ?? terminateRpcChild
     const captureDir = mkdtempSync(join(tmpdir(), "omo-model-catalog-"))
     const capturePath = join(captureDir, "stdout")
-    const discardCapture = (): void => rmSync(captureDir, { recursive: true, force: true })
+    // Removal can fail while a child that outlived a failed terminate still holds the file (Windows);
+    // the probe result must not depend on it, so a failure is reported in stderr instead of thrown.
+    const discardCapture = (): string | undefined => {
+      try {
+        rmSync(captureDir, { recursive: true, force: true })
+        return undefined
+      } catch (error) {
+        return `could not remove the model catalog capture ${captureDir}: ${describeError(error)}`
+      }
+    }
     let child: ChildProcess
-    const stdoutFd = openSync(capturePath, "w")
     try {
-      child = spawnProcess(descriptor.command, descriptor.args, {
-        cwd: descriptor.cwd,
-        env: descriptor.env,
-        stdio: ["ignore", stdoutFd, "pipe"],
-        shell: false,
-        windowsHide: true,
-        detached: process.platform !== "win32",
-      })
+      const stdoutFd = openSync(capturePath, "w")
+      try {
+        child = spawnProcess(descriptor.command, descriptor.args, {
+          cwd: descriptor.cwd,
+          env: descriptor.env,
+          stdio: ["ignore", stdoutFd, "pipe"],
+          shell: false,
+          windowsHide: true,
+          detached: process.platform !== "win32",
+        })
+      } finally {
+        closeSync(stdoutFd)
+      }
     } catch (error) {
       discardCapture()
       throw error
-    } finally {
-      closeSync(stdoutFd)
     }
     if (child.stderr === null) {
       discardCapture()
@@ -110,17 +133,21 @@ export function probeModelCatalog(
     let timingOut = false
     let timeout: ReturnType<typeof setTimeout> | undefined
 
+    // Never throws: a read or cleanup failure is appended to stderr, so admission always gets a result.
     const finish = (result: Omit<ModelCatalogProbeResult, "stdout">): void => {
       if (settled) return
       settled = true
       if (timeout !== undefined) clearTimeout(timeout)
-      let stdout: string
+      const notes: string[] = []
+      let stdout = ""
       try {
         stdout = readCapturedStdout(capturePath)
-      } finally {
-        discardCapture()
+      } catch (error) {
+        notes.push(`could not read the model catalog capture: ${describeError(error)}`)
       }
-      resolve({ ...result, stdout })
+      const cleanupNote = discardCapture()
+      if (cleanupNote !== undefined) notes.push(cleanupNote)
+      resolve({ ...result, stdout, stderr: [result.stderr, ...notes].filter((part) => part.length > 0).join("\n") })
     }
     child.stderr.on("data", (chunk: Buffer) => {
       stderr = appendBounded(stderr, chunk)
@@ -140,9 +167,7 @@ export function probeModelCatalog(
         () => finish({ code: null, stderr, timedOut: true }),
         (error: unknown) => finish({
           code: null,
-          stderr: `${stderr}\nfailed to terminate model catalog probe: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
+          stderr: `${stderr}\nfailed to terminate model catalog probe: ${describeError(error)}`,
           timedOut: true,
         }),
       )
