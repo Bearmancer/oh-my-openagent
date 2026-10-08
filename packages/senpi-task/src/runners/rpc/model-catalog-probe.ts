@@ -1,4 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process"
+import { closeSync, mkdtempSync, openSync, readFileSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 
 import type { RpcSpawnDescriptor } from "./spawn"
 import { terminateRpcChild } from "./terminate"
@@ -19,7 +22,8 @@ export type ModelCatalogProbeResult = {
 export type ModelCatalogSpawnOptions = {
   readonly cwd: string
   readonly env: NodeJS.ProcessEnv
-  readonly stdio: ["ignore", "pipe", "pipe"]
+  /** stdout is a file descriptor, never a pipe: see `probeModelCatalog`. */
+  readonly stdio: ["ignore", number, "pipe"]
   readonly shell: false
   readonly windowsHide: true
   readonly detached: boolean
@@ -40,6 +44,11 @@ function appendBounded(current: string, chunk: Buffer): string {
   return next.length <= MAX_OUTPUT_BYTES ? next : next.slice(next.length - MAX_OUTPUT_BYTES)
 }
 
+function readCapturedStdout(path: string): string {
+  const text = readFileSync(path, "utf8")
+  return text.length <= MAX_OUTPUT_BYTES ? text : text.slice(text.length - MAX_OUTPUT_BYTES)
+}
+
 export function parseModelCatalog(output: string): ReadonlySet<string> {
   const models = new Set<string>()
   for (const rawLine of output.replace(ANSI_ESCAPE, "").split(/\r?\n/)) {
@@ -56,6 +65,13 @@ export function parseModelCatalog(output: string): ReadonlySet<string> {
   return models
 }
 
+/**
+ * The catalog goes to a file, not a pipe. `senpi --list-models` writes its rows and calls
+ * `process.exit(0)` at once; on a pipe the parent has not drained yet (a loaded host), every row past
+ * the pipe buffer is dropped and the child still exits 0. The provider-sorted tail - `xai` - vanished
+ * that way and admission rejected it as `model_not_in_child_profile` (#9068). A file write never
+ * waits on the reader, so the listing is whole however slowly this process gets scheduled.
+ */
 export function probeModelCatalog(
   descriptor: RpcSpawnDescriptor,
   options: ModelCatalogProbeOptions = {},
@@ -65,51 +81,65 @@ export function probeModelCatalog(
       spawn(command, [...args], spawnOptions)
     ))
     const terminateChild = options.terminateChild ?? terminateRpcChild
-    const child = spawnProcess(descriptor.command, descriptor.args, {
-      cwd: descriptor.cwd,
-      env: descriptor.env,
-      stdio: ["ignore", "pipe", "pipe"],
-      shell: false,
-      windowsHide: true,
-      detached: process.platform !== "win32",
-    })
-    if (child.stdout === null || child.stderr === null) {
-      throw new Error("model catalog probe requires piped stdout and stderr")
+    const captureDir = mkdtempSync(join(tmpdir(), "omo-model-catalog-"))
+    const capturePath = join(captureDir, "stdout")
+    const discardCapture = (): void => rmSync(captureDir, { recursive: true, force: true })
+    let child: ChildProcess
+    const stdoutFd = openSync(capturePath, "w")
+    try {
+      child = spawnProcess(descriptor.command, descriptor.args, {
+        cwd: descriptor.cwd,
+        env: descriptor.env,
+        stdio: ["ignore", stdoutFd, "pipe"],
+        shell: false,
+        windowsHide: true,
+        detached: process.platform !== "win32",
+      })
+    } catch (error) {
+      discardCapture()
+      throw error
+    } finally {
+      closeSync(stdoutFd)
     }
-    let stdout = ""
+    if (child.stderr === null) {
+      discardCapture()
+      throw new Error("model catalog probe requires piped stderr")
+    }
     let stderr = ""
     let settled = false
     let timingOut = false
     let timeout: ReturnType<typeof setTimeout> | undefined
 
-    const finish = (result: ModelCatalogProbeResult): void => {
+    const finish = (result: Omit<ModelCatalogProbeResult, "stdout">): void => {
       if (settled) return
       settled = true
       if (timeout !== undefined) clearTimeout(timeout)
-      resolve(result)
+      let stdout: string
+      try {
+        stdout = readCapturedStdout(capturePath)
+      } finally {
+        discardCapture()
+      }
+      resolve({ ...result, stdout })
     }
-    child.stdout.on("data", (chunk: Buffer) => {
-      stdout = appendBounded(stdout, chunk)
-    })
     child.stderr.on("data", (chunk: Buffer) => {
       stderr = appendBounded(stderr, chunk)
     })
     child.once("error", (error) => {
       if (timingOut) return
-      finish({ code: null, stdout, stderr: `${stderr}\n${error.message}`, timedOut: false })
+      finish({ code: null, stderr: `${stderr}\n${error.message}`, timedOut: false })
     })
     child.once("close", (code) => {
       if (timingOut) return
-      finish({ code, stdout, stderr, timedOut: false })
+      finish({ code, stderr, timedOut: false })
     })
     timeout = setTimeout(() => {
       if (settled || timingOut) return
       timingOut = true
       void terminateChild(child).then(
-        () => finish({ code: null, stdout, stderr, timedOut: true }),
+        () => finish({ code: null, stderr, timedOut: true }),
         (error: unknown) => finish({
           code: null,
-          stdout,
           stderr: `${stderr}\nfailed to terminate model catalog probe: ${
             error instanceof Error ? error.message : String(error)
           }`,
