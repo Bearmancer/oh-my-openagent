@@ -10,6 +10,9 @@ Typed asks keep arming: the keyword at the end of a Korean sentence, `mass ulw r
 Live: `scripts/qa/skill-pointers-e2e.mjs` gains a relayed-report, a quoted-mention and a Korean sentence-ending scenario. It now judges only the session transcript, because the engine's runtime snapshot under the agent dir ships docs containing `<ultrawork-mode>`, which made every whole-dir check pass or fail regardless of the session.
 
 Tests: `ultrawork-arming.test.ts` (relayed and quoted inputs do not arm; four typed forms still arm) and `skill-pointers-suppression.test.ts` (relayed and quoted mentions inject no pointer). Both fail on `dev`, and removing any one of the three masks fails them again.
+## 2026-10-06 - The slash picker lists each bundled skill once (#9648)
+
+`components/skill-commands/autocomplete.ts`: the top-level `/` list showed every bundled skill twice, as its bare alias (#9042) and its `skill:<name>` row. The alias now takes the `skill:<name>` row's place, so each skill is one row and senpi's ranking of everything else is unchanged; an alias whose skill row is not on the page is still offered at the end. A bare `/` is left as senpi lists it (senpi lists no `skill:` rows there). Typing `/skill:` still lists every skill under its `skill:` name. A skill whose bare name a same-named template or command shadows keeps its `skill:<name>` row, the only way left to reach it. Submitting either form is unchanged: the bare form is still rewritten to the `/skill:` form and recorded as a human invocation.
 ## 2026-10-05 - Live fallback QA covers process children and a turn near compaction (#9582)
 
 `scripts/qa/task-runtime-fallback-e2e.mjs`:
