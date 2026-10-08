@@ -109,7 +109,7 @@ describe("validateArchiveEntries", () => {
 // entries); these 3 tests are end-to-end integration tests that verify the
 // same logic on actual archive bytes. macOS and Linux runners have Python
 // installed and still run the full block.
-describe.skipIf(process.platform === "win32", "archive extraction preflight", () => {
+describe.skipIf(process.platform === "win32")("archive extraction preflight", () => {
 	it("rejects tar archives with traversal entries before extraction", async () => {
 		//#given
 		const rootDir = createTestDir()
