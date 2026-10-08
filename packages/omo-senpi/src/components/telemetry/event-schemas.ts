@@ -33,7 +33,7 @@ export const BUILTIN_SKILL_NAMES = Object.freeze([
   "give-me-tips", "hyperplan", "init-deep", "lsp-setup", "mass-ulw", "onboarding", "programming", "refactor",
   "remove-ai-slops",
   "review-work", "ulw-execute", "ultimate-browsing", "ultrawork", "ulw-loop", "ulw-plan", "ulw-research",
-  "visual-qa",
+  "visual-qa", "visualize",
 ] as const)
 export const COMPUTER_USE_ACTIVATION_SOURCES = Object.freeze([
   "tool_call", "command_on", "command_off", "other",
