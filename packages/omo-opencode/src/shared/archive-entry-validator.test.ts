@@ -266,17 +266,57 @@ describe.skipIf(process.platform === "win32", "archive extraction preflight", ()
 	})
 })
 
-// bsdtar prints the month in the system locale: Windows keeps it before the day ("сен 30"), and macOS
-// orders it by locale ("30 сент." under ru_RU, "30 Sep." under de_DE). The extraction runs in a child
-// process whose PATH starts with a stand-in `tar` printing such a listing (a spawned child only sees the
-// environment it is given), so the entry parser sees the bytes a non-English system emits. The archive
-// bytes are not a tar, so a run that reached the real tar would fail its listing instead of passing.
+// `tar -tvzf` output depends on the tar and the locale. bsdtar prints the month in the system locale:
+// Windows keeps it before the day ("сен 30"), macOS orders it by locale ("30 сент." under ru_RU), and some
+// month names are two words ("10-р сар" under mn_MN, "تشرين الأول" under ar_JO). GNU tar prints
+// "owner/group size YYYY-MM-DD HH:MM" with no link count. The extraction runs in a child
+// process whose PATH starts with a stand-in `tar` printing one such line (a spawned child only sees the
+// environment it is given), so the entry parser sees the bytes those systems emit. The archive bytes are
+// not a tar, so a run that reached the real tar would fail its listing instead of passing.
 // POSIX-only: the stand-in is a shell script.
-describe.skipIf(process.platform === "win32")("localized tar listings", () => {
+describe.skipIf(process.platform === "win32")("tar listing layouts", () => {
 	it.each([
-		["month first (Windows)", "lrwxr-xr-x  0 0      0           0 сен 30 12:00 bin/tool -> ../../escape"],
-		["day first (macOS, ru_RU)", "lrwxr-xr-x  0 0      0           0 30 сент. 12:00 bin/tool -> ../../escape"],
-	])("rejects an escaping symlink when the listing puts a localized %s", (_order, listingLine) => {
+		[
+			"rejects an escaping symlink listed with a localized month first (Windows bsdtar)",
+			"lrwxr-xr-x  0 0      0           0 сен 30 12:00 bin/tool -> ../../escape",
+			/symlink target/i,
+		],
+		[
+			"rejects an escaping symlink listed with a localized day first (macOS bsdtar, ru_RU)",
+			"lrwxr-xr-x  0 0      0           0 30 сент. 12:00 bin/tool -> ../../escape",
+			/symlink target/i,
+		],
+		[
+			"rejects an escaping symlink listed with a two-word month first (macOS bsdtar, mn_MN)",
+			"lrwxr-xr-x  0 0      0           0 10-р сар  8 21:00 bin/tool -> ../../escape",
+			/symlink target/i,
+		],
+		[
+			"extracts a contained symlink listed with a two-word month after the day (macOS bsdtar, ar_JO)",
+			"lrwxr-xr-x  0 0      0           0  8 تشرين الأول 21:00 bin/link -> tool",
+			/^resolved$/m,
+		],
+		[
+			"rejects an escaping symlink listed in GNU tar's layout",
+			"lrwxr-xr-x user/group     0 2026-10-08 20:47 bin/link -> ../../escape",
+			/symlink target/i,
+		],
+		[
+			"rejects an escaping hard link listed in GNU tar's layout",
+			"hrw-r--r-- 0/0               0 2026-10-08 20:47 bin/hard link to ../../outside.txt",
+			/hard link target/i,
+		],
+		[
+			"extracts a contained hard link listed in GNU tar's layout",
+			"hrw-r--r-- 0/0               0 2026-10-08 20:47 bin/hard link to bin/tool",
+			/^resolved$/m,
+		],
+		[
+			"refuses to extract when a listing line has an unknown layout",
+			"?rw-r--r-- an unrecognized listing layout bin/tool",
+			/could not be parsed/i,
+		],
+	])("%s", (_name, listingLine, expected) => {
 		//#given
 		const rootDir = createTestDir()
 		const archivePath = join(rootDir, "localized-listing.tar.gz")
@@ -314,6 +354,6 @@ describe.skipIf(process.platform === "win32")("localized tar listings", () => {
 		})
 
 		//#then
-		expect(result.stdout.toString()).toMatch(/symlink target/i)
+		expect(result.stdout.toString()).toMatch(expected)
 	})
 })
