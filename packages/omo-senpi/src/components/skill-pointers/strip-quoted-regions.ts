@@ -5,6 +5,16 @@ const INLINE_CODE = /(?<!`)(`+)(?!`)[\s\S]*?(?<!`)\1(?!`)/g
 const RELAY_HEADER = /^\s*(?:\[(?:[A-Z][A-Z0-9_-]{2,}|[\w.-]+ -> [\w.-]+)\]|[A-Z][\w.-]{0,30} \([^()\s]{1,40}\)(?:, | to )[\w.-]{1,40}:)/
 const BLOCK_QUOTE_LINE = /^ {0,3}>[^\n]*/gm
 const DOUBLE_QUOTED = /"[^"\n]*"|\u201C[^\u201D\n]*\u201D/g
+const URL_SPAN = /\b[a-z][a-z0-9+.-]*:\/\/[^\s<>"'`]+/gi
+// A skill named only to forbid it ("Do not load mass-ulw or ulw-research") is not a request: the
+// negated verb's objects are masked up to the next sentence or clause break. A comma does not end
+// the clause, so a comma-separated list of prohibitions stays masked.
+const NEGATED_INVOCATION = /\b(?:do not|don['\u2019]t|dont|never)\s+(?:load|use|run|invoke|start|trigger|arm|enable)\b[^.;:!?\n]*/gi
+
+// A keyword glued to a preceding identifier segment (`mass-ulw`, `senpi-ulw-loop`, `.omo/ulw/`)
+// names something else; so does one that opens a path (`ulw-execute/ledger.jsonl`).
+export const NOT_AFTER_IDENTIFIER = String.raw`(?<![A-Za-z0-9][-_]|[/.\\])`
+export const NOT_BEFORE_PATH = String.raw`(?![-_.]?[A-Za-z0-9]*[/\\])`
 
 // Preserve offsets for the ultrawork /skill: argument check. Non-whitespace masking also prevents
 // a skill name from being fabricated across removed text, such as "ulw `not a request` loop".
@@ -12,7 +22,7 @@ function mask(region: string): string {
   return region.replace(/[^\r\n]/g, "\0")
 }
 
-export function stripQuotedRegions(text: string): string {
+export function stripQuotedSpans(text: string): string {
   if (RELAY_HEADER.test(text)) return mask(text)
   let visible = text.replace(INJECTED_BLOCK, mask)
   const fenceStart = /^ {0,3}(`{3,}|~{3,})[^\n]*(?:\n|$)/gm
@@ -27,5 +37,13 @@ export function stripQuotedRegions(text: string): string {
     visible = visible.slice(0, opening.index) + mask(visible.slice(opening.index, end)) + visible.slice(end)
     fenceStart.lastIndex = end
   }
-  return visible.replace(INLINE_CODE, mask).replace(BLOCK_QUOTE_LINE, mask).replace(DOUBLE_QUOTED, mask)
+  return visible.replace(INLINE_CODE, mask).replace(BLOCK_QUOTE_LINE, mask).replace(DOUBLE_QUOTED, mask).replace(URL_SPAN, mask)
+}
+
+export function maskNegatedInvocations(text: string): string {
+  return text.replace(NEGATED_INVOCATION, mask)
+}
+
+export function stripQuotedRegions(text: string): string {
+  return maskNegatedInvocations(stripQuotedSpans(text))
 }

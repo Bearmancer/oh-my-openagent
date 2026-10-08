@@ -39,7 +39,7 @@ describe("omo-senpi ultrawork once-per-session arming", () => {
     }
     // The same shared host can next serve a root session. Its explicit request still arms.
     Object.defineProperty(pi, "sessionContext", { value: {}, configurable: true })
-    const result = await dispatchInput(pi, "Implement the assigned unit; evidence goes in .omo/ulw-execute/ledger.jsonl", "rpc", undefined, sessionEventCtx("root-session"))
+    const result = await dispatchInput(pi, "ulw: implement the assigned unit", "rpc", undefined, sessionEventCtx("root-session"))
     expectHiddenInjection(pi, result)
     expect(arming.isArmed("root-session")).toBe(true)
   })
