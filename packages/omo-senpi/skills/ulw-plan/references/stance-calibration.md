@@ -11,9 +11,9 @@ Read this alongside your intent reference, before the first user-facing question
 
 ## Renderers
 
-Three delivery modes over the SAME surviving forks (the two filters and owner-decision rules are unchanged upstream):
+Three delivery modes over the SAME surviving forks (the two filters and owner-decision rules are unchanged upstream). Every question this skill puts to the user - each renderer, the approval gate, the final authorization block - goes through the question tool (`ask_user_question` or `request_user_input`, whichever this session lists) with `waitForAnswer: true`, so it raises a prompt and a notification a user away from the screen still sees; one call carries up to 4 questions of 2-4 options. When no question tool is listed (print or JSON mode, ask-user disabled, a subagent), put the questions in chat text and say in one line that the prompt is unavailable.
 
-- **batch** - all surviving forks in one brief, recommended default first; a skipped fork resolves to its default. Fits users who enumerate upfront and delegate the rest.
+- **batch** - all surviving forks in one call (more calls past four), recommended default first; a skipped fork resolves to its default. Fits users who enumerate upfront and delegate the rest.
 - **one-by-one** - one fork per turn. Fits users who own decisions individually.
 - **examples-first** - no open questions: present 2-3 contrasting concrete approaches and ask which is closest and what is wrong. Fits users who cannot yet externalize what they want - critique is cheaper than generation. Never ask such a user to produce criteria from a blank page.
 

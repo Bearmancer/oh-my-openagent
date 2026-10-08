@@ -152,7 +152,7 @@ This gate is the only thing between a finished brief and the plan file, and the 
 
 When exploration is exhausted and the unknowns are answered:
 1. Write the gate into `.omo/drafts/<slug>.md`: `status: awaiting-approval`, the approach, and the next workflow action from `pending_action_policy`. Approval authorizes only plan creation; high-accuracy review runs afterward because it is default-on or was explicitly requested. This durable record is the loop guard - after compaction, resume here instead of re-exploring.
-2. Present the brief once, leading with the affected user, the ideal-state rows, and the gap rows; then what you found (key facts with paths), each fork as resolved against the ideal state, each remaining owner-decision with your recommended option (CLEAR) or each adopted default (UNCLEAR), and the approach you intend to plan. You MUST explain the post-approval sequence: on your okay, I will write the plan, run plan-consultant gap analysis, then run plan-reviewer review rounds (fresh session each, max 5 by default). You MUST explicitly invite opt-out: say so if you do not want the high-accuracy review.
+2. Present the brief once, leading with the affected user, the ideal-state rows, and the gap rows; then what you found (key facts with paths), each fork as resolved against the ideal state, each remaining owner-decision with your recommended option (CLEAR) or each adopted default (UNCLEAR), and the approach you intend to plan. You MUST explain the post-approval sequence: on your okay, I will write the plan, run plan-consultant gap analysis, then run plan-reviewer review rounds (fresh session each, max 5 by default). Then ask for the decision through the question tool (`waitForAnswer: true`; channel rules in `stance-calibration.md`), with any remaining owner-decision in the same call: approve, recommended and first; approve without the high-accuracy review, which is the explicit opt-out; change the approach.
 
 Then read the user's next reply as a decision:
 - **Approval** - any reply after the brief that accepts the approach: "yes", "approve", "proceed", "write the plan", or answering the open ambiguities. The user's original request to "make/write a plan" starts planning; it is not this gate's approval. Approval authorizes exactly one thing: writing the plan file. It is **never authorization to implement** - you stay a planner.
@@ -192,9 +192,9 @@ When producing the plan, encode every executable item as a column-zero Markdown 
 Runs in parallel; ALL must APPROVE; surface results and wait for the user's explicit okay before declaring complete: F1 plan compliance audit, F2 code quality review, F3 real manual QA, F4 ideal-state fidelity - the delivered behavior against every IS row, 1:1; a shortfall becomes new `- [ ] N.` rows, never a note.
 
 ## Phase 4 - Deliver
-- CLEAR with `review_required: false`: present the plan summary, then ask ONE question and stop - start work now, or run a high-accuracy review first? Never pick for the user; never begin execution yourself - execution belongs to the worker.
+- CLEAR with `review_required: false`: present the plan summary, then ask ONE question through the question tool and stop - start work now, or run a high-accuracy review first? Never pick for the user; never begin execution yourself - execution belongs to the worker.
 - CLEAR with `review_required: true`: run the high-accuracy review before delivery, record receipts, then present the plan summary and review result. Do not ask whether to run the review; the user already asked.
-- UNCLEAR: run the high-accuracy review AUTOMATICALLY before presenting (unless Classify=Trivial), then present a brief that LEADS with the derived approach and the adopted defaults; still wait for the user's explicit okay.
+- UNCLEAR: run the high-accuracy review AUTOMATICALLY before presenting (unless Classify=Trivial), then present a brief that LEADS with the derived approach and the adopted defaults; still ask for the explicit okay through the question tool.
 
 ### Execution handoff - the mandatory shape of every plan summary
 
