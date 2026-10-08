@@ -1,4 +1,6 @@
 import { isGpt6AstraModel } from "@oh-my-opencode/model-core"
+import { readSessionRole, type SessionRole } from "@oh-my-opencode/senpi-task"
+
 import { transformContextText } from "../../extension/context-text-transform"
 import type { ComponentContext, OmoSenpiComponent, SenpiExtensionAPI } from "../../extension/types"
 import { stripQuotedRegions } from "../skill-pointers/strip-quoted-regions"
@@ -39,6 +41,7 @@ export type UltraworkRoute = "none" | "direct" | "skill_args" | "skill_expansion
 export type UltraworkSuppressionReason =
   | "none"
   | "extension_source"
+  | "child_session"
   | "no_keyword"
   | "skill_name_only"
   | "skill_expansion"
@@ -184,7 +187,7 @@ export function armingSnapshot(sessionId: string | undefined): ArmingSnapshot {
 }
 
 export function classifyUltraworkInput(
-  input: { readonly text: string; readonly source: SenpiInputEvent["source"] },
+  input: { readonly text: string; readonly source: SenpiInputEvent["source"]; readonly sessionRole?: SessionRole },
   snapshot: ArmingSnapshot,
 ): UltraworkClassification {
   const visibleText = stripQuotedRegions(input.text)
@@ -203,6 +206,10 @@ export function classifyUltraworkInput(
     matchedUlw,
     matchedUltrawork,
     occurrenceCount: matches.length,
+  }
+
+  if (input.sessionRole !== undefined) {
+    return { ...base, effective: false, stage: "none", route: "none", suppressionReason: "child_session" }
   }
 
   if (input.source === "extension") {
@@ -336,7 +343,10 @@ function handleInput(
   // hosts that only expose the id on session events.
   const sessionId = sessionIdFromEventCtx(eventCtx) ?? arming.currentSessionId()
   const directive = directiveForModel(modelIdFromContext(eventCtx))
-  const classification = classifyUltraworkInput(payload, snapshotSessionArming(arming, sessionId))
+  const classification = classifyUltraworkInput(
+    { ...payload, sessionRole: readSessionRole(pi) },
+    snapshotSessionArming(arming, sessionId),
+  )
 
   // A pasted transcript (or an earlier injection) already carries the directive
   // block; injecting again would duplicate the same ~17KB of rules in one turn.

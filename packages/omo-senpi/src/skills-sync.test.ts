@@ -334,3 +334,12 @@ describe("OMO Senpi scoped skill sync", () => {
     expect(existsSync(refsDir), "frontend/references/design must exist after materialization").toBe(true)
   })
 })
+
+
+test("#given the Native execution skill #when shipped #then the absolute rule scopes the root and dispatch step assigns an executor", () => {
+  const skill = readFileSync(join(skillsRoot, "ulw-execute", "SKILL.md"), "utf8")
+  expect(skill).toContain("## ABSOLUTE RULE (root session): YOU ARE AN ORCHESTRATOR — NEVER THE IMPLEMENTER")
+  expect(skill).toContain("NO EXCEPTIONS for the root session that owns the Boulder work; a dispatched executor does its assigned unit itself and does not delegate it again.")
+  expect(skill).toContain("7. Give every dispatched sub-task its completion condition and its role: the brief names the unit, allowed files, acceptance evidence, and states that the worker is its executor, does it itself, and does not delegate it.")
+  expect(skill).not.toContain("## ABSOLUTE RULE:")
+})
