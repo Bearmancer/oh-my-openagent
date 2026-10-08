@@ -1,3 +1,13 @@
+## 2026-10-08 - ulw-plan and mass-ulw ask through the question prompt (#9735)
+
+`ulw-plan` delivered its approval gate as chat text and ended the turn, so a user away from the screen never saw it. The renderers in `references/stance-calibration.md` and the gate in `references/full-workflow.md` said to "present" or "deliver" questions without naming a channel.
+
+- `stance-calibration.md`: every question the skill puts to the user goes through the question tool (`ask_user_question` or `request_user_input`, whichever the session lists) with its wait flag set to true. When no question tool is listed or a call returns unavailable, the questions go in chat with one line saying so. A timed-out, dismissed or unavailable answer is not approval: a fork takes its default, but the approval gate and the final authorization block stay open and the turn ends. `SKILL.md` carries the gate rule itself, and adds "even when the tool result says to continue on your best judgment", because senpi's timeout result says exactly that and a model otherwise follows it. That clause is a stopgap until senpi #2949 adds a per-call "no answer means don't" flag.
+- `full-workflow.md`: the gate asks one question, recommended first: Approve; Approve, skip review (only when the review is default-on); Change approach. The review-cap stop asks through the tool too. `SKILL.md`'s gate summary points at the same rule; `intent-clear.md`'s renderer recap now defers to stance-calibration.
+- `mass-ulw/SKILL.md`: a decision only the user can make is asked from the main session through the tool before the run that depends on it, never from an eval cell or a node prompt.
+
+No test: prose with no machine consumer. Proof is a live real-model `/skill:ulw-plan` run in an isolated senpi sandbox (see the PR).
+
 ## 2026-10-08 - A skill name inside an identifier, a path, a URL or a prohibition no longer arms (#9738, #9740)
 
 `ultrawork` and `skill-pointers` treat a skill name as a request only when it stands as a word of its own:

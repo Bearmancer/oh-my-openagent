@@ -2,6 +2,10 @@
 
 `docs/guide/install.md` gains an "Arch Linux: community AUR package" section for `omo-bin`, a package maintained by @sTiKyt outside the OmO team. The section says what it installs (our official release binary for its version, checked against that release's `SHA256SUMS`, as `/usr/bin/omo`), and to update it with the AUR helper, because `omo update` and the install command don't recognize a pacman install yet (#9585). It also says the package can trail the `latest` channel.
 
+## 2026-10-08 - The process-model catalog probe reads the whole catalog under load (#9068)
+
+`senpi --list-models` prints its catalog and calls `process.exit(0)` right away. When the host was too loaded to drain the probe's stdout pipe, every row past the pipe buffer was dropped while the child still exited 0, and because the catalog is sorted by provider the tail (`xai`) went first. Admission then rejected `xai/grok-4.7` as `model_not_in_child_profile`, and the confirming re-probe ran under the same load, so it confirmed the false absence. `probeModelCatalog` (`packages/senpi-task/src/runners/rpc/model-catalog-probe.ts`) now gives the child a temp file as stdout instead of a pipe, reads the last 2 MiB of it once the probe settles (the child closed, or the timeout path terminated it) and removes it; stderr stays piped. A read or cleanup failure is reported in the probe's stderr instead of thrown, so admission always gets a result. A file write never waits on the reader, so the catalog is whole however slowly the host is scheduled.
+
 ## 2026-10-08 - OpenCode never migrates `.sisyphus` into the home `~/.omo`; `~/.omo/desktop*` is reserved for the OmO desktop app (#9727)
 
 The OmO desktop app is moving its data home (a live SQLite database and worktrees) to `~/.omo/desktop`, with a transient `~/.omo/desktop.init-*` while it prepares (code-yeongyu/omo-desktop-app#1829). The OpenCode plugin's legacy workspace migration (`packages/omo-opencode/src/shared/legacy-workspace-migration.ts`, run on every plugin load) copied missing entries of `<cwd>/.sisyphus` into `<cwd>/.omo`. When OpenCode started in the home folder, that target was the OmO home itself, so a stray `~/.sisyphus/desktop/` could drop files into the desktop app's database folder. The migration now:
@@ -14,6 +18,10 @@ The root `AGENTS.md` now reserves `desktop/` and `desktop.init-*` in `~/.omo` fo
 - config migration touches only the omo config files.
 
 The engine's copy-forward into a flat-layout brand dir skips the reserved names in senpi (code-yeongyu/senpi#2898).
+
+## 2026-10-08 - An explicit task model pin is honoured or the spawn fails loudly (#9722)
+
+A task spawn carrying `model: "provider/model:level"` silently ran on the global settings default whenever the default differed from the pin: the planner kept the suffix as part of the model id, the in-process session context dropped the unresolvable id without an error, and senpi substituted the default. The pin is now parsed once with senpi's own model resolver into a canonical `provider/model_id` plus thinking level, resolved against the live registry at plan time, and a pin that does not resolve fails with a typed `model_unavailable` naming the pin and the default route the child would have used. The in-process session context asserts the spec's model instead of filtering it, the RPC process and host runners admit a valid `:level` pin and send the base id plus the level, and after start the child's effective model is checked against the plan (a mismatch fails typed, the session is torn down) and read from the child itself into the record's new `effective_model` - so `task_output` and the `started` result name the model that actually ran.
 
 ## 2026-10-07 - Suspended children retry after their parent session resumes (#9498)
 
