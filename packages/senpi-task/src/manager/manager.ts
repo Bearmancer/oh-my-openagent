@@ -30,6 +30,7 @@ import { onceOnly } from "./once-only"
 import { ResidencySignal } from "./residency-signal"
 import { resolveExecutionMode, type ExecutionMode } from "./execution-mode"
 import { toContinueResult } from "./continue-result"
+import { planWithWarmBarrel } from "./plan-warm"
 import {
   childIdentityOf,
   hasChildIdentity,
@@ -273,7 +274,7 @@ class TaskManagerImpl implements TaskManager {
   async start(spec: ManagerStartSpec): Promise<StartResult> {
     const refused = memberKernelToolRefusal(spec)
     if (refused !== undefined) return refused
-    const resolution = this.#options.planner(spec)
+    const resolution = await planWithWarmBarrel(this.#options.planner, spec)
     if (resolution.kind === "error") return { kind: "plan_unresolved", error: resolution.error }
 
     return withResidentStart(this.#options, spec.parent_session_id,
@@ -284,7 +285,7 @@ class TaskManagerImpl implements TaskManager {
     const refused = memberKernelToolRefusal(spec)
     if (refused !== undefined) return refused
     const lockPath = ownerLockPath(this.#options.store.stateDir, owner)
-    const resolution = this.#options.planner(spec)
+    const resolution = await planWithWarmBarrel(this.#options.planner, spec)
     if (resolution.kind === "error") return { kind: "plan_unresolved", error: resolution.error }
 
     return withTaskRecordLockAsync(lockPath, async () => {
