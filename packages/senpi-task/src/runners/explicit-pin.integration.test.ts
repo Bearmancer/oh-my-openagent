@@ -142,7 +142,7 @@ function registerLateModel(machine: BuiltinChildMachine, id: string): void {
   Reflect.apply(machine.modelRegistry.registerProvider, machine.modelRegistry, [PROVIDER, {
     ...provider,
     models: [
-      ...provider.models,
+      ...(provider.models ?? []),
       {
         id,
         name: id,

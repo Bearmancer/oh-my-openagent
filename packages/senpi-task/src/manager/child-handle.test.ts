@@ -9,6 +9,7 @@ function fakeInProcessHandle(outcome: RunnerOutcome): InProcessChildHandle {
   return {
     task_id: "st_00000001",
     sessionId: "child-session-1",
+    effectiveModel: () => undefined,
     steer: () => Promise.resolve(),
     followUp: () => Promise.resolve(),
     abort: () => Promise.resolve(),

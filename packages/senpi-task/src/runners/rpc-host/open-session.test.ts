@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test"
 import { RunnerError } from "../in-process/runner-error"
 import { HostSessionOpenError } from "./session-client"
 import { openTaskHostSession } from "./open-session"
+import type { HostSessionOpenInput } from "./session-transport"
 
 const spec = {
   task_id: "st_open",
@@ -15,9 +16,9 @@ const spec = {
 describe("openTaskHostSession suffix and post-start model (#9722)", () => {
   test("#given a model pin with a thinking-level suffix #when the session opens #then the base id and level go to the host, never the decorated string", async () => {
     // given
-    const openedInputs: Array<Record<string, unknown>> = []
+    const openedInputs: HostSessionOpenInput[] = []
     const client = {
-      open: (input: Record<string, unknown>) => {
+      open: (input: HostSessionOpenInput) => {
         openedInputs.push(input)
         return Promise.resolve({ sessionId: "sess-1", attached: false, instanceId: "i-1", engineVersion: "v" })
       },
@@ -50,8 +51,8 @@ describe("openTaskHostSession suffix and post-start model (#9722)", () => {
 
     // then
     expect(RunnerError.is(failure) ? failure.failure.kind : undefined).toBe("model_unavailable")
-    expect(failure.message).toContain("test/substitute")
-    expect(failure.message).toContain("test/model")
+    expect(failure instanceof Error ? failure.message : "").toContain("test/substitute")
+    expect(failure instanceof Error ? failure.message : "").toContain("test/model")
   })
 
   test("#given a fresh open whose state read fails #when the session opens #then the spawn fails closed instead of skipping the check (#9722)", async () => {
