@@ -150,4 +150,18 @@ describe("idle resident sweep with a child that never exits (omo#9785)", () => {
     expect(store.load(HEALTHY)?.residency_state).toBe("persisted_only")
     lifecycle.dispose?.()
   })
+  test("#given an errored resident whose session never opened (no handle) #when the sweep runs #then its record is parked", async () => {
+    // given
+    const store = tempStore()
+    seedIdle(store, STUCK, "error", "process")
+    const { lifecycle } = idleLifecycle(store, new FakeRegistry(), manualDeadlines())
+
+    // when
+    const reclaimed = await lifecycle.reclaimIdleResidents?.()
+
+    // then
+    expect(reclaimed).toEqual([STUCK])
+    expect(store.load(STUCK)?.residency_state).toBe("rpc_detached")
+    lifecycle.dispose?.()
+  })
 })

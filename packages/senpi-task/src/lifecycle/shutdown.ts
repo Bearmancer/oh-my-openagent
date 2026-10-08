@@ -91,7 +91,12 @@ export async function suspendHandle(context: LifecycleContext, handle: ResidentH
   const target = { taskId: handle.task_id, pid: handle.pid }
   await bestEffort(handle.task_id, "abort", () => withinTeardownBudget(context.teardownStepDeadline, target, "abort", () => handle.abort()))
   if (handle.kind === "rpc") await bestEffort(handle.task_id, "terminate", () => withinTeardownBudget(context.teardownStepDeadline, target, "terminate", () => handle.terminate()))
-  await withinTeardownBudget(context.teardownStepDeadline, target, "dispose", () => handle.dispose())
+  try {
+    await withinTeardownBudget(context.teardownStepDeadline, target, "dispose", () => handle.dispose())
+  } catch (error) {
+    context.failedTeardowns.add(handle.task_id)
+    throw error
+  }
   context.store.transition(handle.task_id, {
     type: handle.kind === "in-process" ? "persist_only" : "detach_rpc",
     timestamp: nowIso(context),
@@ -125,7 +130,7 @@ function isOwnedChild(
   return record !== null && record.parent_session_id === parentSessionId && record.host_pid === context.hostPid
 }
 
-async function bestEffort(taskId: string, step: "abort" | "terminate", run: () => Promise<unknown>): Promise<void> {
+async function bestEffort(taskId: string, step: "abort" | "terminate", run: () => Promise<void>): Promise<void> {
   try {
     await run()
   } catch (error) {

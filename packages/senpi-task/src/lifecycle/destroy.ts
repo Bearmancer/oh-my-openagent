@@ -45,6 +45,9 @@ export async function destroyResidentTask(
     if (handle !== undefined) {
       try {
         await teardownHandle(context, handle, cause === "cancel_without_abort")
+      } catch (error) {
+        context.failedTeardowns.add(taskId)
+        throw error
       } finally {
         if (cause !== "fallback_handoff") context.registry.forget(taskId)
         if (cause === "revive_failure") recordRevivalFailure(context, taskId)
@@ -91,7 +94,7 @@ async function teardownHandle(context: LifecycleContext, handle: ResidentHandle,
   await bounded("dispose", () => handle.dispose())
 }
 
-async function bestEffort(taskId: string, step: "abort" | "terminate", run: () => Promise<unknown>): Promise<void> {
+async function bestEffort(taskId: string, step: "abort" | "terminate", run: () => Promise<void>): Promise<void> {
   try {
     await run()
   } catch (error) {

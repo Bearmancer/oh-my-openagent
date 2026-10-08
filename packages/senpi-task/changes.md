@@ -13,13 +13,20 @@ So one child that never answered `abort` stalled the sweep. Every later tick saw
   - The budget is an injectable lifecycle dependency, `teardownStepDeadline`.
 - Bounded steps:
   - `lifecycle/shutdown.ts` `suspendHandle`, the idle park path: abort, terminate and dispose.
-  - `lifecycle/destroy.ts` `teardownHandle`, the cancel, evict and TTL path.
+  - `lifecycle/destroy.ts` `teardownHandle`, the destruction port used by cancel, eviction and TTL.
+  - Not bounded yet: the abort that `steering/controls.ts` sends a *running* child before it destroys it. That is follow-up work.
   - An RPC child whose abort hangs is therefore still terminated, which escalates to SIGKILL, and is parked.
+- A finished child with no live handle in this process still held its resident slot until a session restart reconciled it, which measured 17 h for errored children. A typical case is a child whose session the host refused to open ("The task host refused the child session (open_failed)").
+  - The sweep and `task_cancel` now park such a record directly (`parkHandlelessResident`), when nothing can still be running for it: owned by this process, no daemon session, no live child pid.
+  - A child whose teardown threw in this process is excluded (`LifecycleContext.failedTeardowns`), because a failed dispose is not a successful park.
+  - Live QA through a real `senpi` hit exactly this case.
 - `reclaimIdleResidents` reclaims each resident on its own, concurrently. One slow child no longer delays the others, and because every step is bounded, the sweep always settles and the next tick runs. Errored children were already terminal here; they are now actually reached.
 - `task_cancel` on a finished child that is still resident here now stops its child and parks the record, and reports `released`.
   - The record is parked (`persisted_only` / `rpc_detached`), so the result stays readable and `task_send` still revives it.
   - Before, the call answered "is error, not running. No change." and nothing released the child short of a session restart.
   - A second cancel is a no-op. A child resident in another process is left alone.
+  - Only a finished result is released. A cancelled, lost or killed resident belongs to destruction, which may still be in flight, so cancel leaves it to that path.
+  - A cancel that skips abort (DAG cancellation) never releases, so DAG behaviour is unchanged.
   - Mechanism: `lifecycle/park-terminal-resident.ts`, `TaskLifecycle.parkTerminalResident`, and the optional `DestructionPort.parkTerminalResident`. The new `released` cancel outcome is handled in `tools/control`, the renderers and `eval-handles/steer-refs.ts`.
   - Team deletion still ends a released member for good (`team/runtime.ts`).
 
@@ -28,9 +35,16 @@ Tests:
   - A stuck RPC resident ahead of a healthy one no longer delays it. Fails on `dev`.
   - A stuck child is terminated and parked once its budgets expire, and the sweep settles. Fails on `dev`.
   - An errored in-process resident is parked.
+  - A handle-less errored resident (session never opened) is parked by the sweep.
 
   The budgets are driven by the test, so nothing waits on a wall clock.
-- `steering/cancel-terminal-resident.test.ts`: cancel releases an errored resident, a repeat is a no-op, and a foreign resident is untouched. The first two fail without the change.
+- `steering/cancel-terminal-resident.test.ts`:
+  - Cancel releases an errored resident, and a repeat is a no-op. Both fail without the change.
+  - A cancelled resident is not released or torn down a second time.
+  - A skip-abort cancel leaves a resident alone.
+  - A handle-less errored resident is released, and one whose child pid is still alive is left alone.
+  - A foreign resident is untouched.
+- `team/runtime-delete.test.ts`: deleting a team whose finished member was released still destroys that member once.
 - `idle-park.test.ts`: now asserts each child's own step order instead of a global one, since residents are no longer serialized.
 
 ## 2026-10-05 - A process-runner child gets its own fallback chain (#9582)

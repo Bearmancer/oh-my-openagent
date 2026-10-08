@@ -8,6 +8,7 @@ import { isRevivalCandidate, isUnboundedResidency, residentsOf, selectRevivalBat
 import { nowIso, TERMINAL_STATUSES, type LifecycleContext } from "./context"
 import { destroyResidentTask } from "./destroy"
 import { AgentLimitReached } from "./errors"
+import { parkHandlelessResident } from "./park-terminal-resident"
 import { suspendHandle } from "./shutdown"
 import type { AdmissionResult } from "./types"
 
@@ -79,8 +80,9 @@ async function reclaimIdleResident(context: LifecycleContext, candidate: TaskRec
       await destroyResidentTask(context, fresh.task_id, "cancel")
     } else {
       const handle = context.registry.get(fresh.task_id)
-      // Reconciliation owns missing handles; a prior failed dispose is not a successful park.
-      if (handle === undefined) return undefined
+      // Without a handle only the record is parked, and only when nothing can still be running for it;
+      // anything else (a daemon session, a live pid) stays for reconciliation.
+      if (handle === undefined) return parkHandlelessResident(context, fresh, "idle") ? fresh.task_id : undefined
       await suspendHandle(context, handle, "idle")
     }
     return fresh.task_id

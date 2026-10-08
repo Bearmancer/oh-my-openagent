@@ -6,13 +6,13 @@ import { NO_HOST_ENDPOINT } from "../lifecycle/host-session"
 import type { TaskRecordStore } from "../store"
 import { runTaskCancel } from "../tools/control/cancel"
 import { createSteeringEngine } from "./engine"
-import type { SteeringPort } from "./types"
+import type { CancelOptions, SteeringPort } from "./types"
 
 afterEach(cleanupProjects)
 
 const TASK = "st_00009785"
 
-function cancelSurface(store: TaskRecordStore, registry: FakeRegistry) {
+function cancelSurface(store: TaskRecordStore, registry: FakeRegistry, options?: CancelOptions) {
   const lifecycle = createTaskLifecycle({ hostEndpoint: NO_HOST_ENDPOINT, store, registry, config: settings() })
   const port: SteeringPort = {
     store,
@@ -26,7 +26,7 @@ function cancelSurface(store: TaskRecordStore, registry: FakeRegistry) {
   }
   const engine = createSteeringEngine(port)
   const manager = { cancelTask: engine.cancelTask, get: (taskId: string) => store.load(taskId) ?? undefined }
-  return { lifecycle, cancel: () => runTaskCancel(manager, { task_id: TASK }) }
+  return { lifecycle, engine, cancel: () => runTaskCancel(manager, { task_id: TASK }), cancelWith: () => engine.cancelTask(TASK, undefined, options) }
 }
 
 describe("task_cancel on a finished child that is still resident (omo#9785)", () => {
@@ -81,6 +81,71 @@ describe("task_cancel on a finished child that is still resident (omo#9785)", ()
 
     // then
     expect(result.details).toMatchObject({ kind: "noop", status: "completed" })
+    expect(store.load(TASK)?.residency_state).toBe("resident")
+    lifecycle.dispose?.()
+  })
+  test("#given a cancelled resident whose destruction is still in flight #when cancelled again #then it is not released or torn down a second time", async () => {
+    // given
+    const store = tempStore()
+    const registry = new FakeRegistry()
+    const calls: string[] = []
+    seedRecord(store, { task_id: TASK, status: "cancelled", residency_state: "resident", host_pid: process.pid })
+    registry.add(fakeHandle(TASK, "rpc", calls))
+    const { lifecycle, cancel } = cancelSurface(store, registry)
+
+    // when
+    const result = await cancel()
+
+    // then
+    expect(result.details).toMatchObject({ kind: "noop", status: "cancelled" })
+    expect(calls).toEqual([])
+    expect(store.load(TASK)?.residency_state).toBe("resident")
+    lifecycle.dispose?.()
+  })
+
+  test("#given a finished resident and a cancel that skips abort (DAG) #when cancelled #then it is left resident", async () => {
+    // given
+    const store = tempStore()
+    const registry = new FakeRegistry()
+    const calls: string[] = []
+    seedRecord(store, { task_id: TASK, status: "completed", residency_state: "resident", host_pid: process.pid })
+    registry.add(fakeHandle(TASK, "in-process", calls))
+    const { lifecycle, cancelWith } = cancelSurface(store, registry, { abort: "skip" })
+
+    // when
+    const outcome = await cancelWith()
+
+    // then
+    expect(outcome).toMatchObject({ kind: "noop", status: "completed" })
+    expect(calls).toEqual([])
+    lifecycle.dispose?.()
+  })
+  test("#given an errored resident whose session never opened (no live handle) #when cancelled #then only its record is parked", async () => {
+    // given
+    const store = tempStore()
+    seedRecord(store, { task_id: TASK, status: "error", residency_state: "resident", host_pid: process.pid, execution_mode: "process" })
+    const { lifecycle, cancel } = cancelSurface(store, new FakeRegistry())
+
+    // when
+    const result = await cancel()
+
+    // then
+    expect(result.details).toEqual({ kind: "released", task_id: TASK, status: "error" })
+    expect(store.load(TASK)?.residency_state).toBe("rpc_detached")
+    lifecycle.dispose?.()
+  })
+
+  test("#given a handle-less finished resident whose child pid is still alive #when cancelled #then it is left for reconciliation", async () => {
+    // given
+    const store = tempStore()
+    seedRecord(store, { task_id: TASK, status: "error", residency_state: "resident", host_pid: process.pid, execution_mode: "process", pid: process.pid })
+    const { lifecycle, cancel } = cancelSurface(store, new FakeRegistry())
+
+    // when
+    const result = await cancel()
+
+    // then
+    expect(result.details).toMatchObject({ kind: "noop", status: "error" })
     expect(store.load(TASK)?.residency_state).toBe("resident")
     lifecycle.dispose?.()
   })
