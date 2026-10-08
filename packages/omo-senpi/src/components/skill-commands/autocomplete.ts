@@ -22,7 +22,7 @@ export interface AutocompleteProviderLike {
   ): Promise<AutocompleteSuggestionsLike | null>
 }
 
-const LEADING_COMMAND_TOKEN = /^\/([a-z0-9-]*)$/
+const LEADING_COMMAND_TOKEN = /^\/([a-z0-9-]+)$/
 
 /**
  * Lists each bundled skill once at top level: its bare `/<name>` alias takes the place of senpi's
@@ -44,9 +44,7 @@ export function wrapWithBareSkillCommands<T extends AutocompleteProviderLike>(
     const items = base?.items ?? []
     const aliases = bareSkillItems(typed, bundledSkillNames, hostCommands(), items)
     if (aliases.length === 0) return base
-    // A bare `/` lists everything senpi has, so an alias only replaces a row that is there; past `/`, an
-    // alias whose skill row is not on this page is still offered.
-    const merged = replaceSkillEntries(items, aliases, { appendUnplaced: typed.length > 0 })
+    const merged = replaceSkillEntries(items, aliases)
     if (merged === undefined) return base
     return { prefix: base?.prefix ?? `/${typed}`, items: merged }
   }
@@ -85,12 +83,10 @@ function bareSkillItems(
 }
 
 // Each alias takes its own `skill:<name>` row's place, so senpi's ranking of everything else is
-// untouched; an alias whose skill row is absent from this page goes last when `appendUnplaced`.
-// Undefined when nothing changed.
+// untouched; an alias whose skill row is absent from this page goes last. Undefined when nothing changed.
 function replaceSkillEntries(
   items: readonly AutocompleteItemLike[],
   aliases: readonly AutocompleteItemLike[],
-  options: { readonly appendUnplaced: boolean },
 ): AutocompleteItemLike[] | undefined {
   const taken = new Set(items.map((item) => item.value))
   const pending = new Map(aliases.filter((alias) => !taken.has(alias.value)).map((alias) => [alias.value, alias]))
@@ -103,7 +99,7 @@ function replaceSkillEntries(
     unplaced.delete(alias.value)
     return alias
   })
-  const appended = options.appendUnplaced ? [...unplaced].map((name) => pending.get(name)).filter((alias) => alias !== undefined) : []
-  if (unplaced.size === pending.size && appended.length === 0) return undefined
+  if (pending.size === 0) return undefined
+  const appended = [...unplaced].map((name) => pending.get(name)).filter((alias) => alias !== undefined)
   return [...merged, ...appended]
 }

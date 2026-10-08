@@ -47,13 +47,16 @@ describe("bare skill command autocomplete", () => {
   })
 
   test("#given a same-named command shadows a skill's bare name #when the user types /init #then that skill keeps its skill:<name> row, the only way to reach it (#9648)", async () => {
-    const base = new FakeProvider({ prefix: "/init", items: [{ value: "init", label: "init" }, { value: "skill:init-deep", label: "skill:init-deep" }] })
+    const base = new FakeProvider({
+      prefix: "/init",
+      items: [{ value: "init", label: "init" }, { value: "skill:init", label: "skill:init" }, { value: "skill:init-deep", label: "skill:init-deep" }],
+    })
     const shadowed = new Set(["init"])
     const wrapped = wrapWithBareSkillCommands(base, shadowed, () => [...COMMANDS, { name: "skill:init", source: "skill" }])
 
     const result = await wrapped.getSuggestions(["/init"], 0, 5, { signal })
 
-    expect(values(result?.items)).toEqual(["init", "skill:init-deep"])
+    expect(values(result?.items)).toEqual(["init", "skill:init", "skill:init-deep"])
   })
 
   test("#given the user types /skill: #when suggestions are requested #then senpi's skill:<name> list is returned unchanged (#9648)", async () => {
@@ -69,18 +72,6 @@ describe("bare skill command autocomplete", () => {
     const wrapped = wrapWithBareSkillCommands(new FakeProvider(page), NAMES, () => COMMANDS)
 
     expect(values((await wrapped.getSuggestions(["/skill"], 0, 6, { signal }))?.items)).toEqual(["skill:ulw-execute", "skill:ulw-plan"])
-  })
-
-  test("#given the bare / list holds skill:<name> rows #when the user has typed only / #then each loaded skill shows once under its bare name, in place (#9648)", async () => {
-    const base = new FakeProvider({
-      prefix: "/",
-      items: [{ value: "settings", label: "settings" }, { value: "skill:ulw-plan", label: "skill:ulw-plan" }, { value: "skill:ulw-research", label: "skill:ulw-research" }],
-    })
-    const wrapped = wrapWithBareSkillCommands(base, NAMES, () => COMMANDS)
-
-    const result = await wrapped.getSuggestions(["/"], 0, 1, { signal })
-
-    expect(values(result?.items)).toEqual(["settings", "ulw-plan", "skill:ulw-research"])
   })
 
   test("#given senpi marks a skill row as awaiting arguments #when the user types /ulw #then its alias waits too and shows the same hint", async () => {
