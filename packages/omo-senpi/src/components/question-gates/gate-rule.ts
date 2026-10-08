@@ -1,7 +1,8 @@
-// Contract with the skills (#9774): ulw-plan and mass-ulw pin the header of every gating question
-// (`Approval`, `Authorization`, or `승인` / `권한` in Korean). The anchored option-label rule is the
-// fallback for a gate asked without the pinned header. Question text is never read, so a fork that
-// only mentions approving something is not a gate.
+// Contract with the skills (#9774): ulw-plan and mass-ulw give every gating question one of these
+// exact headers. senpi rejects a header longer than 12 characters before any extension sees the
+// call, so every pinned header must stay within that. The anchored option-label rule is the
+// fallback for a gate asked without the pinned header. Question text is never read.
+export const PINNED_GATE_HEADERS = ["Approval", "Authorize", "승인", "권한"] as const
 
 export type GateRule = "header" | "label"
 
@@ -10,7 +11,7 @@ export interface GateMatch {
   readonly header: string | undefined
 }
 
-const GATE_HEADER = /^(?:approval|authori[sz]ation|승인|권한)(?![a-z])/i
+const GATE_HEADERS: ReadonlySet<string> = new Set([...PINNED_GATE_HEADERS.map((header) => header.toLowerCase()), "authorise"])
 const GATE_LABEL = /^(?:approve|authori[sz]e)(?![a-z])/i
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -37,7 +38,7 @@ export function matchGate(input: unknown): GateMatch | undefined {
   const records = questions.filter(isRecord)
   for (const question of records) {
     const header = trimmedString(question["header"])
-    if (header !== undefined && GATE_HEADER.test(header)) return { rule: "header", header }
+    if (header !== undefined && GATE_HEADERS.has(header.toLowerCase())) return { rule: "header", header }
   }
   for (const question of records) {
     if (optionLabels(question).some((label) => GATE_LABEL.test(label))) {

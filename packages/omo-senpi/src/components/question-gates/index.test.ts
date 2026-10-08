@@ -7,6 +7,7 @@ import { describe, expect, it } from "bun:test"
 
 import { FakeExtensionAPI } from "../../../test-support/fake-extension-api"
 import type { ComponentContext } from "../../extension/types"
+import { PINNED_GATE_HEADERS } from "./gate-rule"
 import { createQuestionGatesComponent } from "./index"
 
 interface DebugLine {
@@ -73,11 +74,11 @@ describe("question-gates", () => {
   })
 
   it.each([
-    ["Authorization"],
-    ["authorisation"],
+    ["Authorize"],
+    ["authorise"],
+    ["approval"],
     ["승인"],
     ["권한"],
-    ["승인 요청"],
   ])("#given a pinned gate header %p #when tool_call fires #then required is forced by the header rule", async (header) => {
     // given
     const { pi, debug } = register()
@@ -136,7 +137,9 @@ describe("question-gates", () => {
   it.each([
     ["Approvals log"],
     ["Pre-approval"],
-    ["Disapproval reason"],
+    ["Approval UX"],
+    ["권한 모델"],
+    ["승인자"],
   ])("#given header %p that only contains a gate word #when tool_call fires #then the anchored rule does not force required", async (header) => {
     // given
     const { pi } = register()
@@ -222,6 +225,7 @@ const askUserToolModule = await import(
   pathToFileURL(join(senpiDistDir, "core", "extensions", "builtin", "ask-user", "tool.js")).href
 ) as {
   createAskUserTool(variant: "claude" | "codex", pi: unknown, state: { timedOut: boolean; unavailable: boolean }): {
+    prepareArguments(args: Record<string, unknown>): Record<string, unknown>
     execute(
       toolCallId: string,
       params: Record<string, unknown>,
@@ -265,5 +269,29 @@ describe("question-gates through senpi's ask_user_question tool", () => {
 
     // then
     expect(text).toContain("do not take the action it gates")
+  })
+})
+
+describe("pinned gate headers against senpi's question schema", () => {
+  const tool = askUserToolModule.createAskUserTool("claude", { events: { emit() {} } }, { timedOut: false, unavailable: false })
+  const call = (header: string) => ({
+    questions: [fork(header, "Proceed?", ["Approve", "Change approach"])],
+    waitForAnswer: true,
+  })
+
+  it.each(PINNED_GATE_HEADERS.map((header) => [header]))("#given pinned header %p #when senpi prepares the call #then it is accepted", (header) => {
+    // when
+    const prepare = () => tool.prepareArguments(call(header))
+
+    // then
+    expect(prepare).not.toThrow()
+  })
+
+  it("#given a 13-character header #when senpi prepares the call #then senpi rejects it before any extension sees it", () => {
+    // when
+    const prepare = () => tool.prepareArguments(call("Authorization"))
+
+    // then
+    expect(prepare).toThrow()
   })
 })
