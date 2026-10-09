@@ -97,6 +97,7 @@ export async function suspendHandle(context: LifecycleContext, handle: ResidentH
     context.failedTeardowns.add(handle.task_id)
     throw error
   }
+  context.failedTeardowns.delete(handle.task_id)
   context.store.transition(handle.task_id, {
     type: handle.kind === "in-process" ? "persist_only" : "detach_rpc",
     timestamp: nowIso(context),

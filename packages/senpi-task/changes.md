@@ -17,8 +17,12 @@ So one child that never answered `abort` stalled the sweep. Every later tick saw
   - Not bounded yet: the abort that `steering/controls.ts` sends a *running* child before it destroys it. That is follow-up work.
   - An RPC child whose abort hangs is therefore still terminated, which escalates to SIGKILL, and is parked.
 - A finished child with no live handle in this process still held its resident slot until a session restart reconciled it, which measured 17 h for errored children. A typical case is a child whose session the host refused to open ("The task host refused the child session (open_failed)").
-  - The sweep and `task_cancel` now park such a record directly (`parkHandlelessResident`), when nothing can still be running for it: owned by this process, no daemon session, no live child pid.
-  - A child whose teardown threw in this process is excluded (`LifecycleContext.failedTeardowns`), because a failed dispose is not a successful park.
+  - The sweep and `task_cancel` now park such a record directly (`parkHandlelessResident`), when nothing can still be running for it:
+    - the record belongs to this engine's own session;
+    - no daemon session;
+    - no live child pid.
+  - One process can host an engine per session, so `host_pid` alone cannot tell this session's record from a live sibling's. The new `ResidencyRegistry.ownsRecord` answers that; the omo-senpi adapter compares the record's parent session with the engine's current session, and a registry without it parks nothing.
+  - A child whose teardown threw in this process is excluded (`LifecycleContext.failedTeardowns`), because a failed dispose is not a successful park. A later teardown that succeeds clears the mark.
   - Live QA through a real `senpi` hit exactly this case.
 - `reclaimIdleResidents` reclaims each resident on its own, concurrently. One slow child no longer delays the others, and because every step is bounded, the sweep always settles and the next tick runs. Errored children were already terminal here; they are now actually reached.
 - `task_cancel` on a finished child that is still resident here now stops its child and parks the record, and reports `released`.
@@ -26,6 +30,7 @@ So one child that never answered `abort` stalled the sweep. Every later tick saw
   - Before, the call answered "is error, not running. No change." and nothing released the child short of a session restart.
   - A second cancel is a no-op. A child resident in another process is left alone.
   - Only a finished result is released. A cancelled, lost or killed resident belongs to destruction, which may still be in flight, so cancel leaves it to that path.
+  - An interrupted resident is never released: it is resumable, and a resume can hold its slot before its handle exists.
   - A cancel that skips abort (DAG cancellation) never releases, so DAG behaviour is unchanged.
   - Mechanism: `lifecycle/park-terminal-resident.ts`, `TaskLifecycle.parkTerminalResident`, and the optional `DestructionPort.parkTerminalResident`. The new `released` cancel outcome is handled in `tools/control`, the renderers and `eval-handles/steer-refs.ts`.
   - Team deletion still ends a released member for good (`team/runtime.ts`).
@@ -36,13 +41,17 @@ Tests:
   - A stuck child is terminated and parked once its budgets expire, and the sweep settles. Fails on `dev`.
   - An errored in-process resident is parked.
   - A handle-less errored resident (session never opened) is parked by the sweep.
+  - With two sessions' engines sharing one store, a sweep leaves the sibling's handle-less child alone.
 
   The budgets are driven by the test, so nothing waits on a wall clock.
 - `steering/cancel-terminal-resident.test.ts`:
   - Cancel releases an errored resident, and a repeat is a no-op. Both fail without the change.
   - A cancelled resident is not released or torn down a second time.
   - A skip-abort cancel leaves a resident alone.
-  - A handle-less errored resident is released, and one whose child pid is still alive is left alone.
+  - A handle-less errored resident is released.
+  - One whose child pid is still alive is left alone.
+  - A sibling session's handle-less child is left alone.
+  - An interrupted resident is not released.
   - A foreign resident is untouched.
 - `team/runtime-delete.test.ts`: deleting a team whose finished member was released still destroys that member once.
 - `idle-park.test.ts`: now asserts each child's own step order instead of a global one, since residents are no longer serialized.

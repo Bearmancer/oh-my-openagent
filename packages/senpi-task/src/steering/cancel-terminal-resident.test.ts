@@ -10,6 +10,13 @@ import type { CancelOptions, SteeringPort } from "./types"
 
 afterEach(cleanupProjects)
 
+// The session this engine serves; seedRecord's default parent session.
+class SessionRegistry extends FakeRegistry {
+  ownsRecord(record: { readonly parent_session_id: string }): boolean {
+    return record.parent_session_id === "parent-1"
+  }
+}
+
 const TASK = "st_00009785"
 
 function cancelSurface(store: TaskRecordStore, registry: FakeRegistry, options?: CancelOptions) {
@@ -124,7 +131,7 @@ describe("task_cancel on a finished child that is still resident (omo#9785)", ()
     // given
     const store = tempStore()
     seedRecord(store, { task_id: TASK, status: "error", residency_state: "resident", host_pid: process.pid, execution_mode: "process" })
-    const { lifecycle, cancel } = cancelSurface(store, new FakeRegistry())
+    const { lifecycle, cancel } = cancelSurface(store, new SessionRegistry())
 
     // when
     const result = await cancel()
@@ -139,13 +146,42 @@ describe("task_cancel on a finished child that is still resident (omo#9785)", ()
     // given
     const store = tempStore()
     seedRecord(store, { task_id: TASK, status: "error", residency_state: "resident", host_pid: process.pid, execution_mode: "process", pid: process.pid })
-    const { lifecycle, cancel } = cancelSurface(store, new FakeRegistry())
+    const { lifecycle, cancel } = cancelSurface(store, new SessionRegistry())
 
     // when
     const result = await cancel()
 
     // then
     expect(result.details).toMatchObject({ kind: "noop", status: "error" })
+    expect(store.load(TASK)?.residency_state).toBe("resident")
+    lifecycle.dispose?.()
+  })
+  test("#given a handle-less finished child of a sibling session in this process #when cancelled here #then it is left to its own session", async () => {
+    // given
+    const store = tempStore()
+    seedRecord(store, { task_id: TASK, status: "completed", residency_state: "resident", host_pid: process.pid, parent_session_id: "parent-2" })
+    const { lifecycle, cancel } = cancelSurface(store, new SessionRegistry())
+
+    // when
+    const result = await cancel()
+
+    // then
+    expect(result.details).toMatchObject({ kind: "noop", status: "completed" })
+    expect(store.load(TASK)?.residency_state).toBe("resident")
+    lifecycle.dispose?.()
+  })
+
+  test("#given an interrupted resident whose resume holds its slot before its handle exists #when cancelled #then it is not released", async () => {
+    // given
+    const store = tempStore()
+    seedRecord(store, { task_id: TASK, status: "interrupted", residency_state: "resident", host_pid: process.pid })
+    const { lifecycle, cancel } = cancelSurface(store, new SessionRegistry())
+
+    // when
+    const result = await cancel()
+
+    // then
+    expect(result.details).toMatchObject({ kind: "noop", status: "interrupted" })
     expect(store.load(TASK)?.residency_state).toBe("resident")
     lifecycle.dispose?.()
   })

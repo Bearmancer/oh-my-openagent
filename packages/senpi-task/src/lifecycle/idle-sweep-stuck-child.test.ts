@@ -10,6 +10,12 @@ import type { TeardownStep } from "./teardown-budget"
 
 afterEach(cleanupProjects)
 
+class SessionRegistry extends FakeRegistry {
+  ownsRecord(record: { readonly parent_session_id: string }): boolean {
+    return record.parent_session_id === "parent-1"
+  }
+}
+
 const IDLE_MS = settings().resident_idle_timeout_ms
 const STUCK = "st_000000a1"
 const HEALTHY = "st_000000b1"
@@ -154,7 +160,7 @@ describe("idle resident sweep with a child that never exits (omo#9785)", () => {
     // given
     const store = tempStore()
     seedIdle(store, STUCK, "error", "process")
-    const { lifecycle } = idleLifecycle(store, new FakeRegistry(), manualDeadlines())
+    const { lifecycle } = idleLifecycle(store, new SessionRegistry(), manualDeadlines())
 
     // when
     const reclaimed = await lifecycle.reclaimIdleResidents?.()
@@ -162,6 +168,21 @@ describe("idle resident sweep with a child that never exits (omo#9785)", () => {
     // then
     expect(reclaimed).toEqual([STUCK])
     expect(store.load(STUCK)?.residency_state).toBe("rpc_detached")
+    lifecycle.dispose?.()
+  })
+  test("#given two sessions' engines sharing one store in one process #when one engine sweeps #then the sibling's handle-less finished child is left alone", async () => {
+    // given
+    const store = tempStore()
+    seedRecord(store, { task_id: STUCK, status: "completed", residency_state: "resident", updated_at: new Date(1_000_000).toISOString(), host_pid: process.pid, parent_session_id: "parent-2" })
+    const { lifecycle } = idleLifecycle(store, new SessionRegistry(), manualDeadlines())
+
+    // when
+    const reclaimed = await lifecycle.reclaimIdleResidents?.()
+
+    // then
+    expect(reclaimed).toEqual([])
+    expect(store.load(STUCK)?.residency_state).toBe("resident")
+    expect(store.load(STUCK)?.host_pid).toBe(process.pid)
     lifecycle.dispose?.()
   })
 })

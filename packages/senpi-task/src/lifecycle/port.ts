@@ -56,6 +56,9 @@ export type ResidencyRegistry = {
   isEvicting?(taskId: string): boolean
   tryBeginSend?(taskId: string): boolean
   endSend?(taskId: string): void
+  // Whether THIS engine's session owns the record (omo#9785). One process can host one engine per
+  // session, so host_pid alone cannot tell a handle-less child of this session from a live sibling's.
+  ownsRecord?(record: TaskRecord): boolean
 }
 
 // Injectable OS-process signalling so unit tests never spawn real children. Defaults use

@@ -197,7 +197,7 @@ export function composeTaskEngine(deps: ComposeTaskEngineDeps): TaskEngine {
     generations: categoryConfigGenerations,
   })
 
-  const registry = createManagerResidencyRegistry(getManager)
+  const registry = createManagerResidencyRegistry(getManager, () => runtime.sessionId())
   // The engine owns ONE isolation runtime: the manager clones the checkout for an isolated child
   // with it, and the lifecycle salvages and sweeps a crashed host's clones through the same object.
   // Without it every `isolated: true` spawn is refused as `isolation_unavailable`.

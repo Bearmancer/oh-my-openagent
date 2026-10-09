@@ -45,6 +45,7 @@ export async function destroyResidentTask(
     if (handle !== undefined) {
       try {
         await teardownHandle(context, handle, cause === "cancel_without_abort")
+        context.failedTeardowns.delete(taskId)
       } catch (error) {
         context.failedTeardowns.add(taskId)
         throw error

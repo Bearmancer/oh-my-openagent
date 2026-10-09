@@ -22,6 +22,8 @@ export async function parkTerminalResident(context: LifecycleContext, taskId: st
       // A cancelled, lost or killed resident is an in-flight or finished destruction, not a parkable result.
       fresh.status === "cancelled" ||
       fresh.status === "lost" ||
+      // An interrupted child is resumable, and a resume may hold its slot before its handle exists.
+      fresh.status === "interrupted" ||
       fresh.killed === true ||
       context.registry.hasPendingSends(taskId)
     ) return false
@@ -40,10 +42,13 @@ export async function parkTerminalResident(context: LifecycleContext, taskId: st
  * A finished child that never got (or already lost) its live handle in this process - a child whose
  * session the host refused to open, or one whose teardown already ran - still occupies a resident slot
  * until a session restart reconciles it (omo#9785 measured errored children resident for 17 h). When
- * nothing can still be running for it (no daemon session, no live child pid), only the record is parked.
+ * nothing can still be running for it (this session's own record, no daemon session, no live child pid), only the
+ * record is parked. A sibling session's child in the same process is never touched: it has this host_pid but not
+ * this engine's ownership.
  */
 export function parkHandlelessResident(context: LifecycleContext, record: TaskRecord, reason: string): boolean {
-  if (record.host_pid !== context.hostPid || isHostSessionRecord(record) || context.failedTeardowns.has(record.task_id)) return false
+  if (record.host_pid !== context.hostPid || context.registry.ownsRecord?.(record) !== true) return false
+  if (isHostSessionRecord(record) || context.failedTeardowns.has(record.task_id)) return false
   if (record.pid !== undefined && pidLiveness(record.pid) !== "dead") return false
   context.store.transition(record.task_id, {
     type: record.execution_mode === "in-process" ? "persist_only" : "detach_rpc",
