@@ -1,3 +1,19 @@
+## 2026-10-09 - Suspended children recover while their parent is still live (#9350)
+
+The lifecycle now observes the adapter's existing store-mutation channel. A manager `onParked` event, daemon-loss park, or reconcile deferral immediately attempts scoped revival through the existing admission lease, residency claim and `reviveClaimed`; there is no second respawn path. Observation runs after the synchronous park/forget operation.
+
+Only `pending` and `running` children in `persisted_only` or `rpc_detached` qualify, and only while the registry identifies this engine as their live parent owner. All suspension reasons qualify, including legacy records without a reason. Terminal statuses (including `interrupted` and finished idle evictions), explicit pending user cancellations, and live foreign owners are excluded. Shutdown/disposal stops supervision; an absent parent's children keep their session-start recovery behavior.
+
+`LIVE_PARENT_SUSPENSION_BUDGET_MS` is 300,000 ms, with recovery checks every 5,000 ms. Five minutes matches the sustained interval in the existing deferred-revival policy and exceeds both the 1/4/16-second daemon-loss ladder and the usual 20-second generation-drain budget. The deadline belongs to the suspension episode, not `updated_at`, so failed retries cannot extend it.
+
+At expiry, an atomic epoch/claim check fences the unfinished run against revival. In-process and child-process children use the existing destruction and confirmed process-stop paths. A failed stop is not falsely reported as confirmed. Failure uses the existing `fail` transition (`status: "error"`), `failure_kind: "suspended_unresumable"`, and `error_message` beginning `suspended_unresumable:<cause>`. The terminal run releases its queue/lane and residency; normal notification bookkeeping delivers one parent result and manager waiters settle.
+
+Daemon-only contract change: an unconfirmed close no longer leaves the live parent waiting forever. The record fails while retaining `fallback_closing_child` with `requires_confirmation: true`. Cleanup and session-start recovery retry this durable obligation regardless of TTL age. Silence, refusal and timeout do not clear it. A late confirmed close clears only the matching socket/session/instance/routing identity, never the task's status or notification epoch; timed-out requests may safely be retried because this killed run cannot be revived. Transcripts and partial output remain available.
+
+The unconfirmed-close result tells the parent that the old session may still be running on an unreachable host, closing is being retried, and re-dispatch has no at-most-once guarantee: work may run twice, so side effects must be checked before re-running. A confirmed local stop carries no such caveat. Error records already leave live widget rows while remaining in `/tasks` history.
+
+`lifecycle/live-parent-recovery.test.ts` covers immediate recovery, both local execution modes, unreachable and timed-out daemon closure, retry/restart persistence, late closure, both revival/expiry orderings, pending children, absent parents, and finished idle eviction with injected clocks and lifecycle/manager fixtures.
+
 ## 2026-10-09 - Cancelling a running child that never answers its abort no longer hangs (#9791)
 
 `steering/controls.ts` awaited `handle.abort()` before it destroyed a running child (`task_cancel`), and before it recorded an interrupt. An RPC abort waits for the child's answer with no timeout, so a child that never answered held `task_cancel` (or the interrupt) forever. #9785 had bounded the destruction port and the idle sweep, but not this step.
