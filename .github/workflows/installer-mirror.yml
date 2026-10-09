@@ -56,6 +56,7 @@ jobs:
           bun-version: "1.4.2"
 
       - name: Mirror and verify
+        id: mirror
         env:
           GH_TOKEN: ${{ github.token }}
           R2_ACCOUNT_ID: 6511ce566bfe27228f536a8fb9448be5
@@ -74,14 +75,20 @@ jobs:
         if: inputs.dry_run != true && inputs.channel != 'none'
         env:
           CHANNEL: ${{ inputs.channel }}
-          TAG: ${{ inputs.tag }}
+          EXPECTED: ${{ steps.mirror.outputs.pointer }}
         run: |
           set -euo pipefail
-          # The pointer is cached for 60 s at the edge; read it through a cache-busting query so a stale edge copy cannot pass or fail this.
-          served="$(curl -fsSL "https://get.omo.dev/channels/${CHANNEL}?check=${GITHUB_RUN_ID}" | tr -d '[:space:]')"
-          echo "get.omo.dev/channels/${CHANNEL} -> ${served}"
-          # The mirror moved this channel to the tag; get.omo.dev must serve it (proves the bucket it reads is the one written).
-          test "${served}" = "${TAG#v}" || { echo "get.omo.dev serves ${served}, expected ${TAG#v}"; exit 1; }
+          # The bucket's pointer after this run (moved to the tag, or kept on a newer version by a backfill). The edge
+          # may serve its previous copy for about 60 s, so wait up to 180 s for it, then fail.
+          test -n "${EXPECTED}" || { echo "the mirror reported no channel pointer"; exit 1; }
+          deadline=$(( $(date +%s) + 180 )); wait=5
+          while :; do
+            served="$(curl -fsSL "https://get.omo.dev/channels/${CHANNEL}?check=${GITHUB_RUN_ID}-$(date +%s)" | tr -d '[:space:]' || true)"
+            echo "get.omo.dev/channels/${CHANNEL} -> ${served:-?} (expected ${EXPECTED})"
+            [ "${served}" = "${EXPECTED}" ] && break
+            [ $(( $(date +%s) + wait )) -le "$deadline" ] || { echo "get.omo.dev still serves ${served:-nothing} after 180 s"; exit 1; }
+            sleep "$wait"; wait=$(( wait < 30 ? wait * 2 : 30 ))
+          done
 
       - name: Write job summary
         if: always()
