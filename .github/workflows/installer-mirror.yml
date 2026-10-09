@@ -45,6 +45,9 @@ jobs:
     if: github.repository == 'code-yeongyu/oh-my-openagent'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # omo-releases lives on the Sisyphus Labs account (moved 2026-10-09). The key pair in this environment is
+    # scoped to that one bucket (object read + write), nothing else.
+    environment: omo-releases-sl
     steps:
       - uses: actions/checkout@v7
 
@@ -55,7 +58,7 @@ jobs:
       - name: Mirror and verify
         env:
           GH_TOKEN: ${{ github.token }}
-          R2_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_ACCOUNT_ID: 6511ce566bfe27228f536a8fb9448be5
           R2_ACCESS_KEY_ID: ${{ secrets.R2_RELEASES_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_RELEASES_SECRET_ACCESS_KEY }}
           TAG: ${{ inputs.tag }}
@@ -77,6 +80,8 @@ jobs:
           # The pointer is cached for 60 s at the edge; read it through a cache-busting query so a stale edge copy cannot pass or fail this.
           served="$(curl -fsSL "https://get.omo.dev/channels/${CHANNEL}?check=${GITHUB_RUN_ID}" | tr -d '[:space:]')"
           echo "get.omo.dev/channels/${CHANNEL} -> ${served}"
+          # The mirror moved this channel to the tag; get.omo.dev must serve it (proves the bucket it reads is the one written).
+          test "${served}" = "${TAG#v}" || { echo "get.omo.dev serves ${served}, expected ${TAG#v}"; exit 1; }
 
       - name: Write job summary
         if: always()
