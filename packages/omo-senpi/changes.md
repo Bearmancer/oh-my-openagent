@@ -1,3 +1,11 @@
+## 2026-10-09 - A suspended background child's row stops spinning and counting (#9350)
+
+The live task widget (`components/task/status-row-format.ts` `formatLiveBackgroundRow`) took its spinner frame and elapsed time from the current clock for every row. A parked child therefore read `⠹ ... · suspended · 354m 31s`: it looked like it was working, its time kept climbing, and the row said neither why it stopped nor what the user could do. It also checked residency only, so a child a host parked with a `suspension_reason` while still marked resident rendered as `running`.
+
+The row now uses the side panel's rule (`suspension_reason`, or any residency other than `resident`). A suspended row shows a still `‖` mark instead of a spinner, and its elapsed time stops at the record's `updated_at`, which is when it was parked. It names the cause (`parent session restarted` when no reason is recorded, otherwise the recorded reason in words; `revival deferred: <reason>` carries the deferral reason), then `resumes automatically when <condition>; /task-kill to cancel`. There is no user command that resumes a child, so the row never implies one. On a narrow line it keeps only `/task-kill to cancel`, and a parked row gives its width to the child's name before its route.
+
+`status-ui.ts` no longer schedules the 250 ms repaint when every shown background child is parked, so a widget of suspended rows paints once.
+
 ## 2026-10-08 - task_cancel can release a finished child's residency (#9785)
 
 `components/task/engine.ts` forwards the lifecycle's new `parkTerminalResident` through the manager's destruction port. With it, `task_cancel` on a finished child that is still resident stops the child and parks the record, instead of answering "No change." The registry adapter (`residency-registry.ts`) now answers `ownsRecord`: a record is this engine's when its parent session is the engine's current session. Without that answer a handle-less record is never parked, so a sibling session's child in the same daemon is left alone. The engine side is described in `packages/senpi-task/changes.md`.
