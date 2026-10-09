@@ -1,5 +1,6 @@
 # oh-my-openagent-web on the Sisyphus Labs account (account move, stage 1; plan:
-# sisyphuslabs/common-infra docs/cutover-workers.md). workers.dev only, no routes. Used only by
+# sisyphuslabs/common-infra docs/cutover-workers.md). workers.dev plus zone routes on the Sisyphus Labs
+# omo.dev zone, named by zone_id (stage 2; they serve once the zone is Active). Used only by
 # .github/workflows/cutover-target-deploy.yml; wrangler.toml (the live deploy) is unchanged.
 main = ".open-next/worker.js"
 name = "oh-my-openagent-web"
@@ -8,6 +9,10 @@ compatibility_date = "2026-05-18"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = true
 preview_urls = false
+routes = [
+  { pattern = "omo.dev/*", zone_id = "659a56dc53ddc7f388cd59888ccedaf0" },
+  { pattern = "www.omo.dev/*", zone_id = "659a56dc53ddc7f388cd59888ccedaf0" },
+]
 
 [assets]
 directory = ".open-next/assets"
