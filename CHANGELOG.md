@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.1.28] - 2026-10-09
+
 **omo runs on senpi 2026.10.10-10.** With several Anthropic Subscription accounts, a session no longer switches accounts on a transient error and back on the next turn; it retries the same account, then stays on whichever account holds its transcript. With `resumeMode: "off"`, the conversation is no longer written to the prompt cache again on every turn. A long streamed tool call on the Anthropic Subscription lane no longer fails with "session stream queue exceeded 256 messages". Full engine notes: [senpi 2026.10.10-10](https://github.com/code-yeongyu/senpi/releases/tag/v2026.10.10-10). ([senpi#2891](https://github.com/code-yeongyu/senpi/issues/2891), [senpi#2982](https://github.com/code-yeongyu/senpi/issues/2982), [senpi#2822](https://github.com/code-yeongyu/senpi/issues/2822), [#9798](https://github.com/code-yeongyu/oh-my-openagent/pull/9798))
 
 **Search, docs and quick work now run on Claude Haiku 5.5.** The default `explore`, `librarian` and `quick` lineups use `claude-haiku-5-5` at medium reasoning, right after GPT-6 Luna Fast, instead of Claude Haiku 4.5 at the end of the chain. On an Anthropic-only machine, the memory and Kibitzer sidecars run on it too. The Claude Code `haiku` alias now means Haiku 5.5. ([#9802](https://github.com/code-yeongyu/oh-my-openagent/pull/9802))
