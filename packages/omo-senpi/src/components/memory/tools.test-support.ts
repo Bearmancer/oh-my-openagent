@@ -47,6 +47,13 @@ async function removeRoot(root: string): Promise<void> {
   }
 }
 
+/** A fresh temp root, removed (with the Windows-race tolerance above) when the calling test finishes. */
+export async function testRoot(prefix: string): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), prefix))
+  onTestFinished(() => removeRoot(root))
+  return root
+}
+
 export interface BoundFixture {
   readonly context: MemoryIdentityContext
   readonly repo: GitMemoryRepo
