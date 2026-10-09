@@ -24,6 +24,7 @@ describe("host registry pairing (#9812)", () => {
   test.each([
     [base, true],
     [{ ...base, id: "unrelated" }, false],
+    [{ ...base, id: `${base.id}-mini` }, false],
     [{ ...alias, provider: "other-provider" }, false],
   ] as const)("non-alias open %j skips the catalog", async (started, accepted) => {
     // given
