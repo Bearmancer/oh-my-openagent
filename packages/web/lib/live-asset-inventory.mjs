@@ -12,6 +12,7 @@ export async function liveAssetInventory(origin, { acceptMissingHistory = "" } =
   const paths = new Set()
   const documents = new Set(["/"])
   let htmlLifetimeSeconds = 0
+  let missingHistoryWaived = false
   async function get(path, document = false) {
     let url = new URL(path, base)
     for (let hop = 0; hop < 5; hop++) {
@@ -78,6 +79,7 @@ export async function liveAssetInventory(origin, { acceptMissingHistory = "" } =
     if (advertisedHistory && acceptMissingHistory.trim() === "") {
       throw new AssetRetentionError("Deployment identified itself but its asset history is missing")
     }
+    if (advertisedHistory) missingHistoryWaived = true
   }
   for (const path of paths) {
     const response = await get(path)
@@ -104,5 +106,5 @@ export async function liveAssetInventory(origin, { acceptMissingHistory = "" } =
       "Current live inventory is empty or has no bounded cache lifetime",
     )
   }
-  return { paths: [...paths], htmlLifetimeSeconds }
+  return { paths: [...paths], htmlLifetimeSeconds, missingHistoryWaived }
 }

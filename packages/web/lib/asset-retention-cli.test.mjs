@@ -187,3 +187,12 @@ test("a whitespace-only reason is refused", async () => {
   expect(result.exit).not.toBe(0)
   expect(result.historyPublished).toBe(false)
 })
+
+test("a reason on a deploy whose live pages carry no deployment id is not reported as used", async () => {
+  const result = await deployment({
+    bootstrap: "current",
+    env: { ACCEPT_MISSING_ASSET_HISTORY: "first deploy after the account move" },
+  })
+  expect(result.exit).toBe(0)
+  expect(result.stdout).not.toContain("missingHistoryAccepted")
+})

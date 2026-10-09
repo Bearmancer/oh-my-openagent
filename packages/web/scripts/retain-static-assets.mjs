@@ -48,7 +48,7 @@ if (bootstrapFile === "--bootstrap-current") {
   })
   if (previous.status === 404) {
     bootstrap = await liveAssetInventory(origin, { acceptMissingHistory })
-    if (acceptMissingHistory)
+    if (bootstrap.missingHistoryWaived)
       process.stdout.write(`${JSON.stringify({ missingHistoryAccepted: acceptMissingHistory })}\n`)
   } else if (!previous.ok) throw new AssetRetentionError("Prior inventory cannot be read")
 } else if (bootstrapFile) {
