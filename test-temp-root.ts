@@ -95,6 +95,23 @@ function reportKnownLeaks(entries: readonly string[]): void {
   console.warn(`Known temp leaks, report-only until their owners are fixed (#9766):\n${lines.join("\n")}`)
 }
 
+const WINDOWS_HELD_HANDLE_CODES = new Set(["EBUSY", "EPERM", "ENOTEMPTY"])
+
+// Windows releases a child's file handles asynchronously, so the root can still be held when the run ends.
+// That is not a leak: the next run's removeAbandonedRunRoots() deletes it once this process is gone.
+function removeRunRoot(): void {
+  try {
+    rmSync(runRoot, { recursive: true, force: true, maxRetries: 3 })
+  } catch (error) {
+    const code = error instanceof Error && "code" in error ? error.code : undefined
+    if (process.platform === "win32" && typeof code === "string" && WINDOWS_HELD_HANDLE_CODES.has(code)) {
+      console.warn(`Test temp root ${runRoot} is still held (${code}); the next run removes it.`)
+      return
+    }
+    throw error
+  }
+}
+
 /**
  * Registers the end-of-run removal and leak check. bun test fires no process "exit" or "beforeExit"
  * event, and preload afterAll hooks run in registration order, so the last preload calls this after
@@ -103,7 +120,7 @@ function reportKnownLeaks(entries: readonly string[]): void {
 export function installTestTempRootTeardown(): void {
   afterAll(() => {
     const leftovers = leftoverEntries()
-    rmSync(runRoot, { recursive: true, force: true, maxRetries: 3 })
+    removeRunRoot()
     const known = leftovers.filter((entry) => reportOnlyOwner(entry) !== undefined)
     const unexpected = leftovers.filter((entry) => reportOnlyOwner(entry) === undefined)
     if (known.length > 0) reportKnownLeaks(known)

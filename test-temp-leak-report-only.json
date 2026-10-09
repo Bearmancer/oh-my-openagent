@@ -306,6 +306,7 @@
   ],
   "omo-senpi": [
     "dep-diff-git-",
+    "memory-skills-usage-",
     "omo-bwrap-probe-",
     "omo-bwrap-probe-denied-",
     "omo-child-output-",
@@ -313,8 +314,12 @@
     "omo-config-watch-paths-",
     "omo-config-watch-validate-",
     "omo-formatter-",
+    "omo-kibitzer-composition-",
+    "omo-kibitzer-observe-",
     "omo-memory-footer-wiring-",
+    "omo-memory-pressure-wiring-",
     "omo-memory-rpc-wiring-",
+    "omo-memory-shutdown-",
     "omo-memory-shutdown-bounds-",
     "omo-memory-usage-ledgers-",
     "omo-memory-wiring-notify-",
@@ -381,6 +386,7 @@
     "senpi-rpc-host-locks"
   ],
   "senpi-task": [
+    "dh-world-",
     "senpi-task-event-log-",
     "senpi-task-model-runtime-",
     "senpi-task-runtime-fallback-",
