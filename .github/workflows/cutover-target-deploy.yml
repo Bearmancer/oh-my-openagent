@@ -13,6 +13,10 @@ on:
         required: true
         type: choice
         options: [web, get]
+      missing_history_reason:
+        description: "web only: why /__asset-history.json is missing on the live origin (leave blank otherwise)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -45,6 +49,13 @@ jobs:
           bun install --frozen-lockfile
           bun run prebuild
           bunx opennextjs-cloudflare build
+
+      - name: Retain predecessor static assets (no token in this step)
+        if: inputs.worker == 'web'
+        working-directory: packages/web
+        env:
+          ACCEPT_MISSING_ASSET_HISTORY: ${{ inputs.missing_history_reason }}
+        run: bun scripts/retain-static-assets.mjs .open-next/assets https://omo.dev 1800 --bootstrap-current
 
       - name: Deploy oh-my-openagent-web
         if: inputs.worker == 'web'
