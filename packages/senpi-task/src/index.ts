@@ -13,6 +13,7 @@ export {
   KERNEL_TOOL_ERROR_CODES,
   KernelToolError,
   createKernelToolWrappers,
+  type KernelToolWrapper,
   isReservedKernelToolName,
   kernelToolKey,
   normalizeKernelToolName,
