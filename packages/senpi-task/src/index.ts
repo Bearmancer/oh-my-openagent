@@ -434,6 +434,8 @@ export type {
   SuspendSummary,
   TaskLifecycle,
 } from "./lifecycle"
+export { deferralOutlookFor } from "./lifecycle/deferred-revival-reasons"
+export type { DeferralOutlook } from "./lifecycle/deferred-revival-reasons"
 export { DEFAULT_SEND_DELIVERY, createSteeringEngine } from "./steering"
 export type {
   CancelOutcome,

@@ -204,7 +204,7 @@ describe("suspended residency labeling", () => {
     expect(first).toStartWith("‖ ")
     expect(first).not.toMatch(/\d+m \d+s|\b\d+s\b/u)
     expect(first).toContain("parent session restarted")
-    expect(first).toContain("resumes on session restart or a message; /task-kill to cancel")
+    expect(first).toContain("resumes on session restart; /task-kill to cancel")
   })
 
   it("#given a suspended child on a 118-column terminal #when building the live row #then it keeps the cancel action", () => {
@@ -239,17 +239,21 @@ describe("suspended residency labeling", () => {
   })
 
   it.each([
-    ["host_incompatible", "will not resume"],
-    ["idle_evicted", "resumes on a message"],
-    ["own_host_unreachable", "resumes on session restart or a message"],
-  ] as const)("#given a %s suspension #when building the live row #then the resume line says only what the engine does", (reason, promise) => {
-    // given a child parked for that reason
-    const parked = record({ task_id: "st_promise", status: "running", residency_state: "rpc_detached", suspension_reason: reason })
+    ["an in-process child left by a parent restart", { residency_state: "persisted_only" }, "resumes on session restart"],
+    ["a pending daemon-hosted child", { status: "pending", residency_state: "rpc_detached", runner_kind: "host-session", host_session: { socket: "/tmp/host.sock", routing_id: "route-1", session_path: "/tmp/child.jsonl", instance_id: "inst-1" }, suspension_reason: "own_host_unreachable" }, "resumes on session restart"],
+    ["a running daemon-hosted child whose host was lost", { residency_state: "rpc_detached", runner_kind: "host-session", host_session: { socket: "/tmp/host.sock", routing_id: "route-1", session_path: "/tmp/child.jsonl", instance_id: "inst-1" }, suspension_reason: "own_host_unreachable" }, "resumes on session restart or a message"],
+    ["a running daemon-hosted child evicted while idle", { residency_state: "rpc_detached", runner_kind: "host-session", host_session: { socket: "/tmp/host.sock", routing_id: "route-1", session_path: "/tmp/child.jsonl", instance_id: "inst-1" }, suspension_reason: "idle_evicted" }, "resumes on a message"],
+    ["a child on an incompatible host", { residency_state: "rpc_detached", suspension_reason: "host_incompatible" }, "will not resume"],
+    ["an in-process child whose deferred revival ends in lost", { residency_state: "persisted_only", suspension_reason: "revival_deferred", revival_deferred_reason: "model_unavailable" }, "retried a few times, then marked lost"],
+    ["a child deferred for capacity", { residency_state: "persisted_only", suspension_reason: "revival_deferred", revival_deferred_reason: "capacity" }, "retried when a running child ends, else on session restart"],
+  ] as const)("#given %s #when building the live row #then the resume line says only what the engine does", (_label, overrides, promise) => {
+    // given a parked child of that kind
+    const parked = record({ task_id: "st_promise", status: "running", ...overrides })
 
     // when the live row renders on a wide line
     const row = backgroundWidgetRows([parked], new Map(), Date.parse("2026-07-07T01:00:00.000Z"), () => undefined, 220)[0] ?? ""
 
-    // then it carries that cause's resume line and the cancel action
+    // then it carries that resume line and the cancel action
     expect(row).toContain(`${promise}; /task-kill to cancel`)
   })
 

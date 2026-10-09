@@ -1,5 +1,7 @@
 import {
   buildLiveStatsTokens,
+  deferralOutlookFor,
+  type DeferralOutlook,
   excerptRendererText,
   formatStatusTarget,
   formatTargetWithModel,
@@ -46,30 +48,59 @@ export function isSuspended(record: TaskRecord): boolean {
 
 type SuspensionReason = NonNullable<TaskRecord["suspension_reason"]>
 
-// Each cause in words, and what actually brings the child back. The engine resumes a parked child
-// when its parent session starts again or messages it (and retries a lost daemon briefly); nothing
-// watches for the cause to clear, so the row promises no more than that.
-const ON_RESTART_OR_MESSAGE = "resumes on session restart or a message"
-const SUSPENSION_CAUSES: Readonly<Record<SuspensionReason, { readonly cause: string; readonly resumes: string }>> = {
-  daemon_unavailable: { cause: "task daemon unavailable", resumes: ON_RESTART_OR_MESSAGE },
-  handoff_parked: { cause: "handed off", resumes: ON_RESTART_OR_MESSAGE },
-  host_draining: { cause: "host draining", resumes: ON_RESTART_OR_MESSAGE },
-  host_incompatible: { cause: "host version mismatch", resumes: "will not resume" },
-  idle_evicted: { cause: "evicted while idle", resumes: "resumes on a message" },
-  own_host_unreachable: { cause: "host lost", resumes: ON_RESTART_OR_MESSAGE },
-  revival_deferred: { cause: "revival deferred", resumes: ON_RESTART_OR_MESSAGE },
-  store_index_unavailable: { cause: "task store unavailable", resumes: ON_RESTART_OR_MESSAGE },
+// Each cause in words. What brings the child back is decided per record below, from the same
+// facts the engine uses: nothing watches for the cause to clear.
+const SUSPENSION_CAUSES: Readonly<Record<SuspensionReason, string>> = {
+  daemon_unavailable: "task daemon unavailable",
+  handoff_parked: "handed off",
+  host_draining: "host draining",
+  host_incompatible: "host version mismatch",
+  idle_evicted: "evicted while idle",
+  own_host_unreachable: "host lost",
+  revival_deferred: "revival deferred",
+  store_index_unavailable: "task store unavailable",
 }
 
-const PARENT_RESTARTED = { cause: "parent session restarted", resumes: ON_RESTART_OR_MESSAGE }
+const PARENT_RESTARTED_CAUSE = "parent session restarted"
 
-function suspensionFacts(record: TaskRecord): { readonly cause: string; readonly resumes: string } {
-  return record.suspension_reason === undefined ? PARENT_RESTARTED : SUSPENSION_CAUSES[record.suspension_reason]
+// What a deferred revival does next (the engine's own outlook, see deferralOutlookFor).
+const DEFERRAL_OUTLOOKS: Readonly<Record<DeferralOutlook, string>> = {
+  waits_for_capacity: "retried when a running child ends, else on session restart",
+  may_stay_with_live_owner: "held by another live session",
+  retried_then_lost: "retried a few times, then marked lost",
+  retried_not_lost: "retried a few times, else waits for its host",
+  not_retried: "resumes on session restart",
+}
+
+/**
+ * Whether a message can bring a parked child back. task_send revives only a running daemon-hosted
+ * child parked at `rpc_detached` (messageability: `revive`); every other parked child resumes only
+ * with its session.
+ */
+function revivableByMessage(record: TaskRecord): boolean {
+  return record.status === "running"
+    && record.residency_state === "rpc_detached"
+    && record.runner_kind === "host-session"
+    && record.host_session !== undefined
+}
+
+function suspensionResumes(record: TaskRecord): string {
+  const byMessage = revivableByMessage(record)
+  switch (record.suspension_reason) {
+    case "host_incompatible":
+      return "will not resume"
+    case "idle_evicted":
+      return byMessage ? "resumes on a message" : "resumes on session restart"
+    case "revival_deferred":
+      return DEFERRAL_OUTLOOKS[deferralOutlookFor(record.revival_deferred_reason ?? "", byMessage || record.runner_kind === "host-session")]
+    default:
+      return byMessage ? "resumes on session restart or a message" : "resumes on session restart"
+  }
 }
 
 // Why the child is parked, in words: the host's recorded reason, or the parent restarting away.
 function suspensionCause(record: TaskRecord): string {
-  const { cause } = suspensionFacts(record)
+  const cause = record.suspension_reason === undefined ? PARENT_RESTARTED_CAUSE : SUSPENSION_CAUSES[record.suspension_reason]
   const deferred = optionalRendererText(record.revival_deferred_reason)
   return record.suspension_reason === "revival_deferred" && deferred !== undefined ? `${cause}: ${deferred}` : cause
 }
@@ -79,7 +110,7 @@ const CANCEL_HINT = "/task-kill to cancel"
 // How a parked child goes on: when it resumes by itself, and the user's one action. A narrow line
 // keeps only the action.
 function suspensionHints(record: TaskRecord): readonly string[] {
-  return [`${suspensionFacts(record).resumes}; ${CANCEL_HINT}`, CANCEL_HINT]
+  return [`${suspensionResumes(record)}; ${CANCEL_HINT}`, CANCEL_HINT]
 }
 
 // Maps a record's residency to its user-facing status label: suspended children show `suspended`
@@ -171,7 +202,6 @@ function formatLiveBackgroundRow(
   stats?: TaskRunStats,
 ): string {
   const suspended = isSuspended(record)
-  // A parked child's time stops at its last record write, which is when it was parked.
   // A parked child shows no running time: the record has no park timestamp (`updated_at` moves with
   // every revival attempt), and a climbing timer is what made the row look alive.
   const elapsed = suspended ? undefined : formatElapsed(record.created_at, now)
