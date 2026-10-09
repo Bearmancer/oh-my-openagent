@@ -170,7 +170,7 @@ describe("idle resident sweep with a child that never exits (omo#9785)", () => {
     expect(store.load(STUCK)?.residency_state).toBe("rpc_detached")
     lifecycle.dispose?.()
   })
-  test("#given two sessions' engines sharing one store in one process #when one engine sweeps #then the sibling's handle-less finished child is left alone", async () => {
+  test("#given a handle-less finished child of a sibling session in this process #when this session's engine sweeps #then it is left alone", async () => {
     // given
     const store = tempStore()
     seedRecord(store, { task_id: STUCK, status: "completed", residency_state: "resident", updated_at: new Date(1_000_000).toISOString(), host_pid: process.pid, parent_session_id: "parent-2" })

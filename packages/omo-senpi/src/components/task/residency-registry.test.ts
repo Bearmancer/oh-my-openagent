@@ -175,10 +175,10 @@ describe("createManagerResidencyRegistry ownership (#9785)", () => {
     const registry = createManagerResidencyRegistry(() => manager, () => current)
 
     // when / then
-    expect(registry.ownsRecord?.({ parent_session_id: "session-a" } as never)).toBe(true)
-    expect(registry.ownsRecord?.({ parent_session_id: "session-b" } as never)).toBe(false)
+    expect(registry.ownsRecord?.({ parent_session_id: "session-a" })).toBe(true)
+    expect(registry.ownsRecord?.({ parent_session_id: "session-b" })).toBe(false)
     current = "session-b"
-    expect(registry.ownsRecord?.({ parent_session_id: "session-b" } as never)).toBe(true)
+    expect(registry.ownsRecord?.({ parent_session_id: "session-b" })).toBe(true)
   })
 
   it("#given no session accessor #when asked #then nothing is owned", () => {
@@ -186,6 +186,6 @@ describe("createManagerResidencyRegistry ownership (#9785)", () => {
     const registry = createManagerResidencyRegistry(() => manager)
 
     // when / then
-    expect(registry.ownsRecord?.({ parent_session_id: "session-a" } as never)).toBe(false)
+    expect(registry.ownsRecord?.({ parent_session_id: "session-a" })).toBe(false)
   })
 })

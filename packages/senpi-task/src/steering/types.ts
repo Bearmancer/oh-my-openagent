@@ -1,5 +1,6 @@
 import type { ManagedChildHandle } from "../manager/child-handle"
 import type { ColdRevivalFailureCode, DetachedRevivalResult, DetachedRevivalRollbackResult } from "../lifecycle/port"
+import type { TeardownStepDeadline } from "../lifecycle/teardown-budget"
 import type { HostSessionIdentity, TaskRecord, TaskRunStats, TaskStatus } from "../state"
 import type { TaskRecordStore } from "../store"
 
@@ -46,6 +47,8 @@ export type SteeringPort = {
   stopSettled?(taskId: string): void
   // A reopened child handed back parked runs nowhere: no epoch of it keeps a lane slot.
   releaseTaskLeases?(taskId: string): void
+  // How long a running child's abort may hold a cancel or interrupt before it moves on (omo#9791).
+  readonly abortDeadline?: TeardownStepDeadline
   now(): number
 }
 

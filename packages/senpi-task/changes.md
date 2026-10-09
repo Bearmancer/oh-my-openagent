@@ -1,3 +1,19 @@
+## 2026-10-09 - Cancelling a running child that never answers its abort no longer hangs (#9791)
+
+`steering/controls.ts` awaited `handle.abort()` before it destroyed a running child (`task_cancel`), and before it recorded an interrupt. An RPC abort waits for the child's answer with no timeout, so a child that never answered held `task_cancel` (or the interrupt) forever. #9785 had bounded the destruction port and the idle sweep, but not this step.
+
+The abort now goes through the same `withinTeardownBudget` as the destruction steps (10 s, `lifecycle/teardown-budget.ts`). Past the budget the step is logged with the task id and pid, and the cancel moves on to destruction. Destruction terminates the child: SIGTERM, then SIGKILL after the escalation window, waiting for the exit. A rejected abort is still logged and skipped as before. `SteeringPort.abortDeadline` is the injectable budget; production uses the default.
+
+`steering/cancel-running-abort-budget.test.ts` uses a running child whose abort never settles:
+- `task_cancel` completes, destroys the child and records `cancelled` once the budget expires;
+- an interrupt completes and records `interrupted`.
+
+Both hang on the unbounded abort. The budget is test-driven, so nothing waits on a wall clock.
+
+Test tidy-ups from the #9785 review:
+- The sibling-session sweep test is named for what it checks: one session's engine leaves a sibling session's handle-less child alone.
+- `ResidencyRegistry.ownsRecord` takes `Pick<TaskRecord, "parent_session_id">`, so the omo-senpi adapter test needs no `as never` casts.
+
 ## 2026-10-08 - A child that will not stop no longer holds every finished child resident (#9785)
 
 The idle reclaimer (`lifecycle/residency.ts`) skips a tick while a sweep is running, and a sweep only ended when every resident's teardown had finished. Each teardown step awaited the child with no limit:
@@ -41,7 +57,7 @@ Tests:
   - A stuck child is terminated and parked once its budgets expire, and the sweep settles. Fails on `dev`.
   - An errored in-process resident is parked.
   - A handle-less errored resident (session never opened) is parked by the sweep.
-  - With two sessions' engines sharing one store, a sweep leaves the sibling's handle-less child alone.
+  - A sweep leaves a sibling session's handle-less child in the same process alone.
 
   The budgets are driven by the test, so nothing waits on a wall clock.
 - `steering/cancel-terminal-resident.test.ts`:
