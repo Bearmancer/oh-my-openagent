@@ -87,11 +87,11 @@ function leftoverEntries(): string[] {
   }
 }
 
-// A listed entry starting with "=" names one fixed entry exactly; any other entry is a prefix of the names
+// A listed entry ending in "$" names one fixed entry exactly; any other entry is a prefix of the names
 // mkdtemp (or a test) derives from it.
 function reportOnlyOwner(entry: string): string | undefined {
   for (const [owner, prefixes] of Object.entries(reportOnlyPrefixesByOwner)) {
-    if (prefixes.some((prefix) => (prefix.startsWith("=") ? entry === prefix.slice(1) : entry.startsWith(prefix)))) return owner
+    if (prefixes.some((prefix) => (prefix.endsWith("$") ? entry === prefix.slice(0, -1) : entry.startsWith(prefix)))) return owner
   }
   return undefined
 }
