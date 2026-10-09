@@ -245,6 +245,20 @@ describe("shared last-known-good copy (#9820)", () => {
     expect(await getStats()).toEqual(good)
   })
 
+  test("a cold isolate inherits the stored copy's age, so an old copy is refreshed on the next request", async () => {
+    const store = memoryStore()
+    const old = { ...FALLBACK_STATS_DATA, stars: 70_000 }
+    await store.write({ data: old, timestamp: Date.now() - 2 * 60 * 60 * 1000 })
+    setStatsStoreForTests(store)
+    installFetch({ onPoint: (_period, pkg) => (pkg === "oh-my-openagent" ? json({ error: "upstream" }, 500) : 100) })
+    expect((await getStats()).stars).toBe(70_000)
+    // Upstreams recover: the 2-hour-old copy is past the in-memory TTL, so the next request refreshes at once
+    // (a copy re-stamped "now" would be held for another hour instead).
+    const { calls } = installFetch({ onPoint: () => 100 })
+    await getStats()
+    expect(calls().length).toBeGreaterThan(0)
+  })
+
   test("a failed refresh never writes the shared copy, so a partial aggregate is never stored", async () => {
     const store = memoryStore()
     setStatsStoreForTests(store)
@@ -323,6 +337,23 @@ describe("the Cache API store (#9820)", () => {
         pkg === "oh-my-openagent" ? json({ error: "upstream" }, 500) : 100,
     })
     expect(await getStats()).toEqual(good)
+  })
+
+  test("malformed stored entries are ignored: bad counts, a non-string description, a non-number time", async () => {
+    const good = { ...FALLBACK_STATS_DATA, stars: 70_000 }
+    for (const entry of [
+      { data: { ...good, stars: -1 }, timestamp: 1 },
+      { data: { ...good, monthlyDownloads: Number.POSITIVE_INFINITY }, timestamp: 1 },
+      { data: { ...good, description: 7 }, timestamp: 1 },
+      { data: good, timestamp: "yesterday" },
+    ]) {
+      resetStatsCacheForTests()
+      const fake = fakeCaches()
+      fake.install()
+      fake.kept.set("https://omo.dev/__stats/last-known-good/v1", new Response(JSON.stringify(entry)))
+      installFetch({ onPoint: (_period, pkg) => (pkg === "oh-my-openagent" ? json({ error: "upstream" }, 500) : 100) })
+      await expect(getStats()).rejects.toThrow()
+    }
   })
 
   test("a malformed stored entry is ignored, so the cold failure rejects", async () => {
