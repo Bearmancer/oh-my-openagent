@@ -1,3 +1,15 @@
+## 2026-10-09 - Bound suspended-child cleanup and protect session startup (#9350)
+
+Rollback preparation maps `failure_kind: "suspended_unresumable"` to R0's `session_unavailable`, keeping the `suspended_unresumable:<cause>` error text. The R0 contract fixture checks the failure kind and the other closed enum fields, including nested model, isolation, owner and run-stat fields. Preparation reports open strict closure obligations in its return value and warning log, naming the affected tasks and warning that the old daemon session may still be running.
+
+Rollback is not blocked on background closure. Older binaries keep the ended record visible but do not keep retrying the strict close. A newer binary resumes those retries only if the obligation field survived: an older binary rewriting the record can drop the field. The rollback warning is printed on stderr as well as included in the JSON report.
+
+An unconfirmed local stop now keeps its existing expiry claim and follows the deferred-revival backoff: 5, 15, 30, 60, 120, then 300 seconds between attempts, capped at 300 seconds. Recovery still checks every five seconds, but intervening ticks do not rewrite the record, append another claim event, or signal the child. A failed stop remains nonterminal until the existing stop path confirms it.
+
+Strict daemon closure retries run in a session-scoped background pass, one pass per lifecycle, rather than blocking `session_start` and its subsequent TTL sweep. A timed-out close retains its in-process identity reservation until the transport settles; repeated startup/cleanup calls cannot accumulate hung requests for the same old session. TTL retains strict obligations until their matching confirmed close clears them.
+
+The lifecycle fixture now observes every terminal status and reconstructs the observed store, manager and notifier on restart. Tests cover parent shutdown during the budget, at the locked expiry claim, and after the claim (one buffered result); unconfirmed local-stop backoff; stale residency and closure identities; and startup with hung own/foreign obligations. Removing either parent guard, the residency-claim guard, or closure identity comparisons now fails the corresponding regression.
+
 ## 2026-10-09 - Suspended children recover while their parent is still live (#9350)
 
 The lifecycle now observes the adapter's existing store-mutation channel. A manager `onParked` event, daemon-loss park, or reconcile deferral immediately attempts scoped revival through the existing admission lease, residency claim and `reviveClaimed`; there is no second respawn path. Observation runs after the synchronous park/forget operation.
@@ -8,7 +20,7 @@ Only `pending` and `running` children in `persisted_only` or `rpc_detached` qual
 
 At expiry, an atomic epoch/claim check fences the unfinished run against revival. In-process and child-process children use the existing destruction and confirmed process-stop paths. A failed stop is not falsely reported as confirmed. Failure uses the existing `fail` transition (`status: "error"`), `failure_kind: "suspended_unresumable"`, and `error_message` beginning `suspended_unresumable:<cause>`. The terminal run releases its queue/lane and residency; normal notification bookkeeping delivers one parent result and manager waiters settle.
 
-Daemon-only contract change: an unconfirmed close no longer leaves the live parent waiting forever. The record fails while retaining `fallback_closing_child` with `requires_confirmation: true`. Cleanup and session-start recovery retry this durable obligation regardless of TTL age. Silence, refusal and timeout do not clear it. A late confirmed close clears only the matching socket/session/instance/routing identity, never the task's status or notification epoch; timed-out requests may safely be retried because this killed run cannot be revived. Transcripts and partial output remain available.
+Daemon-only contract change: an unconfirmed close no longer leaves the live parent waiting forever. The record fails while retaining `fallback_closing_child` with `requires_confirmation: true`. Cleanup and session-start recovery retry this durable obligation regardless of TTL age. Silence, refusal and timeout do not clear it. A late confirmed close clears only the matching socket/session/instance/routing identity, never the task's status or notification epoch. A timed-out request keeps its identity reservation until it settles; a refused request can be retried. Transcripts and partial output remain available.
 
 The unconfirmed-close result tells the parent that the old session may still be running on an unreachable host, closing is being retried, and re-dispatch has no at-most-once guarantee: work may run twice, so side effects must be checked before re-running. A confirmed local stop carries no such caveat. Error records already leave live widget rows while remaining in `/tasks` history.
 

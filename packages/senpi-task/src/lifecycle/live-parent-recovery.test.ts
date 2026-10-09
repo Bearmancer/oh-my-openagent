@@ -9,7 +9,11 @@ function fixture(mode?: Parameters<typeof liveParentFixture>[0]) {
   fixtures.push(f)
   return f
 }
-afterEach(() => { for (const f of fixtures.splice(0)) f.dispose(); cleanupProjects(); cleanupManagers() })
+afterEach(() => {
+  for (const f of fixtures.splice(0)) f.dispose()
+  cleanupProjects()
+  cleanupManagers()
+})
 
 describe("live-parent suspended child recovery (#9350)", () => {
   test("revives immediately through scoped admission without a terminal result", async () => {
@@ -90,18 +94,27 @@ describe("live-parent suspended child recovery (#9350)", () => {
     expect(f.store.load(id)?.fallback_closing_child).toBeDefined()
     const lifecycle = f.restart()
     f.state.closeRefused = false
+    const cleared = f.until(() => f.store.load(id)?.fallback_closing_child === undefined)
     await lifecycle.reconcileOnSessionStart("parent-1")
     await lifecycle.cleanupExpiredRecords()
+    await cleared
     expect(f.store.load(id)?.fallback_closing_child).toBeUndefined()
     expect(f.store.load(id)?.status).toBe("error")
-    f.notifier.reconcileUnnotifiedNotifications({ sessionId: "parent-1", parentState: { kind: "idle" } })
+    f.notifier.reconcileUnnotifiedNotifications({
+      sessionId: "parent-1",
+      parentState: { kind: "idle" },
+    })
     expect(f.messages).toHaveLength(1)
+    expect(f.terminals).toHaveLength(1)
   })
 
   test("timed-out daemon close retries and its late confirmation only clears the obligation", async () => {
     const f = fixture("host-session")
     const id = await f.start()
-    f.store.mutate(id, (record) => ({ ...record, final_response: "partial work retained" }))
+    f.store.mutate(id, (record) => ({
+      ...record,
+      final_response: "partial work retained",
+    }))
     const attempted = f.wait("live_parent_recovery_attempt")
     f.park(id)
     await attempted
@@ -129,7 +142,10 @@ describe("live-parent suspended child recovery (#9350)", () => {
     const id = await f.start()
     expect(f.store.load(id)?.status).toBe("pending")
     const attempted = f.wait("live_parent_recovery_attempt")
-    f.store.transition(id, { type: "persist_only", timestamp: new Date().toISOString() })
+    f.store.transition(id, {
+      type: "persist_only",
+      timestamp: new Date().toISOString(),
+    })
     await attempted
     const terminal = f.manager.waitFor(id)
     const ended = f.wait("suspended_unresumable")
@@ -199,13 +215,19 @@ describe("live-parent suspended child recovery (#9350)", () => {
   test("finished idle-evicted child is untouched and not reported again", async () => {
     const f = fixture()
     const id = await f.start()
-    f.store.transition(id, { type: "complete", timestamp: new Date().toISOString(), final_response: "done" })
+    f.store.transition(id, {
+      type: "complete",
+      timestamp: new Date().toISOString(),
+      final_response: "done",
+    })
+    const previousMessages = f.messages.length
     f.park(id)
     f.advance(300_000)
     await Promise.resolve()
     expect(f.store.load(id)?.status).toBe("completed")
     expect(f.state.respawns).toBe(0)
     expect(f.timers.size).toBe(1)
-    expect(f.messages).toHaveLength(0)
+    expect(f.messages).toHaveLength(previousMessages)
+    expect(f.terminals).toHaveLength(1)
   })
 })

@@ -101,7 +101,8 @@ export async function reviveClaimed(
   options: ReviveClaimedOptions = {},
 ): Promise<ReconcileOutcome> {
   if (claimed.isolation !== undefined) {
-    if (context.deferUnresumable) return rollbackOrDeferred(context, claimed.task_id, rollbackResidency, "isolated_not_revivable", claimed)
+    if (context.deferUnresumable)
+      return rollbackOrDeferred(context, claimed.task_id, rollbackResidency, "isolated_not_revivable", claimed)
     // Never respawned - but deferring left the record non-terminal, and crash salvage only visits
     // terminal records, so the sweep in the same startup pass reclaimed the clone with the child's
     // unreviewed delta still inside it. Marking it lost is what the legacy respawn path already does.
@@ -148,7 +149,8 @@ export async function reviveClaimed(
   }
 
   if (resumePath === undefined && !isSpawnSpecV1Record(fresh)) {
-    if (context.deferUnresumable) return rollbackOrDeferred(context, fresh.task_id, rollbackResidency, "spawn_spec_unavailable", fresh)
+    if (context.deferUnresumable)
+      return rollbackOrDeferred(context, fresh.task_id, rollbackResidency, "spawn_spec_unavailable", fresh)
     if (TERMINAL_STATUSES.has(fresh.status)) {
       disposeClaimed(context, fresh)
       return {
@@ -163,7 +165,8 @@ export async function reviveClaimed(
 
   const ports = context.reattachPorts ?? getLifecycleReattachPorts(context.store)
   if (ports === undefined) {
-    if (context.deferUnresumable) return rollbackOrDeferred(context, fresh.task_id, rollbackResidency, "session_unavailable", fresh)
+    if (context.deferUnresumable)
+      return rollbackOrDeferred(context, fresh.task_id, rollbackResidency, "session_unavailable", fresh)
     if (TERMINAL_STATUSES.has(fresh.status)) return rollbackOrDeferred(context, fresh.task_id, rollbackResidency, "session_unavailable", fresh)
     await markLost(context, fresh, "reattach ports unavailable")
     return { task_id: fresh.task_id, kind: "lost", reason: "reattach ports unavailable" }
@@ -191,7 +194,8 @@ export async function reviveClaimed(
       return { task_id: fresh.task_id, kind: "resumed", reason: respawned.reason }
     }
     if (TERMINAL_STATUSES.has(fresh.status)) return rollbackOrDeferred(context, fresh.task_id, rollbackResidency, deferredCode(respawned.code), fresh)
-    if (context.deferUnresumable) return rollbackOrDeferred(context, fresh.task_id, rollbackResidency, deferredCode(respawned.code), fresh)
+    if (context.deferUnresumable)
+      return rollbackOrDeferred(context, fresh.task_id, rollbackResidency, deferredCode(respawned.code), fresh)
     await markLost(context, fresh, `reattach failed: ${respawned.reason}`)
     return { task_id: fresh.task_id, kind: "lost", reason: respawned.reason }
   }

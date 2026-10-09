@@ -1,5 +1,5 @@
-import type { HostSessionIdentity, TaskRecord } from "../state"
 import { log } from "@oh-my-opencode/utils"
+import type { HostSessionIdentity, TaskRecord } from "../state"
 import { delay, type LifecycleContext } from "./context"
 import { forgetClosedChild } from "./fallback-handoff"
 import { closeHostSession, closeHostSessionConfirmed } from "./host-session-close"
@@ -17,20 +17,41 @@ export async function endClosingFallbackChild(context: LifecycleContext, record:
   const closing = record.fallback_closing_child
   if (closing === undefined) return true
   if (closing.requires_confirmation === true && closing.host_session !== undefined) {
-    const key = JSON.stringify([context.store.stateDir, record.task_id, closing.host_session])
+    const { socket, session_path, instance_id, routing_id } = closing.host_session
+    const key = JSON.stringify([context.store.stateDir, record.task_id, socket, session_path, instance_id, routing_id])
     const active = closingAttempts.get(key)
     if (active !== undefined) return false
-    // A timeout releases the attempt, not the durable obligation. Retrying an idempotent close of
-    // this permanently stopped identity is safe even if the previous request may still answer.
+    // The deadline releases the caller, not the request. Keep one attempt per identity until its
+    // transport settles, including across lifecycle replacement in this process.
     const forget = () => context.store.mutate(record.task_id, (fresh) => forgetClosedChild(fresh, closing))
+    let awaitingLateClose = false
     const attempt = closeHostSession(context, record.task_id, closing.host_session, record.spawn_spec?.cwd)
       .then((outcome) => {
-        if (outcome.kind === "closed") { forget(); return true }
-        if (outcome.kind === "pending") void outcome.settled.then((ended) => {
-          if (ended) forget()
-        }).catch((error: unknown) => log("senpi-task late suspension close bookkeeping failed", { taskId: record.task_id, error: String(error) }))
+        if (outcome.kind === "closed") {
+          forget()
+          return true
+        }
+        if (outcome.kind === "pending") {
+          awaitingLateClose = true
+          void outcome.settled
+            .then((ended) => {
+              if (ended) forget()
+            })
+            .catch((error: unknown) =>
+              log("senpi-task late suspension close bookkeeping failed", {
+                taskId: record.task_id,
+                error: String(error),
+              }),
+            )
+            .finally(() => {
+              closingAttempts.delete(key)
+            })
+        }
         return false
-      }).finally(() => { closingAttempts.delete(key) })
+      })
+      .finally(() => {
+        if (!awaitingLateClose) closingAttempts.delete(key)
+      })
     closingAttempts.set(key, attempt)
     return attempt
   }

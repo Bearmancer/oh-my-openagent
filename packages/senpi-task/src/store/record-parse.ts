@@ -174,7 +174,8 @@ function parseOptionalClosingChild(record: Record<string, unknown>): TaskRecord[
   const hostSession = parseOptionalHostSession(value)
   const confirmation = readOptionalBoolean(value, "requires_confirmation")
   return {
-    ...(pid === undefined ? {} : { pid }), ...(hostSession === undefined ? {} : { host_session: hostSession }),
+    ...(pid === undefined ? {} : { pid }),
+    ...(hostSession === undefined ? {} : { host_session: hostSession }),
     ...(confirmation === undefined ? {} : { requires_confirmation: confirmation }),
   }
 }

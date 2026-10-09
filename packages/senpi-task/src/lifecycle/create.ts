@@ -9,9 +9,9 @@ import { reconcileOnSessionStart } from "./reconcile"
 import { rollbackDetachedRevival, reviveDetachedTerminal } from "./revive-detached"
 import { suspendOnSessionShutdown } from "./shutdown"
 import { cleanupExpiredRecords } from "./ttl"
-import { startLiveParentRecovery } from "./live-parent-recovery"
-import { retrySuspendedClosures } from "./suspended-expiry"
 import type { SuspendInput, TaskLifecycle } from "./types"
+import { startLiveParentRecovery } from "./live-parent-recovery"
+import { retrySuspendedClosures } from "./suspended-closures"
 
 /**
  * Bind the lifecycle operations to a store + residency registry + config. The returned object is the
@@ -21,7 +21,7 @@ import type { SuspendInput, TaskLifecycle } from "./types"
 export function createTaskLifecycle(deps: LifecycleDeps): TaskLifecycle {
   const context = resolveContext(deps)
   const cleanup = async () => {
-    await retrySuspendedClosures(context)
+    retrySuspendedClosures(context)
     return cleanupExpiredRecords(context)
   }
   const recovery = startLiveParentRecovery(context, deps.onStoreMutation)
@@ -44,7 +44,7 @@ export function createTaskLifecycle(deps: LifecycleDeps): TaskLifecycle {
     admitResident: (parentSessionId: string) => admitResident(context, parentSessionId),
     reconcileOnSessionStart: async (parentSessionId?: string) => {
       if (parentSessionId !== undefined) resumeScopedRetries(context, parentSessionId)
-      await retrySuspendedClosures(context)
+      retrySuspendedClosures(context, parentSessionId)
       const result = await reconcileOnSessionStart(context, parentSessionId)
       retryDeferredHostSessions(context, result.outcomes, parentSessionId)
       recovery.scan()
