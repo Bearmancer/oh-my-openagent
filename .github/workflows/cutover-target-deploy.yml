@@ -13,6 +13,10 @@ on:
         required: true
         type: choice
         options: [web, get]
+      missing_history_reason:
+        description: "web only: why /__asset-history.json is missing on the live origin (leave blank otherwise)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -45,6 +49,13 @@ jobs:
           bun install --frozen-lockfile
           bun run prebuild
           bunx opennextjs-cloudflare build
+
+      - name: Retain predecessor static assets (no token in this step)
+        if: inputs.worker == 'web'
+        working-directory: packages/web
+        env:
+          ACCEPT_MISSING_ASSET_HISTORY: ${{ inputs.missing_history_reason }}
+        run: bun scripts/retain-static-assets.mjs .open-next/assets https://omo.dev 1800 --bootstrap-current
 
       - name: Deploy oh-my-openagent-web
         if: inputs.worker == 'web'
@@ -108,10 +119,15 @@ jobs:
         if: always()
         shell: bash
         env:
+          MISSING_HISTORY_REASON: ${{ inputs.missing_history_reason }}
           JOB_SUMMARY_TITLE: Cutover target deploy (${{ inputs.worker }})
           JOB_SUMMARY_STATUS: ${{ job.status }}
           JOB_SUMMARY_DETAILS: |
             - Deploys the `${{ inputs.worker }}` Worker to the Sisyphus Labs account from its default config (its omo.dev routes or custom domain included; omo-get refuses a pending D1 migration).
             - The smoke waits up to 5 min for the fresh workers.dev script, then checks the Worker answers (web) or its R2 and D1 bindings (get).
           JOB_SUMMARY_NEXT: A smoke that stops at 404 or 5xx after 5 min means the script is not serving; any other wrong answer is a real fault in the deployed Worker or its bindings.
-        run: GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" bash .github/scripts/write-job-summary.sh
+        run: |
+          GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" bash .github/scripts/write-job-summary.sh
+          if [ -n "$MISSING_HISTORY_REASON" ]; then
+            printf '\n**Missing asset history accepted for this run.** Reason: %s\n' "$MISSING_HISTORY_REASON" >> "$GITHUB_STEP_SUMMARY"
+          fi
