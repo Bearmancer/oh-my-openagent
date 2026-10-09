@@ -83,7 +83,7 @@ describe("resolveKibitzerSidecarModel", () => {
 
 // A catalog that knows every model below, and an availability list naming only the connected ones:
 // `find` answers for an unconnected provider's model exactly like the live catalog does (#9216).
-const CATALOG = ["openai/gpt-5.6-luna-fast", "apitopia/gpt-5.6-luna-fast", "anthropic/claude-haiku-5-5", "deepseek/deepseek-flash", "omo-mock/unrelated-1"]
+const CATALOG = ["openai/gpt-5.6-luna-fast", "apitopia/gpt-5.6-luna-fast", "anthropic/claude-haiku-5-5", "anthropic/claude-haiku-4-5", "deepseek/deepseek-flash", "omo-mock/unrelated-1"]
 
 function port(selector: string): SenpiModelPort {
   const slash = selector.indexOf("/")
@@ -110,11 +110,12 @@ describe("resolveKibitzerSidecarModel connected-first ordering (#9216)", () => {
   })
 
   test("#given a pin whose later entry is connected and an earlier builtin rung also connected #when resolved #then the connected pin wins over the builtin chain", () => {
-    const config: OmoConfig = { categories: { quick: { models: ["openai/gpt-5.6-luna-fast", "anthropic/claude-haiku-5-5"] } } }
+    // The pinned claude-haiku-4-5 is not a builtin quick rung, so only pin priority can select it over DeepSeek.
+    const config: OmoConfig = { categories: { quick: { models: ["openai/gpt-5.6-luna-fast", "anthropic/claude-haiku-4-5"] } } }
 
-    const resolution = resolveKibitzerSidecarModel({ config, registry: connectedRegistry(["deepseek/deepseek-flash", "anthropic/claude-haiku-5-5"]) })
+    const resolution = resolveKibitzerSidecarModel({ config, registry: connectedRegistry(["deepseek/deepseek-flash", "anthropic/claude-haiku-4-5"]) })
 
-    expect(resolution).toMatchObject({ kind: "resolved", model: "anthropic/claude-haiku-5-5" })
+    expect(resolution).toMatchObject({ kind: "resolved", model: "anthropic/claude-haiku-4-5" })
     if (resolution.kind !== "resolved") throw new Error("unreachable")
     const order = resolution.fallbacks.map((candidate) => candidate.model)
     // Connected rungs lead; the unconnected pin may stay reachable but only behind them.
