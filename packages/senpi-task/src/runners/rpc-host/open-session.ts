@@ -7,6 +7,7 @@ import {
   type TaskStartFailureReason,
 } from "../../state"
 import { RunnerError } from "../in-process/runner-error"
+import { startedOnPinnedModel } from "../pinned-model-equivalence"
 import type { RpcRunnerSpec } from "../types"
 import { HostUnavailableError } from "./daemon"
 import {
@@ -80,7 +81,7 @@ export async function openTaskHostSession(input: {
         message: `the host reported no model after opening the requested ${model.provider}/${model.modelId}; refusing to start unverified`,
       })
     }
-    if (effective.provider !== model.provider || effective.id !== model.modelId) {
+    if (!startedOnPinnedModel(effective, { provider: model.provider, id: model.modelId })) {
       await input.client.close?.().catch(() => undefined)
       throw new RunnerError({
         kind: "model_unavailable",
