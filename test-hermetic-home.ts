@@ -4,6 +4,7 @@ import { spawnSync } from "node:child_process"
 import { mkdtempSync, readdirSync, readFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
+import { markTestInfrastructureDir } from "./test-temp-root"
 
 const AGENT_DIR_ENV_NAMES = ["OMO_CODING_AGENT_DIR", "SENPI_CODING_AGENT_DIR", "PI_CODING_AGENT_DIR"] as const
 
@@ -20,6 +21,7 @@ export interface HermeticHome {
 // OMO_ or SENPI_CODING_AGENT_DIR for itself or a child still wins exactly as it did before.
 export function installHermeticHome(): HermeticHome {
   const home = mkdtempSync(join(tmpdir(), "omo-test-home-"))
+  markTestInfrastructureDir(home)
   process.env.HOME = home
   process.env.USERPROFILE = home
   const agentDir = join(home, ".omo", "agent")
