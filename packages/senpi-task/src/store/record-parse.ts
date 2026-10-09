@@ -172,7 +172,12 @@ function parseOptionalClosingChild(record: Record<string, unknown>): TaskRecord[
   if (!isRecord(value)) throw new Error("fallback_closing_child is not an object")
   const pid = readOptionalNumber(value, "pid")
   const hostSession = parseOptionalHostSession(value)
-  return { ...(pid === undefined ? {} : { pid }), ...(hostSession === undefined ? {} : { host_session: hostSession }) }
+  const confirmation = readOptionalBoolean(value, "requires_confirmation")
+  return {
+    ...(pid === undefined ? {} : { pid }),
+    ...(hostSession === undefined ? {} : { host_session: hostSession }),
+    ...(confirmation === undefined ? {} : { requires_confirmation: confirmation }),
+  }
 }
 
 function parseOptionalStartQueued(record: Record<string, unknown>): TaskRecord["start_queued"] {

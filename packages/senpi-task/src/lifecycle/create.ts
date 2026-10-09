@@ -10,6 +10,8 @@ import { rollbackDetachedRevival, reviveDetachedTerminal } from "./revive-detach
 import { suspendOnSessionShutdown } from "./shutdown"
 import { cleanupExpiredRecords } from "./ttl"
 import type { SuspendInput, TaskLifecycle } from "./types"
+import { startLiveParentRecovery } from "./live-parent-recovery"
+import { retrySuspendedClosures } from "./suspended-closures"
 
 /**
  * Bind the lifecycle operations to a store + residency registry + config. The returned object is the
@@ -18,7 +20,11 @@ import type { SuspendInput, TaskLifecycle } from "./types"
  */
 export function createTaskLifecycle(deps: LifecycleDeps): TaskLifecycle {
   const context = resolveContext(deps)
-  const cleanup = () => cleanupExpiredRecords(context)
+  const cleanup = async () => {
+    retrySuspendedClosures(context)
+    return cleanupExpiredRecords(context)
+  }
+  const recovery = startLiveParentRecovery(context, deps.onStoreMutation)
   registerLifecycleDetachedRevival(context.store, (taskId) => reviveDetachedTerminal(context, taskId))
   registerLifecycleDetachedRevivalRollback(context.store, (prior) => rollbackDetachedRevival(context, prior))
   const stopIdleReclaimer = startIdleResidentReclaimer(context, cleanup)
@@ -31,14 +37,17 @@ export function createTaskLifecycle(deps: LifecycleDeps): TaskLifecycle {
     // whole runtime binding map goes too - no strong reference to a disposed kernel survives.
     dispose: () => {
       stopIdleReclaimer()
+      recovery.dispose()
       disposeScopedRetries(context)
       context.kernelToolBindings?.releaseAll()
     },
     admitResident: (parentSessionId: string) => admitResident(context, parentSessionId),
     reconcileOnSessionStart: async (parentSessionId?: string) => {
       if (parentSessionId !== undefined) resumeScopedRetries(context, parentSessionId)
+      retrySuspendedClosures(context, parentSessionId)
       const result = await reconcileOnSessionStart(context, parentSessionId)
       retryDeferredHostSessions(context, result.outcomes, parentSessionId)
+      recovery.scan()
       return result
     },
     parkHostSessionOnDaemonLoss: (taskId: string, options?: HostSessionParkOptions) =>
