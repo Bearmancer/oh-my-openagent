@@ -29,16 +29,42 @@ export function installHermeticHome(): HermeticHome {
   process.env.PI_CODING_AGENT_DIR = agentDir
   afterAll(async () => {
     // The temp-root teardown reads and removes the directory these hosts write into, so it waits for them
-    // to exit, and it runs even when the shard check below throws: a later preload afterAll does not run
+    // to exit, and it runs even when the shard check throws: a later preload afterAll does not run
     // once an earlier one has failed (#9766).
-    try {
+    await runCheckThenTeardown(async () => {
       await stopHostsUnder(home)
       failOnShardsInRealAgentDir()
-    } finally {
-      runTestTempRootTeardown()
-    }
+    }, runTestTempRootTeardown)
   })
   return { home, agentDir }
+}
+
+/** Runs the teardown after the check even when the check throws; when both throw, both errors are reported. */
+export async function runCheckThenTeardown(
+  check: () => Promise<void>,
+  teardown: () => void | Promise<void>,
+): Promise<void> {
+  let checkFailure: { readonly error: unknown } | undefined
+  try {
+    await check()
+  } catch (error) {
+    checkFailure = { error }
+  }
+  try {
+    await teardown()
+  } catch (teardownError) {
+    if (checkFailure) {
+      // bun test prints only an AggregateError's own message, so both inner messages go into it.
+      const errors = [checkFailure.error, teardownError]
+      throw new AggregateError(errors, `The shard check and the temp-root teardown both failed (#9766):\n${errors.map(describeError).join("\n")}`)
+    }
+    throw teardownError
+  }
+  if (checkFailure) throw checkFailure.error
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 const HOST_EXIT_WAIT_MS = 10_000

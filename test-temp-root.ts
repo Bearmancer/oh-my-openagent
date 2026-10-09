@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync
 import { tmpdir } from "node:os"
 import { basename, join } from "node:path"
 import reportOnlyPrefixesByOwner from "./test-temp-leak-report-only.json"
+import { reportOnlyOwner as ownerIn } from "./test-temp-leak-match"
 
 // Every test process gets its own temp root, and the OS temp dir variables point at it for the rest
 // of the process (#9766). os.tmpdir() re-reads them on each call, so every mkdtemp a test makes, and
@@ -87,13 +88,8 @@ function leftoverEntries(): string[] {
   }
 }
 
-// A listed entry ending in "$" names one fixed entry exactly; any other entry is a prefix of the names
-// mkdtemp (or a test) derives from it.
 function reportOnlyOwner(entry: string): string | undefined {
-  for (const [owner, prefixes] of Object.entries(reportOnlyPrefixesByOwner)) {
-    if (prefixes.some((prefix) => (prefix.endsWith("$") ? entry === prefix.slice(0, -1) : entry.startsWith(prefix)))) return owner
-  }
-  return undefined
+  return ownerIn(entry, reportOnlyPrefixesByOwner)
 }
 
 function reportKnownLeaks(entries: readonly string[]): void {
