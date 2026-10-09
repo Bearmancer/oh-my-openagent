@@ -35,32 +35,51 @@ jobs:
         with:
           bun-version: "1.4.2"
 
-      - name: Build and deploy oh-my-openagent-web
+      - name: Build oh-my-openagent-web (no token in this step)
         if: inputs.worker == 'web'
         working-directory: packages/web
         env:
           NEXT_TELEMETRY_DISABLED: "1"
-          DEST_TOKEN: ${{ secrets.CF_DEST_API_TOKEN }}
         run: |
           set -euo pipefail
           bun install --frozen-lockfile
           bun run prebuild
           bunx opennextjs-cloudflare build --config wrangler.dest.toml
-          CLOUDFLARE_API_TOKEN="$DEST_TOKEN" bunx opennextjs-cloudflare deploy --config wrangler.dest.toml -- --no-x-provision
+
+      - name: Deploy oh-my-openagent-web
+        if: inputs.worker == 'web'
+        working-directory: packages/web
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_DEST_API_TOKEN }}
+        run: bunx opennextjs-cloudflare deploy --config wrangler.dest.toml -- --no-x-provision
+
+      - name: Smoke oh-my-openagent-web
+        if: inputs.worker == 'web'
+        run: |
+          set -euo pipefail
           code=$(curl -sS -o /dev/null -w '%{http_code}' https://oh-my-openagent-web.sisyphus-labs.workers.dev/)
           echo "workers.dev answered $code"
           case "$code" in 200|307|308) ;; *) exit 1 ;; esac
+
+      - name: Install omo-get (no token in this step)
+        if: inputs.worker == 'get'
+        working-directory: packages/get-worker
+        run: bun install --frozen-lockfile
 
       - name: Deploy omo-get
         if: inputs.worker == 'get'
         working-directory: packages/get-worker
         env:
-          DEST_TOKEN: ${{ secrets.CF_DEST_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_DEST_API_TOKEN }}
+        run: bunx wrangler deploy --config wrangler.dest.jsonc --no-x-provision
+
+      - name: Smoke omo-get
+        if: inputs.worker == 'get'
         run: |
           set -euo pipefail
-          bun install --frozen-lockfile
-          CLOUDFLARE_API_TOKEN="$DEST_TOKEN" bunx wrangler deploy --config wrangler.dest.jsonc --no-x-provision
           base=https://omo-get.sisyphus-labs.workers.dev
           curl -fsS "$base/healthz"
-          curl -fsS "$base/channels/latest" >/dev/null   # reads R2 omo-releases
-          curl -fsS "$base/stats/downloads" >/dev/null   # reads D1
+          # /channels/latest falls back to npm with a 200 if R2 fails; only an r2 source proves the binding.
+          curl -fsS -D - -o /dev/null "$base/channels/latest" | tr -d '\r' | grep -qi '^x-omo-source: r2$'
+          # D1 is read without a fallback; it answers 200 once the cutover copy has filled the target.
+          curl -fsS "$base/stats/downloads" >/dev/null
