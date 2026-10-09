@@ -17,10 +17,20 @@ export const REPORT_ONLY_LIST_PATH = "test-temp-leak-report-only.json"
 export function addedReportOnlyEntries(base, head) {
   const added = []
   for (const [owner, prefixes] of Object.entries(head)) {
-    const known = new Set(base[owner] ?? [])
-    for (const prefix of prefixes) if (!known.has(prefix)) added.push(`${owner}: ${prefix}`)
+    const baseEntries = base[owner] ?? []
+    for (const prefix of prefixes) {
+      if (baseEntries.includes(prefix) || narrowsBaseEntry(prefix, baseEntries)) continue
+      added.push(`${owner}: ${prefix}`)
+    }
   }
   return added.sort()
+}
+
+// Replacing a broad prefix with the narrower names under it ("omo-test-" -> "omo-test-session-manager-")
+// only shrinks what is report-only, so it is not an addition. Same rule as test-temp-leak-match.ts.
+function narrowsBaseEntry(entry, baseEntries) {
+  const name = entry.endsWith("$") ? entry.slice(0, -1) : entry
+  return baseEntries.some((baseEntry) => !baseEntry.endsWith("$") && name.startsWith(baseEntry))
 }
 
 function existsAtBase(baseSha) {
