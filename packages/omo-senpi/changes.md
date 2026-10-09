@@ -1,3 +1,7 @@
+## 2026-10-08 - task_cancel can release a finished child's residency (#9785)
+
+`components/task/engine.ts` forwards the lifecycle's new `parkTerminalResident` through the manager's destruction port. With it, `task_cancel` on a finished child that is still resident stops the child and parks the record, instead of answering "No change." The registry adapter (`residency-registry.ts`) now answers `ownsRecord`: a record is this engine's when its parent session is the engine's current session. Without that answer a handle-less record is never parked, so a sibling session's child in the same daemon is left alone. The engine side is described in `packages/senpi-task/changes.md`.
+
 ## 2026-10-08 - Gating questions are asked with `required: true` even when the model omits it (#9774)
 
 senpi's `required: true` on `ask_user_question` turns a timed-out, dismissed or unavailable answer into "No answer: do not take the action it gates. Keep that action pending and end the turn." The flag is opt-in per call, and in live QA `zai/glm-5.3` never set it (0 of 6 gate calls; #9775), so its unanswered ulw-plan gate still read "continue on your best judgment".

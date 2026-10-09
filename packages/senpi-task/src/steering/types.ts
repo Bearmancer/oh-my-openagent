@@ -11,6 +11,8 @@ export type DestructionCause = "cancel" | "cancel_without_abort" | "fallback_han
 // and NEVER calls dispose()/terminate()/SIGTERM itself (the dispose single-writer rule). Idempotent.
 export type DestructionPort = {
   destroyResidentTask(taskId: string, cause: DestructionCause): Promise<void>
+  // Releases a finished child still resident here; false when there is none (omo#9785).
+  parkTerminalResident?(taskId: string): Promise<boolean>
 }
 
 // The seam steering consumes from the manager. The manager owns concurrency + live handles + the
@@ -104,6 +106,8 @@ export type CancelOutcome =
   // reachable (or the child ends when its connection does not come back), and only then is it cancelled.
   | { readonly kind: "cancel_pending"; readonly task_id: string; readonly previous_status: TaskStatus; readonly reason: string }
   | { readonly kind: "noop"; readonly task_id: string; readonly status: TaskStatus; readonly reason: string }
+  // The task had already finished; cancel released the child it still kept resident (omo#9785).
+  | { readonly kind: "released"; readonly task_id: string; readonly status: TaskStatus }
   /** The caller named an earlier run (`expectedRunEpoch`) and the task has moved on; nothing was cancelled. */
   | { readonly kind: "stale"; readonly task_id: string; readonly status: TaskStatus; readonly run_epoch: number; readonly reason: string }
   | { readonly kind: "not_found"; readonly reason: string }

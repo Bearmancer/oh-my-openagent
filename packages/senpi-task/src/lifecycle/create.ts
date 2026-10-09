@@ -3,6 +3,7 @@ import { disposeScopedRetries, resumeScopedRetries, stopScopedRetries } from "./
 import { destroyResidentTask } from "./destroy"
 import { parkHostSessionOnDaemonLoss, retryDeferredHostSessions, type HostSessionParkOptions } from "./host-session-revive"
 import { registerLifecycleDetachedRevival, registerLifecycleDetachedRevivalRollback, type DestroyCause, type LifecycleDeps } from "./port"
+import { parkTerminalResident } from "./park-terminal-resident"
 import { admitResident, reclaimIdleResidents, startIdleResidentReclaimer } from "./residency"
 import { reconcileOnSessionStart } from "./reconcile"
 import { rollbackDetachedRevival, reviveDetachedTerminal } from "./revive-detached"
@@ -25,6 +26,7 @@ export function createTaskLifecycle(deps: LifecycleDeps): TaskLifecycle {
     destroyResidentTask: (taskId: string, cause: DestroyCause) => destroyResidentTask(context, taskId, cause),
     rollbackDetachedRevival: (prior) => rollbackDetachedRevival(context, prior),
     reclaimIdleResidents: () => reclaimIdleResidents(context),
+    parkTerminalResident: (taskId: string) => parkTerminalResident(context, taskId, "cancel"),
     // Parent shutdown: the kernel that owns every granted closure dies with this engine, so the
     // whole runtime binding map goes too - no strong reference to a disposed kernel survives.
     dispose: () => {
