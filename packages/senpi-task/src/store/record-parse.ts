@@ -68,6 +68,7 @@ export function parseTaskRecord(value: unknown, path: string, warnings?: string[
   const fallbackModels = parseOptionalResolvedModelArray(value, "fallback_models")
   const fallbackAttempts = parseOptionalResolvedModelArray(value, "fallback_attempts")
   const resolvedModel = parseOptionalResolvedModel(value, "resolved_model")
+  const resolvedTier = isRecord(value["resolved_model"]) ? readOptionalString(value["resolved_model"], "service_tier") : undefined
   const effectiveModel = parseOptionalResolvedModel(value, "effective_model")
   const effectiveTier = isRecord(value["effective_model"]) ? readOptionalString(value["effective_model"], "service_tier") : undefined
   const spawnSpec = parseOptionalSpawnSpec(value)
@@ -125,7 +126,9 @@ export function parseTaskRecord(value: unknown, path: string, warnings?: string[
     ...(requestedModel === undefined ? {} : { requested_model: requestedModel }),
     ...(fallbackModels === undefined ? {} : { fallback_models: fallbackModels }),
     ...(fallbackAttempts === undefined ? {} : { fallback_attempts: fallbackAttempts }),
-    ...(resolvedModel === undefined ? {} : { resolved_model: resolvedModel }),
+    ...(resolvedModel === undefined ? {} : {
+      resolved_model: { ...resolvedModel, ...(resolvedTier === undefined ? {} : { service_tier: resolvedTier }) },
+    }),
     ...(effectiveModel === undefined ? {} : {
       effective_model: { ...effectiveModel, ...(effectiveTier === undefined ? {} : { service_tier: effectiveTier }) },
     }),

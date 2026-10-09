@@ -7,7 +7,7 @@ import {
   type TaskStartFailureReason,
 } from "../../state"
 import { RunnerError } from "../in-process/runner-error"
-import { reportedEffectiveModel, startedOnPinnedModel } from "../pinned-model-equivalence"
+import { differsOnlyByPriorityAlias, reportedEffectiveModel, startedOnPinnedModel } from "../pinned-model-equivalence"
 import type { RpcRunnerSpec } from "../types"
 import { HostUnavailableError } from "./daemon"
 import {
@@ -87,9 +87,7 @@ export async function openTaskHostSession(input: {
     }
     const pinned = { provider: model.provider, id: model.modelId }
     let pinnedEntry: unknown = pinned
-    const aliasMismatch = effective.provider === pinned.provider && effective.id !== pinned.id
-      && (effective.id === `${pinned.id}-fast` || pinned.id === `${effective.id}-fast`)
-    if (aliasMismatch) {
+    if (differsOnlyByPriorityAlias(effective, pinned)) {
       try {
         if (input.client.getAvailableModels === undefined) throw new Error("get_available_models is unavailable")
         const catalog = await input.client.getAvailableModels()

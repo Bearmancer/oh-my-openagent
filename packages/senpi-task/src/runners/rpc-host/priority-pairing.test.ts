@@ -21,6 +21,23 @@ function world(started: typeof base, serviceTier: string | undefined, catalog: r
 }
 
 describe("host registry pairing (#9812)", () => {
+  test.each([
+    [base, true],
+    [{ ...base, id: "unrelated" }, false],
+    [{ ...alias, provider: "other-provider" }, false],
+  ] as const)("non-alias open %j skips the catalog", async (started, accepted) => {
+    // given
+    const { client, counts } = world(started, "standard", [base, alias])
+    // when
+    const result = await openTaskHostSession({
+      client, spec: { ...spec, model: `${provider}/${base.id}` }, sessionPath: "/tmp/pair.jsonl",
+    }).catch((error: unknown) => error)
+    // then
+    expect(RunnerError.is(result)).toBe(!accepted)
+    expect(counts.catalog).toBe(0)
+    expect(counts.close).toBe(accepted ? 0 : 1)
+  })
+
   test.each(["priority", "standard", undefined])("forward alias accepts effective tier %s using host catalog", async (tier) => {
     // given
     const { client, counts } = world(base, tier, [alias])
