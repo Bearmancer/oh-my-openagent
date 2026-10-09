@@ -1,21 +1,35 @@
-const FAST_VARIANT_SUFFIX = "-fast"
-
-interface ModelIdentity {
+export interface ModelIdentity {
   readonly provider: string
   readonly id: string
 }
 
-/**
- * Whether a child that reports `started` honours the pin `pinned` (#9793).
- *
- * senpi treats a `-fast` catalog entry as the priority service tier of its base model: a session pinned
- * to `X-fast` starts on `X` with the tier remembered (the service-tier builtin's `findBaseModel`), and a
- * session pinned to `X` can come up on `X-fast` when fast mode is remembered. Both are the same upstream
- * model on the same provider, so the post-start pin check accepts the pair. Every other difference -
- * another model, another provider, any other suffix - is still a substitution.
- */
-export function startedOnPinnedModel(started: ModelIdentity, pinned: ModelIdentity): boolean {
+export type CatalogModelIdentity = ModelIdentity & {
+  readonly serviceTier?: string
+  readonly upstreamModelId?: string
+}
+
+export type EffectiveModel = ModelIdentity & { readonly serviceTier?: string }
+
+/** A catalog priority alias, not a different SKU that happens to end in `-fast`. */
+export function isPriorityAliasOf(entry: unknown, base: ModelIdentity): boolean {
+  return typeof entry === "object" && entry !== null
+    && "provider" in entry && entry.provider === base.provider
+    && "id" in entry && entry.id === `${base.id}-fast`
+    && "serviceTier" in entry && entry.serviceTier === "priority"
+    && "upstreamModelId" in entry && entry.upstreamModelId === base.id
+}
+
+/** The alias entry is the pairing proof in whichever direction the engine started. */
+export function startedOnPinnedModel(started: ModelIdentity, pinned: ModelIdentity, pinnedEntry: unknown): boolean {
   if (started.provider !== pinned.provider) return false
   if (started.id === pinned.id) return true
-  return started.id === `${pinned.id}${FAST_VARIANT_SUFFIX}` || pinned.id === `${started.id}${FAST_VARIANT_SUFFIX}`
+  return isPriorityAliasOf(started, pinned) || isPriorityAliasOf(pinnedEntry, started)
+}
+
+/** The effective tier comes from the session, never the catalog's requested tier. */
+export function reportedEffectiveModel(model: ModelIdentity | undefined, serviceTier: string | undefined): EffectiveModel | undefined {
+  return model === undefined ? undefined : {
+    provider: model.provider, id: model.id,
+    ...(serviceTier === undefined ? {} : { serviceTier }),
+  }
 }

@@ -69,6 +69,7 @@ export function parseTaskRecord(value: unknown, path: string, warnings?: string[
   const fallbackAttempts = parseOptionalResolvedModelArray(value, "fallback_attempts")
   const resolvedModel = parseOptionalResolvedModel(value, "resolved_model")
   const effectiveModel = parseOptionalResolvedModel(value, "effective_model")
+  const effectiveTier = isRecord(value["effective_model"]) ? readOptionalString(value["effective_model"], "service_tier") : undefined
   const spawnSpec = parseOptionalSpawnSpec(value)
   const owner = parseOptionalOwner(value)
   const pendingSteering = parseOptionalPendingSteering(value, path, warnings)
@@ -125,7 +126,9 @@ export function parseTaskRecord(value: unknown, path: string, warnings?: string[
     ...(fallbackModels === undefined ? {} : { fallback_models: fallbackModels }),
     ...(fallbackAttempts === undefined ? {} : { fallback_attempts: fallbackAttempts }),
     ...(resolvedModel === undefined ? {} : { resolved_model: resolvedModel }),
-    ...(effectiveModel === undefined ? {} : { effective_model: effectiveModel }),
+    ...(effectiveModel === undefined ? {} : {
+      effective_model: { ...effectiveModel, ...(effectiveTier === undefined ? {} : { service_tier: effectiveTier }) },
+    }),
     ...(spawnSpec === undefined ? {} : { spawn_spec: spawnSpec }),
     ...(owner === undefined ? {} : { owner }),
     ...(pendingSteering !== undefined && pendingSteering.length > 0 ? { pending_steering: pendingSteering } : {}),
