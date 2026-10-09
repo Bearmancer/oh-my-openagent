@@ -1,0 +1,61 @@
+name: Cutover target deploy (Sisyphus Labs, workers.dev only)
+
+# Stage 1 of the account move (plan: sisyphuslabs/common-infra docs/cutover-workers.md). Deploys
+# oh-my-openagent-web and omo-get to the Sisyphus Labs account from their *.dest configs, with no
+# hostnames and no cron, so the target can be verified before omo.dev moves. Run by hand only. The
+# live deploys (web-deploy.yml, get-worker-deploy.yml) and their configs are unchanged. No D1
+# migrations run here: the target database gets its schema and rows from the cutover copy tool.
+on:
+  workflow_dispatch:
+    inputs:
+      worker:
+        description: Which Worker
+        required: true
+        type: choice
+        options: [web, get]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cutover-target-deploy-${{ inputs.worker }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.repository == 'code-yeongyu/oh-my-openagent'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: cutover-target
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CF_DEST_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: 6511ce566bfe27228f536a8fb9448be5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: Build and deploy oh-my-openagent-web
+        if: inputs.worker == 'web'
+        working-directory: packages/web
+        env:
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile
+          bun run prebuild
+          bunx opennextjs-cloudflare build --config wrangler.dest.toml
+          bunx opennextjs-cloudflare deploy --config wrangler.dest.toml -- --no-x-provision
+          code=$(curl -sS -o /dev/null -w '%{http_code}' https://oh-my-openagent-web.sisyphus-labs.workers.dev/)
+          echo "workers.dev answered $code"
+          case "$code" in 200|307|308) ;; *) exit 1 ;; esac
+
+      - name: Deploy omo-get
+        if: inputs.worker == 'get'
+        working-directory: packages/get-worker
+        run: |
+          set -euo pipefail
+          bun install --frozen-lockfile
+          bunx wrangler deploy --config wrangler.dest.jsonc --no-x-provision
+          curl -fsS https://omo-get.sisyphus-labs.workers.dev/healthz
