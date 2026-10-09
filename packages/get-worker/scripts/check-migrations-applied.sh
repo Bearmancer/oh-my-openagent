@@ -3,9 +3,10 @@
 # access, so a pending migration must go through the reviewed step first (see migrations/applied.txt).
 set -euo pipefail
 dir="${1:-migrations}"
+[ -f "$dir/applied.txt" ] || { echo "D1 migration ledger $dir/applied.txt is missing; refusing to deploy."; exit 1; }
+compgen -G "$dir/*.sql" >/dev/null || { echo "no D1 migrations found in $dir; refusing to deploy (wrong directory?)."; exit 1; }
 pending=()
 for f in "$dir"/*.sql; do
-  [ -e "$f" ] || continue
   name=$(basename "$f")
   grep -qxF "$name" "$dir/applied.txt" || pending+=("$name")
 done

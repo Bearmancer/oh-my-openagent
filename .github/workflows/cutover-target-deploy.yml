@@ -1,4 +1,4 @@
-name: Cutover target deploy (Sisyphus Labs, workers.dev only)
+name: Cutover target deploy (Sisyphus Labs, manual)
 
 # The account move's manual path to the Sisyphus Labs account (plan: sisyphuslabs/common-infra
 # docs/cutover-workers.md), with the short-lived cutover token. Since the move the default configs ARE the
@@ -73,6 +73,11 @@ jobs:
         working-directory: packages/get-worker
         run: bun install --frozen-lockfile
 
+      - name: Refuse to deploy over a pending D1 migration
+        if: inputs.worker == 'get'
+        working-directory: packages/get-worker
+        run: bash scripts/check-migrations-applied.sh migrations
+
       - name: Deploy omo-get
         if: inputs.worker == 'get'
         working-directory: packages/get-worker
@@ -106,7 +111,7 @@ jobs:
           JOB_SUMMARY_TITLE: Cutover target deploy (${{ inputs.worker }})
           JOB_SUMMARY_STATUS: ${{ job.status }}
           JOB_SUMMARY_DETAILS: |
-            - Deploys the `${{ inputs.worker }}` Worker to the Sisyphus Labs account on workers.dev only (no hostnames, no cron).
+            - Deploys the `${{ inputs.worker }}` Worker to the Sisyphus Labs account from its default config (its omo.dev routes or custom domain included; omo-get refuses a pending D1 migration).
             - The smoke waits up to 5 min for the fresh workers.dev script, then checks the Worker answers (web) or its R2 and D1 bindings (get).
           JOB_SUMMARY_NEXT: A smoke that stops at 404 or 5xx after 5 min means the script is not serving; any other wrong answer is a real fault in the deployed Worker or its bindings.
         run: GITHUB_STEP_SUMMARY="$GITHUB_STEP_SUMMARY" bash .github/scripts/write-job-summary.sh

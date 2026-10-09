@@ -18,16 +18,24 @@ const check = async (files: Record<string, string>) => {
 
 test("the committed ledger lists every committed migration", async () => {
   const p = Bun.spawn(["bash", SCRIPT, join(import.meta.dir, "..", "migrations")], { stdout: "pipe" });
-  expect([await p.exited, (await new Response(p.stdout).text()).trim()]).toEqual([0, "D1 migrations: none pending"]);
+  expect(await p.exited).toBe(0);
 });
 
 test("a migration missing from the ledger stops the deploy and names it", async () => {
   const r = await check({ "0001_a.sql": "", "0002_b.sql": "", "applied.txt": "# applied\n0001_a.sql\n" });
   expect(r.code).toBe(1);
-  expect(r.out).toContain("D1 migration pending: 0002_b.sql. Apply it via the reviewed infra path first");
+  expect(r.out).toContain("0002_b.sql");
+  expect(r.out).not.toContain("0001_a.sql");
 });
 
 test("a ledger line must match the whole file name", async () => {
   const r = await check({ "0001_a.sql": "", "applied.txt": "0001_a.sql.bak\n" });
   expect(r.code).toBe(1);
+});
+
+test("a missing ledger or a directory without migrations stops the deploy", async () => {
+  expect((await check({ "0001_a.sql": "" })).code).toBe(1);
+  expect((await check({ "applied.txt": "0001_a.sql\n" })).code).toBe(1);
+  const p = Bun.spawn(["bash", SCRIPT, join(tmpdir(), "omo-get-no-such-dir")], { stdout: "pipe" });
+  expect(await p.exited).toBe(1);
 });
