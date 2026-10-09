@@ -34,35 +34,42 @@ export function isTerminal(status: TaskStatus): boolean {
 }
 
 /**
- * Whether a child is parked rather than live here. The same rule as the side panel: a host that
- * gave up records `suspension_reason`, while an ordinary suspension (the parent session ended or
- * restarted) shows up only as a residency other than `resident`.
+ * Whether a live child is parked rather than running here. The side panel's rule: a host that gave
+ * up records `suspension_reason`, while an ordinary suspension (the parent session ended or
+ * restarted) shows up only as a residency other than `resident`. Only a child that has not
+ * finished can be parked; a finished child is `evicted` or `disposed` and keeps its own status.
  */
 export function isSuspended(record: TaskRecord): boolean {
+  if (isTerminal(record.status)) return false
   return record.suspension_reason !== undefined || record.residency_state !== "resident"
 }
 
-// Each cause in words, and the condition under which the child resumes on its own. There is no
-// user command that resumes a child, so the row never implies one; /task-kill is the user's action.
 type SuspensionReason = NonNullable<TaskRecord["suspension_reason"]>
 
-const SUSPENSION_CAUSES: Readonly<Record<SuspensionReason, { readonly cause: string; readonly resumesWhen: string }>> = {
-  daemon_unavailable: { cause: "task daemon unavailable", resumesWhen: "the daemon is back" },
-  handoff_parked: { cause: "handed off", resumesWhen: "the handoff completes" },
-  host_draining: { cause: "host draining", resumesWhen: "a host can take it" },
-  host_incompatible: { cause: "host version mismatch", resumesWhen: "a matching host is up" },
-  idle_evicted: { cause: "evicted while idle", resumesWhen: "it is messaged" },
-  own_host_unreachable: { cause: "host lost", resumesWhen: "its host is back" },
-  revival_deferred: { cause: "revival deferred", resumesWhen: "the deferral clears" },
-  store_index_unavailable: { cause: "task store unavailable", resumesWhen: "the task store is back" },
+// Each cause in words, and what actually brings the child back. The engine resumes a parked child
+// when its parent session starts again or messages it (and retries a lost daemon briefly); nothing
+// watches for the cause to clear, so the row promises no more than that.
+const ON_RESTART_OR_MESSAGE = "resumes on session restart or a message"
+const SUSPENSION_CAUSES: Readonly<Record<SuspensionReason, { readonly cause: string; readonly resumes: string }>> = {
+  daemon_unavailable: { cause: "task daemon unavailable", resumes: ON_RESTART_OR_MESSAGE },
+  handoff_parked: { cause: "handed off", resumes: ON_RESTART_OR_MESSAGE },
+  host_draining: { cause: "host draining", resumes: ON_RESTART_OR_MESSAGE },
+  host_incompatible: { cause: "host version mismatch", resumes: "will not resume" },
+  idle_evicted: { cause: "evicted while idle", resumes: "resumes on a message" },
+  own_host_unreachable: { cause: "host lost", resumes: ON_RESTART_OR_MESSAGE },
+  revival_deferred: { cause: "revival deferred", resumes: ON_RESTART_OR_MESSAGE },
+  store_index_unavailable: { cause: "task store unavailable", resumes: ON_RESTART_OR_MESSAGE },
 }
 
-const PARENT_RESTARTED = { cause: "parent session restarted", resumesWhen: "its session reconnects it" }
+const PARENT_RESTARTED = { cause: "parent session restarted", resumes: ON_RESTART_OR_MESSAGE }
+
+function suspensionFacts(record: TaskRecord): { readonly cause: string; readonly resumes: string } {
+  return record.suspension_reason === undefined ? PARENT_RESTARTED : SUSPENSION_CAUSES[record.suspension_reason]
+}
 
 // Why the child is parked, in words: the host's recorded reason, or the parent restarting away.
 function suspensionCause(record: TaskRecord): string {
-  if (record.suspension_reason === undefined) return PARENT_RESTARTED.cause
-  const { cause } = SUSPENSION_CAUSES[record.suspension_reason]
+  const { cause } = suspensionFacts(record)
   const deferred = optionalRendererText(record.revival_deferred_reason)
   return record.suspension_reason === "revival_deferred" && deferred !== undefined ? `${cause}: ${deferred}` : cause
 }
@@ -72,8 +79,7 @@ const CANCEL_HINT = "/task-kill to cancel"
 // How a parked child goes on: when it resumes by itself, and the user's one action. A narrow line
 // keeps only the action.
 function suspensionHints(record: TaskRecord): readonly string[] {
-  const { resumesWhen } = record.suspension_reason === undefined ? PARENT_RESTARTED : SUSPENSION_CAUSES[record.suspension_reason]
-  return [`resumes automatically when ${resumesWhen}; ${CANCEL_HINT}`, CANCEL_HINT]
+  return [`${suspensionFacts(record).resumes}; ${CANCEL_HINT}`, CANCEL_HINT]
 }
 
 // Maps a record's residency to its user-facing status label: suspended children show `suspended`
@@ -166,8 +172,9 @@ function formatLiveBackgroundRow(
 ): string {
   const suspended = isSuspended(record)
   // A parked child's time stops at its last record write, which is when it was parked.
-  const parkedAt = Date.parse(record.updated_at)
-  const elapsed = formatElapsed(record.created_at, suspended && Number.isFinite(parkedAt) ? parkedAt : now)
+  // A parked child shows no running time: the record has no park timestamp (`updated_at` moves with
+  // every revival attempt), and a climbing timer is what made the row look alive.
+  const elapsed = suspended ? undefined : formatElapsed(record.created_at, now)
   const frame = suspended
     ? SUSPENDED_MARK
     : SPINNER_FRAMES[Math.floor(now / LIVE_STATUS_REFRESH_MS) % SPINNER_FRAMES.length] ?? SPINNER_FRAMES[0]
@@ -179,7 +186,7 @@ function formatLiveBackgroundRow(
       ? defaultLiveActivity(stats)
       : normalizeRendererText(activity)
   const minimumPartsWidth = rendererVisibleWidth(
-    `${frame} ${excerptRendererText(fullIdentity, LIVE_IDENTITY_MIN)} · ${excerptRendererText(fullTarget, LIVE_TARGET_MIN)} · ${excerptRendererText(fullActivity, LIVE_ACTIVITY_MIN)} · ${elapsed}`,
+    `${frame} ${excerptRendererText(fullIdentity, LIVE_IDENTITY_MIN)} · ${excerptRendererText(fullTarget, LIVE_TARGET_MIN)} · ${excerptRendererText(fullActivity, LIVE_ACTIVITY_MIN)}${elapsed === undefined ? "" : ` · ${elapsed}`}`,
   )
   let remainingWidth = Math.max(0, maxWidth - minimumPartsWidth)
   const statsTokens = liveStatsTokens(stats).filter((token) => {
@@ -212,7 +219,7 @@ function formatLiveBackgroundRow(
     excerptRendererText(fullTarget, targetWidth),
     ...statsTokens,
     excerptRendererText(fullActivity, activityWidth),
-    elapsed,
+    ...(elapsed === undefined ? [] : [elapsed]),
     ...hint,
   ]
   const contextText = context.join(" · ")

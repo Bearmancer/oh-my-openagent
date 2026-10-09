@@ -198,13 +198,13 @@ describe("suspended residency labeling", () => {
     const later = at("2026-07-07T06:00:00.250Z")
     const muchLater = at("2026-07-07T09:30:00.000Z")
 
-    // then the row is static, its time stops at the park, and it says why and what to do
+    // then the row is static, shows no running time, and says why and what to do
     expect(later).toBe(first)
     expect(muchLater).toBe(first)
     expect(first).toStartWith("‖ ")
-    expect(first).toContain("5m 0s")
+    expect(first).not.toMatch(/\d+m \d+s|\b\d+s\b/u)
     expect(first).toContain("parent session restarted")
-    expect(first).toContain("resumes automatically when its session reconnects it; /task-kill to cancel")
+    expect(first).toContain("resumes on session restart or a message; /task-kill to cancel")
   })
 
   it("#given a suspended child on a 118-column terminal #when building the live row #then it keeps the cancel action", () => {
@@ -218,6 +218,39 @@ describe("suspended residency labeling", () => {
     expect(rendererVisibleWidth(row)).toBeLessThanOrEqual(118)
     expect(row).toContain("suspended (parent session restarted)")
     expect(row).toContain("/task-kill to cancel")
+  })
+
+  it.each([
+    ["cancelled", "disposed"],
+    ["completed", "evicted"],
+    ["error", "disposed"],
+  ] as const)("#given a %s task whose residency is %s #when formatting rows #then it keeps its own status", (status, residency) => {
+    // given a finished child, released from memory as finished children are
+    const finished = record({ task_id: "st_done", status, residency_state: residency })
+
+    // when the full and compact rows render
+    const full = formatTaskRow(finished)
+    const compact = buildWidgetRows([finished], new Set(["st_done"]))[0] ?? ""
+
+    // then neither calls it suspended
+    expect(full).toContain(`status:${status}`)
+    expect(full).not.toContain("suspended")
+    expect(compact).not.toContain("suspended")
+  })
+
+  it.each([
+    ["host_incompatible", "will not resume"],
+    ["idle_evicted", "resumes on a message"],
+    ["own_host_unreachable", "resumes on session restart or a message"],
+  ] as const)("#given a %s suspension #when building the live row #then the resume line says only what the engine does", (reason, promise) => {
+    // given a child parked for that reason
+    const parked = record({ task_id: "st_promise", status: "running", residency_state: "rpc_detached", suspension_reason: reason })
+
+    // when the live row renders on a wide line
+    const row = backgroundWidgetRows([parked], new Map(), Date.parse("2026-07-07T01:00:00.000Z"), () => undefined, 220)[0] ?? ""
+
+    // then it carries that cause's resume line and the cancel action
+    expect(row).toContain(`${promise}; /task-kill to cancel`)
   })
 
   it.each([
