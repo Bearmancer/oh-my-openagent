@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process"
 import { mkdtempSync, readdirSync, readFileSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
-import { markTestInfrastructureDir } from "./test-temp-root"
+import { markTestInfrastructureDir, runTestTempRootTeardown } from "./test-temp-root"
 
 const AGENT_DIR_ENV_NAMES = ["OMO_CODING_AGENT_DIR", "SENPI_CODING_AGENT_DIR", "PI_CODING_AGENT_DIR"] as const
 
@@ -27,29 +27,59 @@ export function installHermeticHome(): HermeticHome {
   const agentDir = join(home, ".omo", "agent")
   for (const name of AGENT_DIR_ENV_NAMES) delete process.env[name]
   process.env.PI_CODING_AGENT_DIR = agentDir
-  afterAll(() => {
-    stopHostsUnder(home)
-    failOnShardsInRealAgentDir()
+  afterAll(async () => {
+    // The temp-root teardown reads and removes the directory these hosts write into, so it waits for them
+    // to exit, and it runs even when the shard check below throws: a later preload afterAll does not run
+    // once an earlier one has failed (#9766).
+    try {
+      await stopHostsUnder(home)
+      failOnShardsInRealAgentDir()
+    } finally {
+      runTestTempRootTeardown()
+    }
   })
   return { home, agentDir }
+}
+
+const HOST_EXIT_WAIT_MS = 10_000
+
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    return !(error instanceof Error && "code" in error && error.code === "ESRCH")
+  }
+}
+
+async function waitForExit(pids: readonly number[], timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  let remaining = pids.filter(processAlive)
+  while (remaining.length > 0 && Date.now() < deadline) {
+    await Bun.sleep(25)
+    remaining = remaining.filter(processAlive)
+  }
 }
 
 // A test that boots the packaged extension can warm a real task host. With the agent dir pinned above,
 // that host's socket lives under this process's own temp home, which is how it is attributed here: no
 // other process can own a path inside a mkdtemp dir created by this one.
-function stopHostsUnder(home: string): void {
+async function stopHostsUnder(home: string): Promise<void> {
   if (process.platform === "win32") return
   const listing = spawnSync("ps", ["-axo", "pid=,command="], { encoding: "utf8" }).stdout ?? ""
+  const signalled: number[] = []
   for (const line of listing.split("\n")) {
     if (!line.includes(`${home}/`)) continue
     const pid = Number.parseInt(line.trim(), 10)
     if (!Number.isInteger(pid) || pid === process.pid) continue
     try {
       process.kill(pid, "SIGTERM")
+      signalled.push(pid)
     } catch {
       // Already gone between the listing and the signal.
     }
   }
+  await waitForExit(signalled, HOST_EXIT_WAIT_MS)
 }
 
 const REAL_AGENT_DIRS = [join(homedir(), ".omo", "agent"), join(homedir(), ".senpi", "agent"), join(homedir(), ".omo")]

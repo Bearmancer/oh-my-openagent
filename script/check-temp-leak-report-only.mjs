@@ -23,14 +23,20 @@ export function addedReportOnlyEntries(base, head) {
   return added.sort()
 }
 
-function readBaseList(baseSha) {
+function existsAtBase(baseSha) {
   try {
-    return JSON.parse(execFileSync("git", ["show", `${baseSha}:${REPORT_ONLY_LIST_PATH}`], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }))
-  } catch (error) {
-    const stderr = error && typeof error === "object" && "stderr" in error ? String(error.stderr) : ""
-    if (/does not exist in|exists on disk, but not in/.test(stderr)) return undefined
-    throw error
+    execFileSync("git", ["cat-file", "-e", `${baseSha}:${REPORT_ONLY_LIST_PATH}`], { stdio: "ignore" })
+    return true
+  } catch {
+    // A missing commit fails too; `git show` below then reports it instead of reading it as "new file".
+    execFileSync("git", ["cat-file", "-e", `${baseSha}^{commit}`], { stdio: "ignore" })
+    return false
   }
+}
+
+function readBaseList(baseSha) {
+  if (!existsAtBase(baseSha)) return undefined
+  return JSON.parse(execFileSync("git", ["show", `${baseSha}:${REPORT_ONLY_LIST_PATH}`], { encoding: "utf8" }))
 }
 
 function main() {

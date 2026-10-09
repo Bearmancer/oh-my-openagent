@@ -26,7 +26,6 @@ export const registry = {
   getProviderAuth: () => undefined,
 }
 
-
 interface Harness {
   readonly root: string
   readonly context: MemoryIdentityContext

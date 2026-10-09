@@ -13,7 +13,6 @@ import { resetLiveServerRouteForTesting } from "./packages/omo-opencode/src/shar
 import { installModuleMockLifecycle } from "./packages/omo-opencode/src/testing/module-mock-lifecycle"
 import { ensureVendoredLspDaemonBuilt } from "./script/ensure-vendored-lsp-daemon"
 import { installHermeticHome } from "./test-hermetic-home"
-import { installTestTempRootTeardown } from "./test-temp-root"
 
 // Installer/doctor integration tests need the vendored lsp-daemon dist that CI builds
 // out-of-band before `bun test`; mirror that here so fresh clones/worktrees pass too.
@@ -41,7 +40,6 @@ setDefaultTimeout(process.platform === "win32" ? 30_000 : 20_000)
 // Skill/agent/command discovery reads the developer's real HOME, and the engine's agent dir falls
 // back to os.homedir(). Both point at one per-process temp home; see test-hermetic-home.ts.
 installHermeticHome()
-installTestTempRootTeardown()
 delete process.env.OPENCODE_SERVER_PASSWORD
 
 let isGlobalMockCleanup = false

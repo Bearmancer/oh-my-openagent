@@ -1,6 +1,5 @@
 /// <reference types="bun-types" />
-import { afterAll } from "bun:test"
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { basename, join } from "node:path"
 import reportOnlyPrefixesByOwner from "./test-temp-leak-report-only.json"
@@ -14,7 +13,7 @@ import reportOnlyPrefixesByOwner from "./test-temp-leak-report-only.json"
 // - Leaks are still caught: any entry left in the root that is not one of the preloads' own
 //   directories fails the run, naming the leftover, so every test keeps removing what it creates.
 //   Owners whose tests still leak are listed in test-temp-leak-report-only.json: their leftovers are
-//   printed instead of failing, and that list may only shrink (script/check-temp-leak-report-only.ts).
+//   printed instead of failing, and that list may only shrink (script/check-temp-leak-report-only.mjs).
 const RUN_ROOT_PREFIX = "omo-test-run-"
 const OWNER_PID_FILE = ".owner-pid"
 
@@ -27,6 +26,24 @@ function ownerIsAlive(pid: number): boolean {
   }
 }
 
+// A root with no readable owner pid was killed between its creation and the pid write; once it is this old,
+// no live run can still be starting in it.
+const OWNERLESS_ROOT_MAX_AGE_MS = 24 * 60 * 60 * 1000
+
+function isAbandoned(root: string): boolean {
+  let pid: number
+  try {
+    pid = Number.parseInt(readFileSync(join(root, OWNER_PID_FILE), "utf8"), 10)
+  } catch {
+    try {
+      return Date.now() - statSync(root).mtimeMs > OWNERLESS_ROOT_MAX_AGE_MS
+    } catch {
+      return false
+    }
+  }
+  return Number.isInteger(pid) && pid > 0 && !ownerIsAlive(pid)
+}
+
 // A run that is killed (SIGKILL, a CI timeout, a crash) never reaches its afterAll, so its root stays
 // behind. Each root records its owner's pid; a later run removes the roots whose owner is gone. A live
 // pid, including a reused one, keeps its root, so a concurrent suite's root is never touched.
@@ -34,13 +51,7 @@ function removeAbandonedRunRoots(osTempDir: string): void {
   for (const entry of readdirSync(osTempDir)) {
     if (!entry.startsWith(RUN_ROOT_PREFIX)) continue
     const root = join(osTempDir, entry)
-    let pid: number
-    try {
-      pid = Number.parseInt(readFileSync(join(root, OWNER_PID_FILE), "utf8"), 10)
-    } catch {
-      continue
-    }
-    if (Number.isInteger(pid) && pid > 0 && !ownerIsAlive(pid)) rmSync(root, { recursive: true, force: true, maxRetries: 3 })
+    if (isAbandoned(root)) rmSync(root, { recursive: true, force: true, maxRetries: 3 })
   }
 }
 
@@ -76,11 +87,11 @@ function leftoverEntries(): string[] {
   }
 }
 
-// A listed prefix ending in "-" matches the names mkdtemp derives from it; any other listed name must
-// match exactly, so a short fixed name cannot cover an unrelated new leak.
+// A listed entry starting with "=" names one fixed entry exactly; any other entry is a prefix of the names
+// mkdtemp (or a test) derives from it.
 function reportOnlyOwner(entry: string): string | undefined {
   for (const [owner, prefixes] of Object.entries(reportOnlyPrefixesByOwner)) {
-    if (prefixes.some((prefix) => (prefix.endsWith("-") ? entry.startsWith(prefix) : entry === prefix))) return owner
+    if (prefixes.some((prefix) => (prefix.startsWith("=") ? entry === prefix.slice(1) : entry.startsWith(prefix)))) return owner
   }
   return undefined
 }
@@ -113,22 +124,20 @@ function removeRunRoot(): void {
 }
 
 /**
- * Registers the end-of-run removal and leak check. bun test fires no process "exit" or "beforeExit"
- * event, and preload afterAll hooks run in registration order, so the last preload calls this after
- * the hermetic home has stopped the task hosts that write under the root.
+ * The end-of-run leak check and root removal. bun test fires no process "exit" or "beforeExit" event, so
+ * the hermetic home's afterAll calls this in its finally, after it has stopped (and waited out) the task
+ * hosts that write under the root: it then runs even when the hermetic home's own check throws.
  */
-export function installTestTempRootTeardown(): void {
-  afterAll(() => {
-    const leftovers = leftoverEntries()
-    removeRunRoot()
-    const known = leftovers.filter((entry) => reportOnlyOwner(entry) !== undefined)
-    const unexpected = leftovers.filter((entry) => reportOnlyOwner(entry) === undefined)
-    if (known.length > 0) reportKnownLeaks(known)
-    if (unexpected.length === 0) return
-    throw new Error(
-      `Tests left ${unexpected.length} temp entr${unexpected.length === 1 ? "y" : "ies"} behind (#9766). `
-        + "Remove every temp dir a test creates in afterEach/afterAll, onTestFinished, or a finally block:\n"
-        + unexpected.map((entry) => `  ${entry}`).join("\n"),
-    )
-  })
+export function runTestTempRootTeardown(): void {
+  const leftovers = leftoverEntries()
+  removeRunRoot()
+  const known = leftovers.filter((entry) => reportOnlyOwner(entry) !== undefined)
+  const unexpected = leftovers.filter((entry) => reportOnlyOwner(entry) === undefined)
+  if (known.length > 0) reportKnownLeaks(known)
+  if (unexpected.length === 0) return
+  throw new Error(
+    `Tests left ${unexpected.length} temp entr${unexpected.length === 1 ? "y" : "ies"} behind (#9766). `
+      + "Remove every temp dir a test creates in afterEach/afterAll, onTestFinished, or a finally block:\n"
+      + unexpected.map((entry) => `  ${entry}`).join("\n"),
+  )
 }
