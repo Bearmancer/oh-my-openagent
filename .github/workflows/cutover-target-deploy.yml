@@ -1,10 +1,10 @@
 name: Cutover target deploy (Sisyphus Labs, workers.dev only)
 
-# Stage 1 of the account move (plan: sisyphuslabs/common-infra docs/cutover-workers.md). Deploys
-# oh-my-openagent-web and omo-get to the Sisyphus Labs account from their *.dest configs, with no
-# hostnames and no cron, so the target can be verified before omo.dev moves. Run by hand only. The
-# live deploys (web-deploy.yml, get-worker-deploy.yml) and their configs are unchanged. No D1
-# migrations run here: the target database gets its schema and rows from the cutover copy tool.
+# The account move's manual path to the Sisyphus Labs account (plan: sisyphuslabs/common-infra
+# docs/cutover-workers.md), with the short-lived cutover token. Since the move the default configs ARE the
+# Sisyphus Labs configs, so this deploys exactly what web-deploy.yml / get-worker-deploy.yml deploy. It stays
+# until those two are proven on their own long-lived token, then it is removed. Run by hand only. No D1
+# migrations run here.
 on:
   workflow_dispatch:
     inputs:
@@ -44,14 +44,14 @@ jobs:
           set -euo pipefail
           bun install --frozen-lockfile
           bun run prebuild
-          bunx opennextjs-cloudflare build --config wrangler.dest.toml
+          bunx opennextjs-cloudflare build
 
       - name: Deploy oh-my-openagent-web
         if: inputs.worker == 'web'
         working-directory: packages/web
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_DEST_API_TOKEN }}
-        run: bunx opennextjs-cloudflare deploy --config wrangler.dest.toml -- --no-x-provision
+        run: bunx opennextjs-cloudflare deploy -- --no-x-provision
 
       - name: Smoke oh-my-openagent-web (a fresh script answers 404/5xx until it propagates; waited up to 5 min)
         if: inputs.worker == 'web'
@@ -78,7 +78,7 @@ jobs:
         working-directory: packages/get-worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_DEST_API_TOKEN }}
-        run: bunx wrangler deploy --config wrangler.dest.jsonc --no-x-provision
+        run: bunx wrangler deploy --no-x-provision
 
       - name: Smoke omo-get (waits up to 5 min for the fresh script, then checks R2 and D1)
         if: inputs.worker == 'get'
