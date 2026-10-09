@@ -16,6 +16,8 @@ import { reportOnlyEntryMatches } from "../test-temp-leak-match.ts"
 //   Prints, per owner, the derived prefixes and the listed entries no source creator matches
 //   (measured-only or stale: a package PR confirms them by a run before removing them).
 
+// Deliberately broad (any identifier containing temp/tmp, so `attempt(` too): an over-match only hides a stale
+// entry from the "no source creator" report, it never makes a real creator disappear.
 const TEMP = String.raw`(?:(?:os|path)\.)?(?:tmpdir\(\)|\w*(?:[Tt]emp|[Tt]mp)\w*)`
 const JOIN_UNDER_TEMP = String.raw`(?:path\.)?(?:join|resolve)\(\s*` + TEMP + String.raw`\s*,\s*`
 
@@ -42,6 +44,16 @@ export function deriveTempEntries(source: string): string[] {
   return [...entries].sort()
 }
 
+/** Whether a listed entry has a creator: equal to a derived entry, covering it, or a call-site name under a derived prefix. */
+export function hasSourceCreator(entry: string, creators: readonly string[]): boolean {
+  return creators.some(
+    (creator) =>
+      creator === entry
+      || reportOnlyEntryMatches(entry, creator.replace(/\$$/, ""))
+      || (!creator.endsWith("$") && entry.replace(/\$$/, "").startsWith(creator)),
+  )
+}
+
 export function ownerOf(file: string): string {
   const [first = "", second] = file.split("/")
   return first === "packages" && second ? second : first
@@ -51,7 +63,7 @@ function trackedSources(): string[] {
   const out = execFileSync("git", ["ls-files", "*.ts", "*.mts", "*.mjs", "*.js", "*.tsx"], { encoding: "utf8" })
   return out
     .split("\n")
-    .filter((file) => file && !/(^|\/)(dist|install-dist|node_modules|vendor)\/|plugin\/extensions\/|\.generated\.|\/upstreams\//.test(file))
+    .filter((file) => file && !/(^|\/)(dist|install-dist|node_modules|vendor)\/|plugin\/extensions\/|\.generated\.|\/upstreams\/|^script\/derive-temp-leak-report-only\.test\.ts$/.test(file))
 }
 
 function main(): void {
@@ -69,9 +81,7 @@ function main(): void {
     if (onlyOwner && owner !== onlyOwner) continue
     const creators = [...(derived.get(owner) ?? [])]
     const entries = listed[owner] ?? []
-    const unmatched = entries.filter(
-      (entry) => !creators.some((creator) => creator === entry || reportOnlyEntryMatches(entry, creator.replace(/\$$/, ""))),
-    )
+    const unmatched = entries.filter((entry) => !hasSourceCreator(entry, creators))
     console.log(`${owner}: ${entries.length} listed, ${creators.length} derived from source, ${unmatched.length} with no source creator`)
     if (unmatched.length > 0) console.log(`  no source creator: ${unmatched.join(" ")}`)
   }

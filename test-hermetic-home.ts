@@ -40,7 +40,10 @@ export function installHermeticHome(): HermeticHome {
 }
 
 /** Runs the teardown after the check even when the check throws; when both throw, both errors are reported. */
-export async function runCheckThenTeardown(check: () => Promise<void>, teardown: () => void): Promise<void> {
+export async function runCheckThenTeardown(
+  check: () => Promise<void>,
+  teardown: () => void | Promise<void>,
+): Promise<void> {
   let checkFailure: { readonly error: unknown } | undefined
   try {
     await check()
@@ -48,14 +51,20 @@ export async function runCheckThenTeardown(check: () => Promise<void>, teardown:
     checkFailure = { error }
   }
   try {
-    teardown()
+    await teardown()
   } catch (teardownError) {
     if (checkFailure) {
-      throw new AggregateError([checkFailure.error, teardownError], "The shard check and the temp-root teardown both failed (#9766)")
+      // bun test prints only an AggregateError's own message, so both inner messages go into it.
+      const errors = [checkFailure.error, teardownError]
+      throw new AggregateError(errors, `The shard check and the temp-root teardown both failed (#9766):\n${errors.map(describeError).join("\n")}`)
     }
     throw teardownError
   }
   if (checkFailure) throw checkFailure.error
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
 }
 
 const HOST_EXIT_WAIT_MS = 10_000

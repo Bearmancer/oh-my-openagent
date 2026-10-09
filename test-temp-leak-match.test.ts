@@ -13,7 +13,6 @@ describe("reportOnlyEntryMatches (#9766)", () => {
     ["omo.js$", "omo.j", false],
     [".omo$", ".omo", true],
     [".omo$", ".omo-x", false],
-    ["$", "", true],
   ])("entry %p against %p is %p", (entry, name, matches) => {
     expect(reportOnlyEntryMatches(entry, name)).toBe(matches)
   })

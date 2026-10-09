@@ -64,10 +64,22 @@ describe("runCheckThenTeardown (#9766)", () => {
     await expect(runCheckThenTeardown(async () => {}, fail("leftovers"))).rejects.toThrow("leftovers")
   })
 
-  test("#given both throw #when run #then both errors are reported", async () => {
-    const error = await runCheckThenTeardown(async () => fail("shards")(), fail("leftovers")).catch((caught: unknown) => caught)
+  test("#given both throw #when run #then the thrown message carries both, since the runner prints only that", async () => {
+    const error = await runCheckThenTeardown(async () => fail("shard p-1 leaked")(), fail("left omo-x-1")).catch(
+      (caught: unknown) => caught,
+    )
 
     if (!(error instanceof AggregateError)) throw new Error(`expected an AggregateError, got ${String(error)}`)
-    expect(error.errors.map((inner: unknown) => (inner instanceof Error ? inner.message : inner))).toEqual(["shards", "leftovers"])
+    expect(error.message).toContain("shard p-1 leaked")
+    expect(error.message).toContain("left omo-x-1")
+    expect(error.errors).toHaveLength(2)
+  })
+
+  test("#given an async teardown that rejects #when run #then the rejection is thrown", async () => {
+    await expect(
+      runCheckThenTeardown(async () => {}, async () => {
+        throw new Error("async leftovers")
+      }),
+    ).rejects.toThrow("async leftovers")
   })
 })
