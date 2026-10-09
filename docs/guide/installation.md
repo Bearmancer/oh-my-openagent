@@ -572,8 +572,8 @@ GitHub Copilot is supported as a **fallback provider** when native providers are
 | --------------------- | ---------------------------------------- |
 | **plan-consultant**   | `github-copilot/claude-opus-5-5` (max)     |
 | **plan-reviewer**     | `github-copilot/gpt-6-astra` (high)      |
-| **explore**           | `github-copilot/claude-haiku-5-5`        |
-| **librarian**         | `github-copilot/claude-haiku-5-5`        |
+| **explore**           | `github-copilot/claude-haiku-5-5` (medium) |
+| **librarian**         | `github-copilot/claude-haiku-5-5` (medium) |
 | **deep** (category)   | `github-copilot/gpt-6-astra` (high)      |
 
 Copilot acts as a proxy provider, routing requests to underlying models based on your subscription. The main agent keeps running on whatever session model you picked; Copilot-only installs commonly use `github-copilot/claude-opus-5-5` there.
