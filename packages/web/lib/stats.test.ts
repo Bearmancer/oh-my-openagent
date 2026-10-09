@@ -250,7 +250,10 @@ describe("shared last-known-good copy (#9820)", () => {
     const old = { ...FALLBACK_STATS_DATA, stars: 70_000 }
     await store.write({ data: old, timestamp: Date.now() - 2 * 60 * 60 * 1000 })
     setStatsStoreForTests(store)
-    installFetch({ onPoint: (_period, pkg) => (pkg === "oh-my-openagent" ? json({ error: "upstream" }, 500) : 100) })
+    installFetch({
+      onPoint: (_period, pkg) =>
+        pkg === "oh-my-openagent" ? json({ error: "upstream" }, 500) : 100,
+    })
     expect((await getStats()).stars).toBe(70_000)
     // Upstreams recover: the 2-hour-old copy is past the in-memory TTL, so the next request refreshes at once
     // (a copy re-stamped "now" would be held for another hour instead).
@@ -350,8 +353,14 @@ describe("the Cache API store (#9820)", () => {
       resetStatsCacheForTests()
       const fake = fakeCaches()
       fake.install()
-      fake.kept.set("https://omo.dev/__stats/last-known-good/v1", new Response(JSON.stringify(entry)))
-      installFetch({ onPoint: (_period, pkg) => (pkg === "oh-my-openagent" ? json({ error: "upstream" }, 500) : 100) })
+      fake.kept.set(
+        "https://omo.dev/__stats/last-known-good/v1",
+        new Response(JSON.stringify(entry)),
+      )
+      installFetch({
+        onPoint: (_period, pkg) =>
+          pkg === "oh-my-openagent" ? json({ error: "upstream" }, 500) : 100,
+      })
       await expect(getStats()).rejects.toThrow()
     }
   })
