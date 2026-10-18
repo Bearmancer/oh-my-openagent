@@ -126,6 +126,65 @@ describe("runComputerCode", HANG_GUARD, () => {
 		]);
 	});
 
+	it("resolves window({ id }) by exact id and refuses unknown filter keys instead of matching every window", async () => {
+		// Given
+		const { service } = await openDesktop();
+
+		// When: the object filter with an id resolves the same window as the id string
+		const resolved = await run(
+			service,
+			`const w = await desktop.window({ id: "202" }); return { id: w.id, app: w.app, title: w.title };`,
+		);
+
+		// Then
+		expect(resolved.returnValue).toEqual({ id: "202", app: "Mail", title: "Inbox" });
+
+		// When: an unknown key is refused instead of degenerating into an all-match ambiguity error
+		const unknownKey = await rejectionOf(run(service, `await desktop.window({ name: "Mail" });`));
+
+		// Then
+		expect(unknownKey).toBeInstanceOf(ComputerRunError);
+		expect(unknownKey).toHaveProperty("reason", "assertion");
+		expect(unknownKey).toHaveProperty(
+			"message",
+			"unknown window filter key 'name'; use { id, app, title } or the window id string",
+		);
+
+		// When: a list call with a typoed key fails the same way, and an unmatched id stays a clean miss
+		const typoedList = await rejectionOf(run(service, `await desktop.windows({ appp: "Code" });`));
+		const missed = await rejectionOf(run(service, `await desktop.window({ id: "303" });`));
+
+		// Then
+		expect(typoedList).toHaveProperty("reason", "assertion");
+		expect(missed).toHaveProperty("reason", "window");
+		expect(missed).toHaveProperty("message", 'no window matches {"id":"303"}');
+	});
+
+	it("filters windows({ id }) and windows({ app, title }) and refuses non-string filter values", async () => {
+		// Given
+		const { service } = await openDesktop();
+
+		// When
+		const result = await run(
+			service,
+			`
+			const byId = await desktop.windows({ id: "202" });
+			const byText = await desktop.windows({ app: "code", title: "main" });
+			return { byId: byId.map((window) => window.id), byText: byText.map((window) => window.id) };
+		`,
+		);
+
+		// Then
+		expect(result.returnValue).toEqual({ byId: ["202"], byText: ["101"] });
+
+		// When: a non-string value is refused up front instead of failing inside matching
+		const badValue = await rejectionOf(run(service, `await desktop.windows({ id: 202 });`));
+
+		// Then
+		expect(badValue).toHaveProperty("reason", "assertion");
+		expect(badValue).toHaveProperty("message", "window filter 'id' must be a string");
+	});
+
 	it("rejects with the error of code that throws before its first await, leaving nothing unhandled", async () => {
 		// Given: the vm rejects its evaluation promise while its own microtasks drain, before the host has
 		// attached a handler; that used to surface as an unhandled rejection in the host (Vitest fails the

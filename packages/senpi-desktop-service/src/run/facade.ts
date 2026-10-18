@@ -16,16 +16,49 @@ import {
 import { ElementHandle, InputTarget, resolveElement, WindowHandle } from "./handles";
 
 export interface WindowFilter {
+	/** Exact opaque window id, the same window `window(id)` resolves. */
+	readonly id?: string;
 	/** Case-insensitive substring of the owning app name. */
 	readonly app?: string;
 	/** Case-insensitive substring of the window title. */
 	readonly title?: string;
 }
 
+const WINDOW_FILTER_KEYS: readonly string[] = ["id", "app", "title"];
+
+/**
+ * Validates a window filter before it reaches matching. Unknown keys used to read through to an
+ * all-match list (a `{ id }` selector listed every window, #10409); now an unknown key or a
+ * non-string value throws instead.
+ */
+function windowFilter(filter: unknown): WindowFilter {
+	if (filter === undefined) return {};
+	if (!isRecord(filter))
+		throw new ComputerRunError("assertion", "window filter must be an object with id, app, and/or title");
+	for (const key of Object.keys(filter)) {
+		if (!WINDOW_FILTER_KEYS.includes(key))
+			throw new ComputerRunError(
+				"assertion",
+				`unknown window filter key '${key}'; use { id, app, title } or the window id string`,
+			);
+	}
+	for (const key of WINDOW_FILTER_KEYS) {
+		const value = filter[key];
+		if (value !== undefined && typeof value !== "string")
+			throw new ComputerRunError("assertion", `window filter '${key}' must be a string`);
+	}
+	return {
+		id: filter["id"] as string | undefined,
+		app: filter["app"] as string | undefined,
+		title: filter["title"] as string | undefined,
+	};
+}
+
 function matchesFilter(window: DesktopWindow, filter: WindowFilter = {}): boolean {
 	const app = filter.app?.toLocaleLowerCase();
 	const title = filter.title?.toLocaleLowerCase();
 	return (
+		(filter.id === undefined || window.id === filter.id) &&
 		(!app || window.app.toLocaleLowerCase().includes(app)) &&
 		(!title || window.title.toLocaleLowerCase().includes(title))
 	);
@@ -62,12 +95,17 @@ export function createDesktopFacade(scope: RunScope) {
 				return Object.assign(new InputTarget(scope, `display:${selector}`, DISPLAY_METHODS), { id: selector });
 			}),
 		windows: (filter?: WindowFilter): Promise<readonly DesktopWindow[]> =>
-			method("windows", async (run) => (await listWindows(run)).filter((window) => matchesFilter(window, filter))),
+			method("windows", async (run) => {
+				const validated = windowFilter(filter);
+				return (await listWindows(run)).filter((window) => matchesFilter(window, validated));
+			}),
 		/** Exactly one window by opaque id or filter; an ambiguous filter throws listing the candidates. */
 		window: (selector: string | WindowFilter): Promise<WindowHandle> =>
 			method("window", async (run) => {
+				const byId = typeof selector === "string" ? selector : null;
+				const filter = byId === null ? windowFilter(selector) : undefined;
 				const found = (await listWindows(run)).filter((window) =>
-					typeof selector === "string" ? window.id === selector : matchesFilter(window, selector),
+					byId === null ? matchesFilter(window, filter) : window.id === byId,
 				);
 				const [only, ...others] = found;
 				if (only === undefined)

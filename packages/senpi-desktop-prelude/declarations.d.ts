@@ -76,8 +76,10 @@ interface ComputerAxQuery {
 	limit?: number;
 }
 
-/** Window filter matched case-insensitively against the owning app name and title. */
+/** Window filter: `id` matches the opaque window id exactly; `app`/`title` match case-insensitively. */
 interface ComputerWindowFilter {
+	/** Exact opaque window id; the same window `window(id)` resolves. */
+	id?: string;
 	app?: string;
 	title?: string;
 }

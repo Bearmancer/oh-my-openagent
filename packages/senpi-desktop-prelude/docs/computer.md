@@ -7,8 +7,8 @@ computer.displays() → ComputerDisplay[]
     All known monitors; pixel rectangles describe the all-display composite, not the default active screenshot.
 computer.display(id | "active" | "all") → ComputerDisplayTarget
     A handle with id, screenshot(), click(), doubleClick(), move(), drag(), scroll(), type(), press(). Each capture/input targets that display without changing the session default. Active re-resolves focus at capture time; all composites every display.
-computer.windows({ app?, title? }?) → ComputerWindowInfo[]
-    Case-insensitive substring match on app and title.
+computer.windows({ id?, app?, title? }?) → ComputerWindowInfo[]
+    `id` matches the opaque window id exactly; app and title are case-insensitive substring matches.
 computer.window(idOrFilter) → ComputerWindow
     Exactly one window; zero or several matches throw listing candidates. Handle fields: id, app, title, pid, bounds, focused.
 computer.focusedWindow() → ComputerWindow | null
