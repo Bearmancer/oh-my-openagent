@@ -64,6 +64,15 @@ function run(item: Sandbox, args: string[]): string {
   return result.stdout
 }
 
+// Like run, with extra env vars the home's setup findings are keyed from (never scrubbed: they carry
+// no OMO_/OPENCODE_ prefix the scrubber removes).
+function runWithEnv(item: Sandbox, keys: Record<string, string>, args: string[]): string {
+  const result = spawnSync(process.execPath, [LAUNCHER, "setup", ...args], { encoding: "utf8", env: { ...env(item), ...keys } })
+  if (result.error) throw result.error
+  expect(result.status).toBe(0)
+  return result.stdout
+}
+
 // On a real pty, answering the first prompt that carries `marker`.
 function runOnTerminal(item: Sandbox, answer: string, marker: string): string {
   const result = spawnSync("python3", [TTY_DRIVER, answer, marker, process.execPath, LAUNCHER, "setup"], { encoding: "utf8", env: env(item) })
@@ -157,6 +166,72 @@ describe("omo setup migration summary", () => {
       expect(files.map((path) => readFileSync(path, "utf8"))).toEqual(before)
       expect(stdout).toContain("imported: 0")
       expect(stdout).toContain("mcp-imported: 0")
+    })
+  })
+
+  describe("#given a home with no OpenCode config and CMD_API_KEY set", () => {
+    // A home with nothing setup can import from OpenCode's config: the Command Code provider is
+    // setup's own finding, keyed from the environment.
+    function commandCodeUser(): Sandbox {
+      const root = mkdtempSync(join(tmpdir(), "omo-setup-summary-cc-"))
+      roots.push(root)
+      const home = join(root, "home")
+      return { home, agentDir: join(home, ".omo", "agent"), omoConfig: join(home, ".omo", "omo.jsonc") }
+    }
+
+    test("#when setup runs with --yes #then the Command Code provider is planned, named as its own source, and written to models.json and auth.json", () => {
+      // given
+      const item = commandCodeUser()
+
+      // when
+      const output = runWithEnv(item, { CMD_API_KEY: "SK-CMD-SENTINEL-SUMMARY" }, ["--yes"])
+
+      // then
+      expect(output).toContain("Found your Command Code setup")
+      expect(output).toContain("commandcode -> https://api.commandcode.ai/provider/v1, 12 models")
+      expect(output).toContain("key from environment variable CMD_API_KEY - will be imported")
+      // The key env var's value never appears anywhere; the engine interpolates the reference.
+      expect(output).not.toContain("SK-CMD-SENTINEL-SUMMARY")
+      // The provider is on its way in, so no guidance about setting a key for it.
+      expect(output).not.toContain("Command Code: set CMD_API_KEY")
+      const models = readJson(join(item.agentDir, "models.json")).providers
+      expect(Object.keys(models)).toEqual(["commandcode"])
+      expect(models.commandcode.baseUrl).toBe("https://api.commandcode.ai/provider/v1")
+      expect(models.commandcode.models.length).toBeGreaterThanOrEqual(8)
+      expect(readJson(join(item.agentDir, "auth.json")).commandcode).toEqual({ type: "api_key", key: `\${CMD_API_KEY}` })
+    })
+
+    test("#when setup is a dry run #then the Command Code provider is only announced", () => {
+      // given
+      const item = commandCodeUser()
+
+      // when
+      const stdout = runWithEnv(item, { CMD_API_KEY: "SK-CMD-SENTINEL-SUMMARY" }, ["--dry-run", "--yes"])
+
+      // then
+      expect(stdout).toContain("Found your Command Code setup")
+      expect(stdout).toContain("commandcode -> https://api.commandcode.ai/provider/v1")
+      expect(existsSync(join(item.home, ".omo"))).toBe(false)
+      expect(stdout).not.toContain("Command Code: set CMD_API_KEY")
+    })
+  })
+
+  describe("#given a home with no key for Command Code set", () => {
+    test("#when setup runs #then the summary tells the user how to add it instead", () => {
+      // given
+      const root = mkdtempSync(join(tmpdir(), "omo-setup-summary-cc-"))
+      roots.push(root)
+      const home = join(root, "home")
+      const item: Sandbox = { home, agentDir: join(home, ".omo", "agent"), omoConfig: join(home, ".omo", "omo.jsonc") }
+
+      // when
+      const stdout = runWithEnv(item, {}, ["--dry-run", "--yes"])
+
+      // then: the mechanism is omo setup itself, run again after the env var is set; no row, no files.
+      expect(stdout).toContain("Command Code: set CMD_API_KEY (or COMMANDCODE_API_KEY), then run omo setup again")
+      expect(stdout).toContain("x-cmd-zdr")
+      expect(stdout).not.toContain("commandcode ->")
+      expect(existsSync(join(item.home, ".omo"))).toBe(false)
     })
   })
 })
