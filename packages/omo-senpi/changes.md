@@ -1,3 +1,49 @@
+## 2026-10-25 - Remove automatic engine crash telemetry
+
+The session-start component no longer reads, claims or sends earlier process crash records. Retire the legacy crash capture entry point and its reviewed writer site. Recording-transport coverage requires zero crash events while normal session telemetry continues. Preserve operational crash files and user-initiated reports. No replacement signal or local bundle regeneration is included.
+
+## 2026-10-20 - git-master adds the sisyphus-dev-ai co-author trailer by default (#10713)
+
+`components/git-master/directive.ts` builds the attribution directive whenever `git_master.include_co_authored_by` (default `true` again, no longer a no-op) or `commit_footer` is on. Its commit example is `git -c trailer.ifexists=addIfDifferent commit -m ... --trailer "Co-authored-by: sisyphus-dev-ai <sisyphus-dev-ai@users.noreply.github.com>"`, under the `git_env_prefix` from #10613, so git keeps one copy when the message already carries the trailer. A squash joins messages without `--trailer`, so the directive asks for one `--amend` rewrite afterwards. `skill-content.ts` runs the shared template rewrite with `include_co_authored_by: false`, because the directive carries attribution, and both channels (the `read` hook and `task-skill-loader.ts`) append the directive only when the text does not already contain `<commit_attribution>`. `scripts/qa/git-master-attribution-e2e.mjs` now expects the trailer exactly once by default, and adds an `include_co_authored_by: false` run that expects none.
+
+## 2026-10-19 - desktop-toolkit component: the session's channel to toolkits the app hosts for its thread
+
+`src/components/desktop-toolkit/` registers the eval-only tool `omo_desktop_toolkit` (`{op:"acquire", toolkit}`). It answers `unavailable` at once unless the opener listed the toolkit in `open_session.context.omo_toolkits` (comma-separated) and the host has `pi.rpc`; otherwise it emits `omo.toolkit.request {requestId, toolkit}` and waits up to 15 s for the app's `extension_request omo.toolkit.grant {requestId, grant | refusal}`. A grant must be `{endpoint: http://127.0.0.1:<port>/..., tokenFile: <absolute path>}` with no userinfo or query; anything else settles as `invalid_grant`. A late or foreign `requestId` is refused (`accepted:false`). Registered right after `browser-bridge`.
+
+Why: sisyphuslabs/omo-desktop-app#3292. The token stays in a 0600 file because an eval cell's tool results stream to the desktop as `tool_execution_end` and the desktop logs them.
+
+Must not break: never return a token in this tool's result; keep the per-session pending map (two sessions must not settle each other's request). Live proof: `scripts/qa/desktop-toolkit-rpc-e2e.mjs` (granted / not-offered / app-silent).
+
+## 2026-10-21 - Gateway, onboarding and task-host hooks allow prompt previews (#10356)
+
+All three before-agent-start handlers register as preview-safe. Gateway previews read committed operating rules through a read-only connection without starting a worker, registering migrations, or changing warning and activation latches. Onboarding previews compute the same addition, migration inventory included, without claiming the completion marker, changing widgets, consuming the forced-tour flag, or starting the background session-history read. Task-host previews return without capturing runtime context, registering a store, or warming or launching a host. AST and composed-extension audits cover literal and dynamic registrations; component tests cover semantic and durable state preservation, and a real-engine test checks prefix readiness.
+
+The onboarding preview decides whether onboarding would start with the same rule as the real claim, read without writing (`isOnboardingClaimable`, default `claimableWithOwner`): a claim whose owner has died counts as claimable, so the preview adds what the real turn adds after taking it over. The real-engine prefix test awaits the session's MCP startup connects (`whenAttachSettled`) before the preview and before it removes its temp HOME. Binding the session, not the preview, starts the bundled ast-grep server, and senpi's quit returns before such a connect settles (code-yeongyu/senpi#3911). The test also asserts that the preview leaves every MCP server's state, generation and pid unchanged.
+
+## 2026-10-20 - Project memory follows successful file touches (#10044)
+
+Port project-scoped memory onto the current session binder and persisted recall store. A successful `read`, `edit` or `write` in a child project with an existing auto-identity repository grants read-only access to its notes and appends a paths-and-descriptions nudge once per project, re-armed after accepted compaction. The resolver follows directory links in non-git workspaces, maps linked worktrees with the bound `auto_identity` mode and pinned absolute memory root, and refuses links that would widen scope to an ancestor, home or the memory root. Grants are canonical, exclude `.git` and `system/` case-insensitively on every platform, and are revoked on shutdown and binding release.
+
+Kibitzer recall and its read-only memory tool rank the own corpus and up to three recently touched projects separately. Projects receive up to half the seats, rounded up, in touch order; unused seats go to the other side. The shared `RecallCorpusCache` loads every project repository through the existing lazy term-store runtime. Ranking uses the original store-backed arrays; only candidate paths, transcript filtering and read presentation use `@project/<identity>/<path>`. A project store save failure logs through the same warning path as the own corpus and never fails recall. Readable project sources survive pending-nudge persistence. A project note whose file path the transcript already names (the model reads it there, not at its `@project/` key) is not recalled again.
+
+The tool-result path never blocks on the filesystem: the switches are read once per session, the session-tree scan and every real-path, link and git-layout probe go through `fs/promises` into a per-session memo, and a further touch in an already-resolved directory reads neither configuration nor the filesystem.
+
+`memory.project_scope.nudge` and `.recall` default on and can be set separately on the root memory block or its harness/profile layers, not per agent; a change takes effect in the next session. The existing auto-identity feature, sync-runner acquisition, generated adapter bundles and bundle budgets are not duplicated or changed.
+
+## 2026-10-21 - Sender workspace and project on gateway deliveries (#10794)
+
+`renderDeliveryText` starts with the sender's workspace/project and optional lane/session. Resolution uses the sender runtime's environment, then git-origin owner and configured path prefixes from `provenance.workspaces` in the normal profile-selected config. Tool arguments cannot supply provenance. For a bound external chat or the CLI, the sender is the connector process, so the provenance is that process's workspace and project, not the human author's (the author stays in the binding header). Schema v8 requires provenance on new delivery inserts without rewriting historical envelopes; old rows remain readable and render `From (provenance not recorded)`. Older writers that omit provenance must upgrade before inserting into a v8 store. Legacy mailbox imports have no recoverable sender context and are explicitly `unclassified / legacy-mailbox`.
+
+## 2026-10-19 - The feedback core is a lazy sidecar, so omo.js stays inside its byte budget (#10546)
+
+`/feedback`, `/bug` and the `omo.feedback.prepare` / `omo.feedback.submit` RPCs run only when someone sends a report, so their core (host collection, draft building, the draft store and the upload) now ships as `extensions/omo-feedback.js` behind `#omo-feedback-runtime`, imported on the first report. The entry bundle keeps the component registration, the session tracking, the two command and two RPC shells and the redactor check; the TUI flow behind `/feedback` and `/bug` (the description prompt, the notice, "See exactly what is sent" and the result message) runs from the sidecar too; a host without `pi.redactForUpload` still answers `unavailable` without loading anything. Results, errors, idempotency keys and `OMO_DISABLE_FEEDBACK` behave as before. If the sidecar cannot load, the RPC rejects and the command shows an error naming the missing artifact; a failed import is not cached, so the next report retries. This replaces a byte-budget raise: the feature had added ~14.5 KB to omo.js, and the budget is raised only for code that runs on every turn.
+
+## 2026-10-19 - In-app feedback and bug reports: one core for `/feedback` and the desktop (#10543)
+
+`components/feedback` is the only report path. The TUI (`/feedback`, `/bug`) and the desktop (`omo.feedback.prepare` / `omo.feedback.submit` extension RPC) build the same draft and send it the same way; the desktop's own log, crash and identity sections enter through `prepare`, so they pass the same redactor. Redaction is senpi's `pi.redactForUpload` (senpi #3674), the function `/share` uses; a host without it answers `unavailable` and nothing is sent unredacted. Product decisions: collect as much identity and debug information as possible, one Submit with a plain notice (no checklist), memory and custom extension entries never collected, config values under `headers`/`env`/secret-named keys and URL userinfo blanked structurally before text redaction. No new consent flag: telemetry consent and opt-outs gate only the install and session hashes; `OMO_DISABLE_FEEDBACK` keeps the report on disk (0600). Do not add a second redactor or a desktop-only report path here.
+
+`omo.feedback.submit` also takes an `idempotencyKey` the caller kept from a send whose answer was lost (format `feedback-<id>`; anything else is ignored). The desktop keeps that key on disk, so Try again after an app or session restart prepares a fresh draft and sends it under the same key: the intake replays the first receipt for the same body, and answers 409 `conflict` for a different body, which the engine reports as `already-sent` instead of a failure. Only a caller-kept key turns a 409 into `already-sent`; without one a 409 stays a refusal.
+
 ## 2026-10-20 - A failed onboarding scan is retried instead of being kept for the whole process (#10481)
 
 The TUI onboarding's once-per-process memos (the setup scan behind the first onboarding turn, the understanding scan `onboarding_understand` reads, an injected migration inventory, and the background session-history summary) kept a failed run as their answer, so one transient failure made onboarding report "the scan did not run" for the rest of the process. They now keep only a success: callers that arrive while a run is in flight still share it, a rejected run answers `undefined` to them (onboarding stays fail-open) and is dropped, and the next call starts a fresh run.
@@ -33,6 +79,16 @@ Review HIGH on #10505: the TUI onboarding's migration inventory called `runOnboa
 #10480 had put the `omo.onboarding.understand` / `.skip` / `.stop` handler bodies into the eagerly loaded `omo.js`, which grew it to 1,553,004 bytes against the 1,550,000 budget in `bundle-size.test.ts` (dev: 1,549,814). Those bodies now ship in the existing lazy `extensions/omo-onboarding-scan.js` sidecar: `scan-runtime.ts` exports `createOnboardingUnderstandingHandlers` (from `understand-component.ts`, which also reads the retained scan for understanding), and the shell registers the three method names and loads the handlers on the first understanding call, once per shell, keeping no failed load. The apply handler's work after its expiry check (stale-target and credential-store checks, the writers, `authTargetOf` / `writeAuthThrough`) moves into the same sidecar as `applyRetainedScan`; it already ran only after the runtime loaded. `omo.js` is 1,549,374 bytes. No new generated file. Behavior is unchanged except that a malformed understanding request on an install whose runtime cannot load now answers `unavailable` with the load reason instead of `invalid`.
 
 ## 2026-10-19 - An apply's own credentials write no longer makes its provider stage stale (#10496)
+
+## 2026-10-19 - Stage the shared DAG infrastructure retry runtime (#10605)
+
+Regenerated `plugin/extensions/omo-task.js` with `bun run build:senpi-plugin`.
+The bundled task engine now carries the shared scheduler's two bounded
+infrastructure retries, durable backoff metadata, and retry diagnostics. TUI and
+desktop continue to use that same engine; no adapter-specific retry path was
+added. Manual prompt overrides keep their pre-amendment eligibility check.
+The protocol field audit reads the extracted `event-types.ts` union so its
+overflow-payload equality assertion continues to inspect the shipped contract.
 
 ## 2026-10-19 - git-master applies git_env_prefix again (#10613)
 
@@ -84,6 +140,10 @@ Thanks to @bluet for the report and the clean reproduction, and to @twotnguyen f
 
 The thread-tools harness and runner no longer import senpi's app-server-named QA library. `scripts/qa/thread-tools/lib/harness.mjs` resolves `scripts/qa-shared/lib/{env,fake-model,cleanup}.mjs` from the senpi checkout (the prerequisite extraction in senpi #3177) and `run-all.mjs`'s legacy precondition checks the same path, so the suite keeps its coverage instead of silently skipping once the old helper location is removed. The ulw-loop delegation guidance and `docs/reference/mass-ulw-protocol.md` stop naming the retired protocol; the DAG widget's non-TUI suppression test uses the rpc mode fixture. No behavior changes: the harness still drives the real `--mode rpc --multi-session` host.
 
+## 2026-10-12 - Git worktrees can share the main checkout's memory (#9659)
+
+`memory.agent: "auto"` hashed the session directory, so every git worktree of a repository got its own, empty memory. The new `memory.auto_identity` key (`"path"` by default, so nothing changes unless it is set) accepts `"git"`: memory-core `identity/git-layout.ts` walks up to the nearest `.git` entry and, when it is a linked worktree's `gitdir:` pointer whose admin directory has a `commondir`, maps the session directory onto the same relative path under the main working tree. The main working tree is used only when git records it: the parent of a common dir named `.git`, `core.worktree`, or the common dir itself for a `core.bare` repository. The admin dir's `gitdir` back-pointer must name this checkout's `.git` (compared by real path, so a worktree opened through a symlink still maps), which rejects forged or stale pointers. The main checkout therefore keeps the identity it already had and every worktree joins it. A `.git` directory, a pointer without `commondir` (submodules), a `--separate-git-dir` clone without `core.worktree`, or any unreadable or malformed file keeps the path-derived id; nothing spawns `git`. memory-core exports `resolveAutoIdentity(cwd, env, mode, probe?)` as the one entry point for the auto identity; `bindSession` and the side panel use it for an auto agent, and `identity-adoption.ts` is unchanged, so a session already bound to its per-worktree identity is rebound to that record rather than failing closed.
+
 ## 2026-10-11 - The control confirm drops its redundant time floor (#9967)
 
 `control-confirm.ts` no longer refuses a confirm under 3 s of budget: the service facade already throws before asking when under 8 s of run time is left, so the component check never fired in production. The near-duplicate "RPC-mode confirm frame never answered" test is removed; "a client that never answers" keeps that contract.
@@ -109,7 +169,7 @@ The computer-use engine probe's timeout phase names where the handshake stopped.
 
 ## 2026-10-10 - Bindings take whatsapp as a native platform name
 
-The omo-gateway WhatsApp channel binds its chats through the session-gateway store, but the binding contract refused the platform: `bindings.ts` `BINDING_PLATFORMS`, the `thread_bind` tool schema (`contracts/params.ts`), and the store's `bindings.platform` CHECK all stopped at `custom`. The first admitted WhatsApp message would have been refused by core's thread store.
+A WhatsApp connector binds its chats through the session-gateway store, but the binding contract refused the platform: `bindings.ts` `BINDING_PLATFORMS`, the `thread_bind` tool schema (`contracts/params.ts`), and the store's `bindings.platform` CHECK all stopped at `custom`. The first admitted WhatsApp message would have been refused by core's thread store.
 
 `whatsapp` is now a binding platform in all three spellings. Because SQLite cannot widen a CHECK in place, schema v7 rebuilds the `bindings` table with the widened list, carrying every column over verbatim and recreating `bindings_one_active_thread` and `bindings_session` before the old table drops. The rebuild runs with foreign keys off so an extension table referencing `bindings` is neither cascade-deleted nor able to block the migration, and the AUTOINCREMENT high-water mark is carried over so a deleted newest row's key is never reused. Before the version bump commits, `migrate()` runs `PRAGMA foreign_key_check` from TypeScript and throws (rolling back to v6) if the step introduced a violation referencing `bindings`; the `foreign_keys` pragma is restored to its prior value afterwards. A store migrated from v6 keeps its live bindings and accepts a `whatsapp` bind (`store-v7-whatsapp.test.ts`); the tool schema takes the native name and the store keeps it (`bindings.test.ts`).
 
@@ -321,10 +381,6 @@ Tests (`store-idle-retire.test.ts`; the last one in `component.test.ts`):
 
 The `ulw-plan` skill's delegation-router row listed a `git` category that no edition ships (`SKILL.md`), and its reference copy (`references/full-workflow.md`) also still listed `deep`, which was split into `deep-low` and `deep-high`. A plan that followed either name sent `task(category: ...)` to a category the user's session does not have. Both rows now list exactly the built-in categories.
 
-## 2026-10-04 - The committed gateway rules sidecar is no longer an ignored path
-
-`packages/omo-senpi/.gitignore` ignores `/plugin/extensions/*` and re-admits each committed bundle with a `!` line. The `gateway_rules` store-extension sidecar (`gateway-rules-extension.mjs`, from #9540) was committed without its `!` line, so `script/tracked-ignored-paths-audit.test.ts` failed on `dev` and on the v5.1.17 release-state PR. A local `git add` of a fresh regen would also silently skip that file. Added the negation next to its sibling `gateway-store-worker.mjs`.
-
 ## 2026-10-04 - A runtime advisory no longer makes a failed reflection child look like a provider outage (#9553)
 
 On Windows every failed memory reflection child was recorded as "refused by its provider", and automatic reflection parked for hours. `worker/model-miss.ts` `providerFailureDetail` took the first stderr line as the provider's answer. On a Bun host on win32 that line is Bun's `child reaper unavailable under Bun on win32: ...` advisory, printed once per terminated worker thread before anything the child says. The shared retryable-error classifier matches the bare word `unavailable`, so any failure became `provider_unavailable`, the real cause was hidden, and every candidate in the chain was marked as refused.
@@ -340,20 +396,23 @@ Tests (`model-miss.test.ts`, the exact advisory text):
 
 **Known limit:** an advisory with neither a runtime marker nor a log-level prefix, and nothing after it, is still taken as the detail. There is no better line to report then.
 
-## 2026-10-04 - Gateway operating-rules injection into lead and bound sessions (#9190)
-
-- New `components/gateway`: the scope lead and every session with an active binding get the scope's compiled behavioral rules as one `<operating-rules version="<rules sha>">` block in the system prompt through `before_agent_start`, rendered beside the memory block. The component lazily connects only when the `gateway.scopes` config is non-empty and the store database exists; every other session's prompt passes through byte-identical. Rules are computed by the gateway package; omo owns only the `gateway_rules` store extension (a `gateway_rules_blocks` table plus the `rulesCommitted`/`blockForSession` ops) and the exactly-once `rules_changed` fanout per session and version. `plugin/scripts/build-extension-core.mjs` emits the ops module as `extensions/gateway-rules-extension.mjs` beside `omo.js`, covered by the build freshness check.
-
-## 2026-10-04 - Escape untrusted gateway rule text and add `sessionsWithRules`
-
-- Behavioral rule lines, scope and version render with `&`, `<` and `>` escaped, so a rule carrying the end sentinel or the closing tag can neither break the byte-identical turn guarantee nor close the block early; the `rules_changed` delivery text escapes scope and version the same way. New `sessionsWithRules({scope})` op lists a scope's `gateway_rules_blocks` rows ordered by session id so the gateway can clear sessions whose binding ended while the connector was down.
-
 ## 2026-10-04 - Live QA: a task child's fallback after a tool call, and the user's settings untouched (#9512)
 
 `scripts/qa/task-runtime-fallback-e2e.mjs` gains a `limit-after-tool` scenario. The child's primary model makes a real `bash` tool call, then hits a usage limit on the request carrying the tool result, so the fallback has to happen inside the running turn. Every scenario now also records a sha256 of the sandbox `settings.json` before and after the run, and `limit-after-tool` fails unless they match.
 
 On the host-session runner the scenario requires the tool call (`tool_execution`) before the in-session hop (`retry_fallback_applied`), and the record's model to end on the fallback. On the per-child process runner the tool check reads `N/A`, because that runner cannot carry a per-session chain and falls back at the manager level instead. `task-runtime-fallback-mock-provider.ts` serves the `limit-after-tool` model.
 
+## 2026-10-05 - A store extension can declare a session op its component calls but the model never sees
+
+A session-callable op gave the model a tool (`ext_<extension>_<toolName>`). Some ops take a session id the session's own component already knows, while it assembles its prompt: a digest cursor write, a membership read. Declaring them session-callable would have handed the model tools it must not have. Leaving them public would have let any caller forge the session id.
+
+`SessionCallableOp` now has an internal form, `{ op, internal: true, parameters, targetArg?, description? }`. The caller is stamped and the public `extensionCall` refuses it with `caller_not_allowed`, exactly as for a tool op. It is reachable only through `extensionSessionAwait` with the caller the component knows, and `sessionCallableOps` leaves it out, so no tool is ever built for it. Registration refuses an internal entry that declares `toolName`, `await` or `wake`.
+
+Tests:
+- a session that declares a tool op and an internal op gets only the tool op's tool;
+- the public `extensionCall` refuses an internal op, and the op never runs;
+- `extensionSessionAwait` runs it with the engine caller stamped, and refuses a forged caller field;
+- an internal entry with `toolName`, `await`, `wake` or `internal: false` is refused, and the same entry without it registers.
 ## 2026-10-03 - Ultrawork routing item 4 carries a size test before it fans out (#9499)
 
 - `skills/ultrawork/SKILL.md` "Finding things" item 4: "Architecture / flow / blast radius across more files than one wave can read -> parallel explore agents armed with ast-grep, then synthesize; outside-repo research (library/API/docs/web) -> librarian. Run them in background; keep working." replaces the arrow table that sent every architecture question and every "unfamiliar layout" to background agents with no size test. `src/components/ultrawork/generated-directive.ts` is regenerated by `plugin/scripts/embed-directive.mjs` (22 words shorter; no forbidden harness tokens).

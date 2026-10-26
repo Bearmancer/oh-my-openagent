@@ -5,6 +5,45 @@
   "description": "Configuration schema for the omo.json / omo.jsonc harness-neutral config surface",
   "type": "object",
   "properties": {
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "workspaces": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "git_owners": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S"
+                }
+              },
+              "paths": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S"
+                }
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
     "formatOnMutation": {
       "type": "object",
       "properties": {
@@ -40,14 +79,6 @@
         }
       },
       "additionalProperties": false
-    },
-    "gateway": {
-      "type": "object",
-      "propertyNames": {
-        "type": "string"
-      },
-      "additionalProperties": {},
-      "description": "Chat-surface gateway settings, owned and validated by a separately installed gateway package. omo accepts the key and never reads it."
     },
     "$schema": {
       "type": "string"
@@ -899,7 +930,7 @@
           ]
         },
         "include_co_authored_by": {
-          "default": false,
+          "default": true,
           "type": "boolean"
         },
         "git_env_prefix": {
@@ -1442,6 +1473,9 @@
           "display_name": {
             "type": "string"
           },
+          "caution": {
+            "type": "string"
+          },
           "family": {
             "type": "string",
             "enum": [
@@ -1599,6 +1633,14 @@
           "type": "string",
           "minLength": 1
         },
+        "auto_identity": {
+          "default": "path",
+          "type": "string",
+          "enum": [
+            "path",
+            "git"
+          ]
+        },
         "reflection": {
           "default": {
             "enabled": true,
@@ -1609,6 +1651,7 @@
             "merge": "auto",
             "category": "quick",
             "timeout_minutes": 15,
+            "max_concurrent_runs": 1,
             "sandbox": "auto"
           },
           "type": "object",
@@ -1652,6 +1695,12 @@
             },
             "timeout_minutes": {
               "default": 15,
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "max_concurrent_runs": {
+              "default": 1,
               "type": "integer",
               "exclusiveMinimum": 0,
               "maximum": 9007199254740991
@@ -1781,6 +1830,33 @@
               "type": "integer",
               "minimum": 50,
               "maximum": 500
+            }
+          },
+          "additionalProperties": false
+        },
+        "agreements": {
+          "default": {
+            "enabled": true,
+            "needs_human_threshold": 3,
+            "max_items": 64
+          },
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "default": true,
+              "type": "boolean"
+            },
+            "needs_human_threshold": {
+              "default": 3,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "max_items": {
+              "default": 64,
+              "type": "integer",
+              "minimum": 8,
+              "maximum": 256
             }
           },
           "additionalProperties": false
@@ -1930,6 +2006,24 @@
             },
             "query_expansion": {
               "default": false,
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": false
+        },
+        "project_scope": {
+          "default": {
+            "nudge": true,
+            "recall": true
+          },
+          "type": "object",
+          "properties": {
+            "nudge": {
+              "default": true,
+              "type": "boolean"
+            },
+            "recall": {
+              "default": true,
               "type": "boolean"
             }
           },
@@ -2109,6 +2203,25 @@
                 },
                 "additionalProperties": false
               },
+              "agreements": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "needs_human_threshold": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "max_items": {
+                    "type": "integer",
+                    "minimum": 8,
+                    "maximum": 256
+                  }
+                },
+                "additionalProperties": false
+              },
               "soul": {
                 "type": "object",
                 "properties": {
@@ -2245,6 +2358,11 @@
         "enabled": {
           "default": true,
           "type": "boolean"
+        },
+        "rawTurnSampleRate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
         }
       },
       "additionalProperties": false
@@ -2426,12 +2544,57 @@
         "type": "string"
       }
     },
+    "exclude_models": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
     "[opencode]": {
       "$ref": "#/definitions/opencode"
     },
     "[native]": {
       "type": "object",
       "properties": {
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "workspaces": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "\\S"
+                  },
+                  "git_owners": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "\\S"
+                    }
+                  },
+                  "paths": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "\\S"
+                    }
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
         "formatOnMutation": {
           "type": "object",
           "properties": {
@@ -2464,14 +2627,6 @@
             }
           },
           "additionalProperties": false
-        },
-        "gateway": {
-          "type": "object",
-          "propertyNames": {
-            "type": "string"
-          },
-          "additionalProperties": {},
-          "description": "Chat-surface gateway settings, owned and validated by a separately installed gateway package. omo accepts the key and never reads it."
         },
         "categories": {
           "type": "object",
@@ -3803,6 +3958,9 @@
               "display_name": {
                 "type": "string"
               },
+              "caution": {
+                "type": "string"
+              },
               "family": {
                 "type": "string",
                 "enum": [
@@ -3958,6 +4116,13 @@
               "type": "string",
               "minLength": 1
             },
+            "auto_identity": {
+              "type": "string",
+              "enum": [
+                "path",
+                "git"
+              ]
+            },
             "reflection": {
               "type": "object",
               "properties": {
@@ -3990,6 +4155,11 @@
                   "minLength": 1
                 },
                 "timeout_minutes": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "max_concurrent_runs": {
                   "type": "integer",
                   "exclusiveMinimum": 0,
                   "maximum": 9007199254740991
@@ -4084,6 +4254,25 @@
                   "type": "integer",
                   "minimum": 50,
                   "maximum": 500
+                }
+              },
+              "additionalProperties": false
+            },
+            "agreements": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "needs_human_threshold": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "max_items": {
+                  "type": "integer",
+                  "minimum": 8,
+                  "maximum": 256
                 }
               },
               "additionalProperties": false
@@ -4185,6 +4374,18 @@
                   "maximum": 9007199254740991
                 },
                 "query_expansion": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            },
+            "project_scope": {
+              "type": "object",
+              "properties": {
+                "nudge": {
+                  "type": "boolean"
+                },
+                "recall": {
                   "type": "boolean"
                 }
               },
@@ -4356,6 +4557,25 @@
                     },
                     "additionalProperties": false
                   },
+                  "agreements": {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "needs_human_threshold": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      },
+                      "max_items": {
+                        "type": "integer",
+                        "minimum": 8,
+                        "maximum": 256
+                      }
+                    },
+                    "additionalProperties": false
+                  },
                   "soul": {
                     "type": "object",
                     "properties": {
@@ -4491,6 +4711,11 @@
           "properties": {
             "enabled": {
               "type": "boolean"
+            },
+            "rawTurnSampleRate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
             }
           },
           "additionalProperties": false
@@ -4644,6 +4869,12 @@
           "description": "Experimental computer use in OmO Native: screenshots, windows, accessibility trees and native mouse and keyboard input. Every key is optional; defaults depend on the host."
         },
         "disabled_skills": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "exclude_models": {
           "type": "array",
           "items": {
             "type": "string"
@@ -4655,6 +4886,45 @@
     "[senpi]": {
       "type": "object",
       "properties": {
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "workspaces": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "\\S"
+                  },
+                  "git_owners": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "\\S"
+                    }
+                  },
+                  "paths": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "\\S"
+                    }
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
         "formatOnMutation": {
           "type": "object",
           "properties": {
@@ -4687,14 +4957,6 @@
             }
           },
           "additionalProperties": false
-        },
-        "gateway": {
-          "type": "object",
-          "propertyNames": {
-            "type": "string"
-          },
-          "additionalProperties": {},
-          "description": "Chat-surface gateway settings, owned and validated by a separately installed gateway package. omo accepts the key and never reads it."
         },
         "categories": {
           "type": "object",
@@ -6026,6 +6288,9 @@
               "display_name": {
                 "type": "string"
               },
+              "caution": {
+                "type": "string"
+              },
               "family": {
                 "type": "string",
                 "enum": [
@@ -6181,6 +6446,13 @@
               "type": "string",
               "minLength": 1
             },
+            "auto_identity": {
+              "type": "string",
+              "enum": [
+                "path",
+                "git"
+              ]
+            },
             "reflection": {
               "type": "object",
               "properties": {
@@ -6213,6 +6485,11 @@
                   "minLength": 1
                 },
                 "timeout_minutes": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "max_concurrent_runs": {
                   "type": "integer",
                   "exclusiveMinimum": 0,
                   "maximum": 9007199254740991
@@ -6307,6 +6584,25 @@
                   "type": "integer",
                   "minimum": 50,
                   "maximum": 500
+                }
+              },
+              "additionalProperties": false
+            },
+            "agreements": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "needs_human_threshold": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "max_items": {
+                  "type": "integer",
+                  "minimum": 8,
+                  "maximum": 256
                 }
               },
               "additionalProperties": false
@@ -6408,6 +6704,18 @@
                   "maximum": 9007199254740991
                 },
                 "query_expansion": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            },
+            "project_scope": {
+              "type": "object",
+              "properties": {
+                "nudge": {
+                  "type": "boolean"
+                },
+                "recall": {
                   "type": "boolean"
                 }
               },
@@ -6579,6 +6887,25 @@
                     },
                     "additionalProperties": false
                   },
+                  "agreements": {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "needs_human_threshold": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      },
+                      "max_items": {
+                        "type": "integer",
+                        "minimum": 8,
+                        "maximum": 256
+                      }
+                    },
+                    "additionalProperties": false
+                  },
                   "soul": {
                     "type": "object",
                     "properties": {
@@ -6714,6 +7041,11 @@
           "properties": {
             "enabled": {
               "type": "boolean"
+            },
+            "rawTurnSampleRate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
             }
           },
           "additionalProperties": false
@@ -6871,6 +7203,12 @@
           "items": {
             "type": "string"
           }
+        },
+        "exclude_models": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "additionalProperties": false
@@ -6878,6 +7216,45 @@
     "[codex]": {
       "type": "object",
       "properties": {
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "workspaces": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "pattern": "\\S"
+                  },
+                  "git_owners": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "\\S"
+                    }
+                  },
+                  "paths": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "\\S"
+                    }
+                  }
+                },
+                "required": [
+                  "name"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
         "formatOnMutation": {
           "type": "object",
           "properties": {
@@ -6910,14 +7287,6 @@
             }
           },
           "additionalProperties": false
-        },
-        "gateway": {
-          "type": "object",
-          "propertyNames": {
-            "type": "string"
-          },
-          "additionalProperties": {},
-          "description": "Chat-surface gateway settings, owned and validated by a separately installed gateway package. omo accepts the key and never reads it."
         },
         "categories": {
           "type": "object",
@@ -8249,6 +8618,9 @@
               "display_name": {
                 "type": "string"
               },
+              "caution": {
+                "type": "string"
+              },
               "family": {
                 "type": "string",
                 "enum": [
@@ -8404,6 +8776,13 @@
               "type": "string",
               "minLength": 1
             },
+            "auto_identity": {
+              "type": "string",
+              "enum": [
+                "path",
+                "git"
+              ]
+            },
             "reflection": {
               "type": "object",
               "properties": {
@@ -8436,6 +8815,11 @@
                   "minLength": 1
                 },
                 "timeout_minutes": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                },
+                "max_concurrent_runs": {
                   "type": "integer",
                   "exclusiveMinimum": 0,
                   "maximum": 9007199254740991
@@ -8530,6 +8914,25 @@
                   "type": "integer",
                   "minimum": 50,
                   "maximum": 500
+                }
+              },
+              "additionalProperties": false
+            },
+            "agreements": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "needs_human_threshold": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "max_items": {
+                  "type": "integer",
+                  "minimum": 8,
+                  "maximum": 256
                 }
               },
               "additionalProperties": false
@@ -8631,6 +9034,18 @@
                   "maximum": 9007199254740991
                 },
                 "query_expansion": {
+                  "type": "boolean"
+                }
+              },
+              "additionalProperties": false
+            },
+            "project_scope": {
+              "type": "object",
+              "properties": {
+                "nudge": {
+                  "type": "boolean"
+                },
+                "recall": {
                   "type": "boolean"
                 }
               },
@@ -8802,6 +9217,25 @@
                     },
                     "additionalProperties": false
                   },
+                  "agreements": {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "needs_human_threshold": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      },
+                      "max_items": {
+                        "type": "integer",
+                        "minimum": 8,
+                        "maximum": 256
+                      }
+                    },
+                    "additionalProperties": false
+                  },
                   "soul": {
                     "type": "object",
                     "properties": {
@@ -8937,6 +9371,11 @@
           "properties": {
             "enabled": {
               "type": "boolean"
+            },
+            "rawTurnSampleRate": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
             }
           },
           "additionalProperties": false
@@ -9090,6 +9529,12 @@
           "description": "Experimental computer use in OmO Native: screenshots, windows, accessibility trees and native mouse and keyboard input. Every key is optional; defaults depend on the host."
         },
         "disabled_skills": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "exclude_models": {
           "type": "array",
           "items": {
             "type": "string"
@@ -9107,6 +9552,45 @@
       "additionalProperties": {
         "type": "object",
         "properties": {
+          "provenance": {
+            "type": "object",
+            "properties": {
+              "workspaces": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 1,
+                      "pattern": "\\S"
+                    },
+                    "git_owners": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "\\S"
+                      }
+                    },
+                    "paths": {
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "pattern": "\\S"
+                      }
+                    }
+                  },
+                  "required": [
+                    "name"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "additionalProperties": false
+          },
           "formatOnMutation": {
             "type": "object",
             "properties": {
@@ -10470,6 +10954,9 @@
                 "display_name": {
                   "type": "string"
                 },
+                "caution": {
+                  "type": "string"
+                },
                 "family": {
                   "type": "string",
                   "enum": [
@@ -10625,6 +11112,13 @@
                 "type": "string",
                 "minLength": 1
               },
+              "auto_identity": {
+                "type": "string",
+                "enum": [
+                  "path",
+                  "git"
+                ]
+              },
               "reflection": {
                 "type": "object",
                 "properties": {
@@ -10657,6 +11151,11 @@
                     "minLength": 1
                   },
                   "timeout_minutes": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "max_concurrent_runs": {
                     "type": "integer",
                     "exclusiveMinimum": 0,
                     "maximum": 9007199254740991
@@ -10751,6 +11250,25 @@
                     "type": "integer",
                     "minimum": 50,
                     "maximum": 500
+                  }
+                },
+                "additionalProperties": false
+              },
+              "agreements": {
+                "type": "object",
+                "properties": {
+                  "enabled": {
+                    "type": "boolean"
+                  },
+                  "needs_human_threshold": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 9007199254740991
+                  },
+                  "max_items": {
+                    "type": "integer",
+                    "minimum": 8,
+                    "maximum": 256
                   }
                 },
                 "additionalProperties": false
@@ -10852,6 +11370,18 @@
                     "maximum": 9007199254740991
                   },
                   "query_expansion": {
+                    "type": "boolean"
+                  }
+                },
+                "additionalProperties": false
+              },
+              "project_scope": {
+                "type": "object",
+                "properties": {
+                  "nudge": {
+                    "type": "boolean"
+                  },
+                  "recall": {
                     "type": "boolean"
                   }
                 },
@@ -11023,6 +11553,25 @@
                       },
                       "additionalProperties": false
                     },
+                    "agreements": {
+                      "type": "object",
+                      "properties": {
+                        "enabled": {
+                          "type": "boolean"
+                        },
+                        "needs_human_threshold": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 9007199254740991
+                        },
+                        "max_items": {
+                          "type": "integer",
+                          "minimum": 8,
+                          "maximum": 256
+                        }
+                      },
+                      "additionalProperties": false
+                    },
                     "soul": {
                       "type": "object",
                       "properties": {
@@ -11158,6 +11707,11 @@
             "properties": {
               "enabled": {
                 "type": "boolean"
+              },
+              "rawTurnSampleRate": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
               }
             },
             "additionalProperties": false
@@ -11316,12 +11870,57 @@
               "type": "string"
             }
           },
+          "exclude_models": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "[opencode]": {
             "$ref": "#/definitions/opencode"
           },
           "[native]": {
             "type": "object",
             "properties": {
+              "provenance": {
+                "type": "object",
+                "properties": {
+                  "workspaces": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "pattern": "\\S"
+                        },
+                        "git_owners": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "pattern": "\\S"
+                          }
+                        },
+                        "paths": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "pattern": "\\S"
+                          }
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "additionalProperties": false
+              },
               "formatOnMutation": {
                 "type": "object",
                 "properties": {
@@ -11354,14 +11953,6 @@
                   }
                 },
                 "additionalProperties": false
-              },
-              "gateway": {
-                "type": "object",
-                "propertyNames": {
-                  "type": "string"
-                },
-                "additionalProperties": {},
-                "description": "Chat-surface gateway settings, owned and validated by a separately installed gateway package. omo accepts the key and never reads it."
               },
               "categories": {
                 "type": "object",
@@ -12693,6 +13284,9 @@
                     "display_name": {
                       "type": "string"
                     },
+                    "caution": {
+                      "type": "string"
+                    },
                     "family": {
                       "type": "string",
                       "enum": [
@@ -12848,6 +13442,13 @@
                     "type": "string",
                     "minLength": 1
                   },
+                  "auto_identity": {
+                    "type": "string",
+                    "enum": [
+                      "path",
+                      "git"
+                    ]
+                  },
                   "reflection": {
                     "type": "object",
                     "properties": {
@@ -12880,6 +13481,11 @@
                         "minLength": 1
                       },
                       "timeout_minutes": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "max_concurrent_runs": {
                         "type": "integer",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991
@@ -12974,6 +13580,25 @@
                         "type": "integer",
                         "minimum": 50,
                         "maximum": 500
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "agreements": {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "needs_human_threshold": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      },
+                      "max_items": {
+                        "type": "integer",
+                        "minimum": 8,
+                        "maximum": 256
                       }
                     },
                     "additionalProperties": false
@@ -13075,6 +13700,18 @@
                         "maximum": 9007199254740991
                       },
                       "query_expansion": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "project_scope": {
+                    "type": "object",
+                    "properties": {
+                      "nudge": {
+                        "type": "boolean"
+                      },
+                      "recall": {
                         "type": "boolean"
                       }
                     },
@@ -13246,6 +13883,25 @@
                           },
                           "additionalProperties": false
                         },
+                        "agreements": {
+                          "type": "object",
+                          "properties": {
+                            "enabled": {
+                              "type": "boolean"
+                            },
+                            "needs_human_threshold": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 9007199254740991
+                            },
+                            "max_items": {
+                              "type": "integer",
+                              "minimum": 8,
+                              "maximum": 256
+                            }
+                          },
+                          "additionalProperties": false
+                        },
                         "soul": {
                           "type": "object",
                           "properties": {
@@ -13381,6 +14037,11 @@
                 "properties": {
                   "enabled": {
                     "type": "boolean"
+                  },
+                  "rawTurnSampleRate": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
                   }
                 },
                 "additionalProperties": false
@@ -13534,6 +14195,12 @@
                 "description": "Experimental computer use in OmO Native: screenshots, windows, accessibility trees and native mouse and keyboard input. Every key is optional; defaults depend on the host."
               },
               "disabled_skills": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "exclude_models": {
                 "type": "array",
                 "items": {
                   "type": "string"
@@ -13545,6 +14212,45 @@
           "[senpi]": {
             "type": "object",
             "properties": {
+              "provenance": {
+                "type": "object",
+                "properties": {
+                  "workspaces": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "pattern": "\\S"
+                        },
+                        "git_owners": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "pattern": "\\S"
+                          }
+                        },
+                        "paths": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "pattern": "\\S"
+                          }
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "additionalProperties": false
+              },
               "formatOnMutation": {
                 "type": "object",
                 "properties": {
@@ -13577,14 +14283,6 @@
                   }
                 },
                 "additionalProperties": false
-              },
-              "gateway": {
-                "type": "object",
-                "propertyNames": {
-                  "type": "string"
-                },
-                "additionalProperties": {},
-                "description": "Chat-surface gateway settings, owned and validated by a separately installed gateway package. omo accepts the key and never reads it."
               },
               "categories": {
                 "type": "object",
@@ -14916,6 +15614,9 @@
                     "display_name": {
                       "type": "string"
                     },
+                    "caution": {
+                      "type": "string"
+                    },
                     "family": {
                       "type": "string",
                       "enum": [
@@ -15071,6 +15772,13 @@
                     "type": "string",
                     "minLength": 1
                   },
+                  "auto_identity": {
+                    "type": "string",
+                    "enum": [
+                      "path",
+                      "git"
+                    ]
+                  },
                   "reflection": {
                     "type": "object",
                     "properties": {
@@ -15103,6 +15811,11 @@
                         "minLength": 1
                       },
                       "timeout_minutes": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "max_concurrent_runs": {
                         "type": "integer",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991
@@ -15197,6 +15910,25 @@
                         "type": "integer",
                         "minimum": 50,
                         "maximum": 500
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "agreements": {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "needs_human_threshold": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      },
+                      "max_items": {
+                        "type": "integer",
+                        "minimum": 8,
+                        "maximum": 256
                       }
                     },
                     "additionalProperties": false
@@ -15298,6 +16030,18 @@
                         "maximum": 9007199254740991
                       },
                       "query_expansion": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "project_scope": {
+                    "type": "object",
+                    "properties": {
+                      "nudge": {
+                        "type": "boolean"
+                      },
+                      "recall": {
                         "type": "boolean"
                       }
                     },
@@ -15469,6 +16213,25 @@
                           },
                           "additionalProperties": false
                         },
+                        "agreements": {
+                          "type": "object",
+                          "properties": {
+                            "enabled": {
+                              "type": "boolean"
+                            },
+                            "needs_human_threshold": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 9007199254740991
+                            },
+                            "max_items": {
+                              "type": "integer",
+                              "minimum": 8,
+                              "maximum": 256
+                            }
+                          },
+                          "additionalProperties": false
+                        },
                         "soul": {
                           "type": "object",
                           "properties": {
@@ -15604,6 +16367,11 @@
                 "properties": {
                   "enabled": {
                     "type": "boolean"
+                  },
+                  "rawTurnSampleRate": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
                   }
                 },
                 "additionalProperties": false
@@ -15761,6 +16529,12 @@
                 "items": {
                   "type": "string"
                 }
+              },
+              "exclude_models": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
               }
             },
             "additionalProperties": false
@@ -15768,6 +16542,45 @@
           "[codex]": {
             "type": "object",
             "properties": {
+              "provenance": {
+                "type": "object",
+                "properties": {
+                  "workspaces": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 1,
+                          "pattern": "\\S"
+                        },
+                        "git_owners": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "pattern": "\\S"
+                          }
+                        },
+                        "paths": {
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "pattern": "\\S"
+                          }
+                        }
+                      },
+                      "required": [
+                        "name"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "additionalProperties": false
+              },
               "formatOnMutation": {
                 "type": "object",
                 "properties": {
@@ -15800,14 +16613,6 @@
                   }
                 },
                 "additionalProperties": false
-              },
-              "gateway": {
-                "type": "object",
-                "propertyNames": {
-                  "type": "string"
-                },
-                "additionalProperties": {},
-                "description": "Chat-surface gateway settings, owned and validated by a separately installed gateway package. omo accepts the key and never reads it."
               },
               "categories": {
                 "type": "object",
@@ -17139,6 +17944,9 @@
                     "display_name": {
                       "type": "string"
                     },
+                    "caution": {
+                      "type": "string"
+                    },
                     "family": {
                       "type": "string",
                       "enum": [
@@ -17294,6 +18102,13 @@
                     "type": "string",
                     "minLength": 1
                   },
+                  "auto_identity": {
+                    "type": "string",
+                    "enum": [
+                      "path",
+                      "git"
+                    ]
+                  },
                   "reflection": {
                     "type": "object",
                     "properties": {
@@ -17326,6 +18141,11 @@
                         "minLength": 1
                       },
                       "timeout_minutes": {
+                        "type": "integer",
+                        "exclusiveMinimum": 0,
+                        "maximum": 9007199254740991
+                      },
+                      "max_concurrent_runs": {
                         "type": "integer",
                         "exclusiveMinimum": 0,
                         "maximum": 9007199254740991
@@ -17420,6 +18240,25 @@
                         "type": "integer",
                         "minimum": 50,
                         "maximum": 500
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "agreements": {
+                    "type": "object",
+                    "properties": {
+                      "enabled": {
+                        "type": "boolean"
+                      },
+                      "needs_human_threshold": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 9007199254740991
+                      },
+                      "max_items": {
+                        "type": "integer",
+                        "minimum": 8,
+                        "maximum": 256
                       }
                     },
                     "additionalProperties": false
@@ -17521,6 +18360,18 @@
                         "maximum": 9007199254740991
                       },
                       "query_expansion": {
+                        "type": "boolean"
+                      }
+                    },
+                    "additionalProperties": false
+                  },
+                  "project_scope": {
+                    "type": "object",
+                    "properties": {
+                      "nudge": {
+                        "type": "boolean"
+                      },
+                      "recall": {
                         "type": "boolean"
                       }
                     },
@@ -17692,6 +18543,25 @@
                           },
                           "additionalProperties": false
                         },
+                        "agreements": {
+                          "type": "object",
+                          "properties": {
+                            "enabled": {
+                              "type": "boolean"
+                            },
+                            "needs_human_threshold": {
+                              "type": "integer",
+                              "minimum": 1,
+                              "maximum": 9007199254740991
+                            },
+                            "max_items": {
+                              "type": "integer",
+                              "minimum": 8,
+                              "maximum": 256
+                            }
+                          },
+                          "additionalProperties": false
+                        },
                         "soul": {
                           "type": "object",
                           "properties": {
@@ -17827,6 +18697,11 @@
                 "properties": {
                   "enabled": {
                     "type": "boolean"
+                  },
+                  "rawTurnSampleRate": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1
                   }
                 },
                 "additionalProperties": false
@@ -17980,6 +18855,12 @@
                 "description": "Experimental computer use in OmO Native: screenshots, windows, accessibility trees and native mouse and keyboard input. Every key is optional; defaults depend on the host."
               },
               "disabled_skills": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "exclude_models": {
                 "type": "array",
                 "items": {
                   "type": "string"
@@ -27611,7 +28492,7 @@
         "git_master": {
           "default": {
             "commit_footer": false,
-            "include_co_authored_by": false,
+            "include_co_authored_by": true,
             "git_env_prefix": "GIT_MASTER=1"
           },
           "type": "object",
@@ -27624,7 +28505,7 @@
               ]
             },
             "include_co_authored_by": {
-              "default": false,
+              "default": true,
               "type": "boolean"
             },
             "git_env_prefix": {

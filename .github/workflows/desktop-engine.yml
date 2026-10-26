@@ -35,8 +35,8 @@ on:
       - ".github/workflows/desktop-engine.yml"
 
 concurrency:
-  group: desktop-engine-${{ github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   native-contract:
@@ -57,7 +57,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: "1.4.3"
+          bun-version: "1.4.4"
 
       - uses: actions/setup-python@v7
         if: runner.os == 'Windows'
