@@ -124,15 +124,12 @@ function modelChoiceParts({ modelChoices }) {
 }
 
 // The harnesses setup reads from, only the installed ones. OpenCode also counts as found when only
-// its config (MCP servers, skills, providers, model choices) exists and it never stored a login - the
-// Command Code provider setup itself plans (a `origin: "commandcode"` item no OpenCode config
-// declares) is a source of its own, and is not counted for OpenCode.
+// its config (MCP servers, skills, providers, model choices) exists and it never stored a login.
 function sourceNames(context) {
   const installed = new Set(context.inventory.harnesses.filter((harness) => harness.installed).map((harness) => harness.id))
   const { assets, providers, modelChoices } = context
-  const ownProviders = providers.result.added.filter((provider) => provider.origin !== "commandcode")
   const configFound = assets.present || assets.refusedServers.length > 0 || assets.skippedSkills.length > 0
-    || providers.present && (providers.skipped.length > 0 || ownProviders.length > 0) || modelChoices.present
+    || providers.present || providers.skipped.length > 0 || modelChoices.present
   if (configFound) installed.add("opencode")
   const names = Object.keys(SOURCE_HARNESSES).filter((id) => installed.has(id)).map((id) => SOURCE_HARNESSES[id])
   return providers.result.added.some((provider) => provider.origin === "commandcode") ? [...names, "Command Code"] : names
@@ -171,11 +168,12 @@ export function formatSetupSummary(context) {
   lines.push(...coverage)
   const noted = notes(context)
   if (noted.length > 0) lines.push("Notes:", ...noted.map((notice) => `  ${notice}`))
-  // A Command Code provider the plan carries (or one the user already wrote, planned as skipped) is
-  // in models.json or on the way there; only a user with no key set for it gets told how to add it.
+  // The Command Code guidance speaks to a user the plan already has a Command Code stake for: the
+  // key env var is set (the preset is on its way into models.json) or an entry the plan carries or
+  // refused is already there. A user with neither sees no Command Code guidance at all.
   const commandCodePlanned = context.providers.result.added.some((item) => item.id === COMMANDCODE_PROVIDER_ID)
     || context.providers.skipped.includes(COMMANDCODE_PROVIDER_ID)
-  lines.push(...(commandCodePlanned ? [] : commandCodeGuidance()))
+  lines.push(...(commandCodePlanned ? commandCodeGuidance() : []))
   lines.push(MODEL_GUIDE_LINE)
   if (rows.length === 0) lines.push(...formatModelTemplate())
   return `${lines.join("\n")}\n`

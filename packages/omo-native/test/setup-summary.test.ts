@@ -187,13 +187,15 @@ describe("omo setup migration summary", () => {
       const output = runWithEnv(item, { CMD_API_KEY: "SK-CMD-SENTINEL-SUMMARY" }, ["--yes"])
 
       // then
-      expect(output).toContain("Found your Command Code setup")
+      expect(output).toContain("Found your OpenCode and Command Code setup")
       expect(output).toContain("commandcode -> https://api.commandcode.ai/provider/v1, 12 models")
       expect(output).toContain("key from environment variable CMD_API_KEY - will be imported")
       // The key env var's value never appears anywhere; the engine interpolates the reference.
       expect(output).not.toContain("SK-CMD-SENTINEL-SUMMARY")
-      // The provider is on its way in, so no guidance about setting a key for it.
-      expect(output).not.toContain("Command Code: set CMD_API_KEY")
+      // The plan has the provider, so the summary walks the user through what setup did and the ZDR
+      // hand edit; a user it does not engage gets neither line.
+      expect(output).toContain("Command Code: set CMD_API_KEY (or COMMANDCODE_API_KEY), then run omo setup again - it adds Command Code as a custom provider in the engine's models.json.")
+      expect(output).toContain("To make the Command Code provider enforce zero data retention, add the header \"x-cmd-zdr: 1\" to its models.json entry by hand.")
       const models = readJson(join(item.agentDir, "models.json")).providers
       expect(Object.keys(models)).toEqual(["commandcode"])
       expect(models.commandcode.baseUrl).toBe("https://api.commandcode.ai/provider/v1")
@@ -201,7 +203,7 @@ describe("omo setup migration summary", () => {
       expect(readJson(join(item.agentDir, "auth.json")).commandcode).toEqual({ type: "api_key", key: `\${CMD_API_KEY}` })
     })
 
-    test("#when setup is a dry run #then the Command Code provider is only announced", () => {
+    test("#when setup is a dry run #then the Command Code provider is announced alongside its guidance", () => {
       // given
       const item = commandCodeUser()
 
@@ -209,10 +211,11 @@ describe("omo setup migration summary", () => {
       const stdout = runWithEnv(item, { CMD_API_KEY: "SK-CMD-SENTINEL-SUMMARY" }, ["--dry-run", "--yes"])
 
       // then
-      expect(stdout).toContain("Found your Command Code setup")
+      expect(stdout).toContain("Found your OpenCode and Command Code setup")
       expect(stdout).toContain("commandcode -> https://api.commandcode.ai/provider/v1")
       expect(existsSync(join(item.home, ".omo"))).toBe(false)
-      expect(stdout).not.toContain("Command Code: set CMD_API_KEY")
+      expect(stdout).toContain("Command Code: set CMD_API_KEY (or COMMANDCODE_API_KEY), then run omo setup again - it adds Command Code as a custom provider in the engine's models.json.")
+      expect(stdout).toContain("To make the Command Code provider enforce zero data retention, add the header \"x-cmd-zdr: 1\" to its models.json entry by hand.")
     })
   })
 
@@ -227,11 +230,38 @@ describe("omo setup migration summary", () => {
       // when
       const stdout = runWithEnv(item, {}, ["--dry-run", "--yes"])
 
-      // then: the mechanism is omo setup itself, run again after the env var is set; no row, no files.
-      expect(stdout).toContain("Command Code: set CMD_API_KEY (or COMMANDCODE_API_KEY), then run omo setup again")
-      expect(stdout).toContain("x-cmd-zdr")
-      expect(stdout).not.toContain("commandcode ->")
+      // then: no key env var is set and no commandcode entry exists, so the summary names no
+      // Command Code guidance at all - neither how to add it nor the ZDR hand edit; no row, no files.
+      expect(stdout).not.toContain("Command Code: set CMD_API_KEY (or COMMANDCODE_API_KEY), then run omo setup again - it adds Command Code as a custom provider in the engine's models.json.")
+      expect(stdout).not.toContain("To make the Command Code provider enforce zero data retention, add the header \"x-cmd-zdr: 1\" to its models.json entry by hand.")
       expect(existsSync(join(item.home, ".omo"))).toBe(false)
+    })
+  })
+
+  describe("#given an OpenCode config whose only provider is already in omo's models.json", () => {
+    test("#when setup is a dry run #then OpenCode is still named and no Command Code guidance is printed", () => {
+      // given: no opencode auth.json, so detection does not install the harness; the provider stage
+      // is the only config with something found, and it classifies as nothing added and nothing skipped.
+      const root = mkdtempSync(join(tmpdir(), "omo-setup-summary-opencode-providers-"))
+      roots.push(root)
+      const home = join(root, "home")
+      const opencodeDir = join(home, ".config", "opencode")
+      write(join(opencodeDir, "opencode.json"), {
+        provider: { acme: { options: { baseURL: "https://api.acme.example/v1", apiKey: "acme-key" }, models: { "acme-large": {} } } },
+      })
+      const agentDir = join(home, ".omo", "agent")
+      write(join(agentDir, "models.json"), {
+        providers: { acme: { baseUrl: "https://api.acme.example/v1", models: [{ id: "acme-large" }] } },
+      })
+      const item: Sandbox = { home, agentDir, omoConfig: join(home, ".omo", "omo.jsonc") }
+
+      // when
+      const stdout = run(item, ["--dry-run", "--yes"])
+
+      // then
+      expect(stdout).toContain("Found your OpenCode setup")
+      expect(stdout).toContain("1 already in omo's models.json (acme) - kept as is")
+      expect(stdout).not.toContain("Command Code")
     })
   })
 })
