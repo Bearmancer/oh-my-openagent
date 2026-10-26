@@ -7,8 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-**A task stays running while the child's own background work is still going.** A child that ended its turn with a detached eval cell or a background terminal session still in flight was recorded `completed` right away, and the work's completion notification then resumed a task already reported finished; the parent saw a clean completion before the child had actually stopped. The supervisor now watches the child's own work: it holds the completed outcome at the idle edge and records the completion only after a settled probe with no pending work, so the wake from that work lands in the real final turn. The terminal half rides senpi's `wake_source_state` records, whose background-session lane comes from this change's sibling [senpi#3651](https://github.com/code-yeongyu/senpi/pull/3651). ([#10487](https://github.com/code-yeongyu/oh-my-openagent/issues/10487), [senpi#3492](https://github.com/code-yeongyu/senpi/issues/3492), [#10532](https://github.com/code-yeongyu/oh-my-openagent/pull/10532))
-
 ## [5.1.48] - 2026-10-25
 
 **OmO Native stops waiting on a stalled turn-end subscriber after two seconds.** Memory recovery remains retryable without treating the cancelled wait as a failed reflection run, and stall diagnostics identify the component and hook instead of only `omo.js`. Thanks to @floweredao for the report. ([#11254](https://github.com/code-yeongyu/oh-my-openagent/pull/11254), Part of [#11249](https://github.com/code-yeongyu/oh-my-openagent/issues/11249)) ([#11280](https://github.com/code-yeongyu/oh-my-openagent/pull/11280))
