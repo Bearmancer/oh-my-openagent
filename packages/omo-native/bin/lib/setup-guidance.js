@@ -5,8 +5,7 @@
  * again. That sign-in lives in the interactive session (`/login <provider>`), NOT in `omo auth`,
  * which only prints or checks credentials that already exist.
  *
- * `commandCodeGuidance` is not about copied credentials: it names the env var that makes the next
- * `omo setup` add the Command Code provider itself, for a user with no key set for it yet.
+ * `commandCodeGuidance` describes the optional zero-data-retention header for a planned provider.
  */
 
 function oauthLoginTarget(provider, providerMap) {
@@ -35,13 +34,10 @@ export function credentialGuidance(result, providerMap, existing = {}) {
 }
 
 /**
- * What to tell the user who wants Command Code and has set no key env var yet: the env var to set
- * and the mechanism that adds it (the next `omo setup` itself writes the models.json custom
- * provider). The zero-data-retention header stays a hand edit: setup never adds headers of its own.
+ * The zero-data-retention header stays a hand edit: setup never adds headers of its own.
  */
 export function commandCodeGuidance() {
   return [
-    "Command Code: set CMD_API_KEY (or COMMANDCODE_API_KEY), then run omo setup again - it adds Command Code as a custom provider in the engine's models.json.",
     "To make the Command Code provider enforce zero data retention, add the header \"x-cmd-zdr: 1\" to its models.json entry by hand.",
   ]
 }

@@ -10,7 +10,7 @@ import { teardownRoots } from "./teardown.test-support"
 // The real launcher: the model-choice stage reads the engine's model catalog through the installed senpi.
 const LAUNCHER = resolve(fileURLToPath(new URL("../bin/omo.js", import.meta.url)))
 const TTY_DRIVER = resolve(fileURLToPath(new URL("tty-driver.py", import.meta.url)))
-const TELEMETRY_ENV = "OMO_SEND_ANONYMOUS_TELEMETRY=0"
+const TELEMETRY_ENV = "DO_NOT_TRACK=1"
 const PLAN_PROMPT = "[Y/n]"
 const STAGE_PROMPT = "[y/N]"
 const NOT_IMPORTED = "Non-interactive setup did not import"
@@ -54,6 +54,8 @@ function env(item: Sandbox): NodeJS.ProcessEnv {
   for (const name of Object.keys(scrubbed)) {
     if (/^(OMO_|SENPI_|PI_|OPENCODE_|XDG_)/.test(name) || name.endsWith("_CODING_AGENT_DIR")) delete scrubbed[name]
   }
+  delete scrubbed.CMD_API_KEY
+  delete scrubbed.COMMANDCODE_API_KEY
   return scrubbed
 }
 
@@ -187,14 +189,12 @@ describe("omo setup migration summary", () => {
       const output = runWithEnv(item, { CMD_API_KEY: "SK-CMD-SENTINEL-SUMMARY" }, ["--yes"])
 
       // then
-      expect(output).toContain("Found your OpenCode and Command Code setup")
+      expect(output).toContain("Found your Command Code setup")
       expect(output).toContain("commandcode -> https://api.commandcode.ai/provider/v1, 12 models")
       expect(output).toContain("key from environment variable CMD_API_KEY - will be imported")
       // The key env var's value never appears anywhere; the engine interpolates the reference.
       expect(output).not.toContain("SK-CMD-SENTINEL-SUMMARY")
-      // The plan has the provider, so the summary walks the user through what setup did and the ZDR
-      // hand edit; a user it does not engage gets neither line.
-      expect(output).toContain("Command Code: set CMD_API_KEY (or COMMANDCODE_API_KEY), then run omo setup again - it adds Command Code as a custom provider in the engine's models.json.")
+      // The plan has the provider, so the summary includes the optional ZDR hand edit.
       expect(output).toContain("To make the Command Code provider enforce zero data retention, add the header \"x-cmd-zdr: 1\" to its models.json entry by hand.")
       const models = readJson(join(item.agentDir, "models.json")).providers
       expect(Object.keys(models)).toEqual(["commandcode"])
@@ -211,16 +211,15 @@ describe("omo setup migration summary", () => {
       const stdout = runWithEnv(item, { CMD_API_KEY: "SK-CMD-SENTINEL-SUMMARY" }, ["--dry-run", "--yes"])
 
       // then
-      expect(stdout).toContain("Found your OpenCode and Command Code setup")
+      expect(stdout).toContain("Found your Command Code setup")
       expect(stdout).toContain("commandcode -> https://api.commandcode.ai/provider/v1")
       expect(existsSync(join(item.home, ".omo"))).toBe(false)
-      expect(stdout).toContain("Command Code: set CMD_API_KEY (or COMMANDCODE_API_KEY), then run omo setup again - it adds Command Code as a custom provider in the engine's models.json.")
       expect(stdout).toContain("To make the Command Code provider enforce zero data retention, add the header \"x-cmd-zdr: 1\" to its models.json entry by hand.")
     })
   })
 
   describe("#given a home with no key for Command Code set", () => {
-    test("#when setup runs #then the summary tells the user how to add it instead", () => {
+    test("#when setup runs #then no Command Code guidance is printed", () => {
       // given
       const root = mkdtempSync(join(tmpdir(), "omo-setup-summary-cc-"))
       roots.push(root)
@@ -231,8 +230,7 @@ describe("omo setup migration summary", () => {
       const stdout = runWithEnv(item, {}, ["--dry-run", "--yes"])
 
       // then: no key env var is set and no commandcode entry exists, so the summary names no
-      // Command Code guidance at all - neither how to add it nor the ZDR hand edit; no row, no files.
-      expect(stdout).not.toContain("Command Code: set CMD_API_KEY (or COMMANDCODE_API_KEY), then run omo setup again - it adds Command Code as a custom provider in the engine's models.json.")
+      // Command Code guidance at all; no row, no files.
       expect(stdout).not.toContain("To make the Command Code provider enforce zero data retention, add the header \"x-cmd-zdr: 1\" to its models.json entry by hand.")
       expect(existsSync(join(item.home, ".omo"))).toBe(false)
     })
