@@ -1,0 +1,36 @@
+name: gen-golden
+on: workflow_dispatch
+jobs:
+  gen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.4'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: install deps
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: build engine
+        run: cargo build --release -p senpi-desktop-engine --locked
+      - name: install lsp
+        run: mkdir -p /tmp/eq-lsp && cd /tmp/eq-lsp && npm install --no-save --no-audit --no-fund typescript-language-server@5.3.0 typescript@5.9.3
+      - name: clone harness
+        run: git clone https://github.com/code-yeongyu/senpi.git /tmp/senpi-harness && cd /tmp/senpi-harness && git fetch --depth 1 origin 5ab795e3392325c961596d7944a1740f4d0a9e20 && git checkout 5ab795e3392325c961596d7944a1740f4d0a9e20
+      - name: build plugin
+        run: bun run build:lsp-daemon && bun run build:ast-grep-mcp && bun run build:senpi-plugin:stage
+      - name: record golden
+        env:
+          SENPI_EQ_HARNESS_SHA: 5ab795e3392325c961596d7944a1740f4d0a9e20
+        run: |
+          mkdir -p /tmp/eq-omo
+          node packages/omo-senpi/scripts/qa/fused-equivalence-e2e.mjs --record --placement fused --senpi-repo /tmp/senpi-harness --desktop-engine /target/release/senpi-desktop-engine --lsp-dir /tmp/eq-lsp/node_modules/.bin --evidence-dir /tmp/eq-omo
+      - name: upload golden
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden
+          path: packages/omo-senpi/scripts/qa/fused-equivalence-golden
